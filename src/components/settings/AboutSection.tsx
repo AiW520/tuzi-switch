@@ -334,9 +334,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <img src={appIcon} alt="tuzi switch" className="h-5 w-5" />
+              <img src={appIcon} alt="CC Switch For TuZi" className="h-5 w-5" />
               <h4 className="text-lg font-semibold text-foreground">
-                tuzi switch
+                CC Switch For TuZi
               </h4>
             </div>
             <div className="flex items-center gap-2">

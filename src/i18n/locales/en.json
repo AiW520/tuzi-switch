@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "tuzi switch",
+    "title": "CC Switch For TuZi",
     "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
   },
   "common": {
@@ -43,9 +43,9 @@
     "notSet": "Not Set"
   },
   "firstRunNotice": {
-    "title": "Welcome to tuzi switch",
-    "bodyDefault": "tuzi switch lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, tuzi switch has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
-    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. tuzi switch automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how tuzi switch works 😊",
+    "title": "Welcome to CC Switch For TuZi",
+    "bodyDefault": "CC Switch For TuZi lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, CC Switch For TuZi has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
+    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. CC Switch For TuZi automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how CC Switch For TuZi works 😊",
     "confirm": "Got it"
   },
   "apiKeyInput": {
@@ -212,7 +212,7 @@
     "providerDeleted": "Provider deleted successfully",
     "switchSuccess": "Switch successful!",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
-    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep tuzi switch running and restart Claude Desktop to apply changes.",
+    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep CC Switch For TuZi running and restart Claude Desktop to apply changes.",
     "addToConfigSuccess": "Added to config",
     "removeFromConfigSuccess": "Removed from config",
     "switchFailedTitle": "Switch failed",
@@ -253,7 +253,7 @@
     "deleteProvider": "Delete Provider",
     "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"? This action cannot be undone.",
     "removeProvider": "Remove Provider",
-    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in tuzi switch. You can re-add it at any time.",
+    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in CC Switch For TuZi. You can re-add it at any time.",
     "proxy": {
       "title": "Enable Local Routing",
       "message": "Local routing is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend consulting the relevant documentation or your provider for proper configuration.",
@@ -328,7 +328,7 @@
       },
       "globalProxy": {
         "title": "Global Outbound Proxy",
-        "description": "Configure proxy for tuzi switch to access external APIs"
+        "description": "Configure proxy for CC Switch For TuZi to access external APIs"
       },
       "data": {
         "title": "Data Management",
@@ -398,7 +398,7 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "importExport": "SQL Import/Export",
-    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by tuzi switch).",
+    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by CC Switch For TuZi).",
     "exportConfig": "Export SQL Backup",
     "selectConfigFile": "Select SQL File",
     "noFileSelected": "No configuration file selected.",
@@ -534,7 +534,7 @@
     "windowBehavior": "Window Behavior",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
-    "launchOnStartupDescription": "Automatically run tuzi switch when system starts",
+    "launchOnStartupDescription": "Automatically run CC Switch For TuZi when system starts",
     "silentStartup": "Silent Startup",
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
@@ -556,8 +556,8 @@
     },
     "skillStorage": {
       "title": "Skill Storage Location",
-      "description": "Choose where tuzi switch stores the master copies of your skills",
-      "ccSwitch": "tuzi switch",
+      "description": "Choose where CC Switch For TuZi stores the master copies of your skills",
+      "ccSwitch": "CC Switch For TuZi",
       "unified": "~/.agents/skills",
       "ccSwitchHint": "Skills are stored in ~/.tuzi-switch/skills/ and synced to each app via symlink or copy.",
       "unifiedHint": "Skills are stored in ~/.agents/skills/, the Agent Skills open standard. Compatible tools (Claude Code, Codex, Gemini CLI, etc.) discover skills here natively.",
@@ -605,8 +605,8 @@
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
-    "appConfigDir": "tuzi switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for tuzi switch configuration (point to cloud sync folder to enable config sync)",
+    "appConfigDir": "CC Switch For TuZi Configuration Directory",
+    "appConfigDirDescription": "Customize the storage location for CC Switch For TuZi configuration (point to cloud sync folder to enable config sync)",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.tuzi-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json) and keep claude.json (MCP) alongside it.",
@@ -659,7 +659,7 @@
     "importFailedError": "Import config failed: {{message}}",
     "exportFailedError": "Export config failed:",
     "restartRequired": "Restart Required",
-    "restartRequiredMessage": "Modifying the tuzi switch configuration directory requires restarting the application to take effect. Restart now?",
+    "restartRequiredMessage": "Modifying the CC Switch For TuZi configuration directory requires restarting the application to take effect. Restart now?",
     "restartNow": "Restart Now",
     "restartLater": "Restart Later",
     "restartFailed": "Application restart failed, please manually close and reopen.",
@@ -1339,7 +1339,7 @@
       "deleteConfirm": "Are you sure you want to delete server \"{{id}}\"? This action cannot be undone.",
       "noServers": "No servers yet",
       "enabledApps": "Enabled Apps",
-      "noImportFound": "No MCP servers to import found. All servers are already managed by tuzi switch.",
+      "noImportFound": "No MCP servers to import found. All servers are already managed by CC Switch For TuZi.",
       "importSuccess": "Successfully imported {{count}} MCP servers",
       "apps": {
         "claude": "Claude",
@@ -1884,10 +1884,10 @@
     "noInstalledDescription": "Discover and install skills from repositories, or import existing skills",
     "discover": "Discover Skills",
     "import": "Import Existing",
-    "importDescription": "Select skills to import into tuzi switch unified management",
+    "importDescription": "Select skills to import into CC Switch For TuZi unified management",
     "importSuccess": "Successfully imported {{count}} skills",
     "importSelected": "Import Selected ({{count}})",
-    "noUnmanagedFound": "No skills to import found. All skills are already managed by tuzi switch.",
+    "noUnmanagedFound": "No skills to import found. All skills are already managed by CC Switch For TuZi.",
     "foundIn": "Found in",
     "local": "Local",
     "uninstallConfirm": "Are you sure you want to uninstall \"{{name}}\"? This will remove the skill from all apps and create a local backup first.",
@@ -1931,7 +1931,7 @@
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",
-    "confirmImportDescription": "The following configuration will be imported from deep link into tuzi switch",
+    "confirmImportDescription": "The following configuration will be imported from deep link into CC Switch For TuZi",
     "importPrompt": "Import Prompt",
     "importPromptDescription": "Please confirm whether to import this system prompt",
     "importMcp": "Import MCP Servers",

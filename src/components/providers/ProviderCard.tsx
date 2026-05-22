@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { GripVertical, ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
@@ -382,16 +383,16 @@ export function ProviderCard({
 
             {(() => {
               const codexLinks: Record<string, { recharge: string; query: string }> = {
-                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://api.tu-zi.com/console/log" },
+                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://check.sydney-ai.com/" },
                 "coding":     { recharge: "https://store.tu-zi.com/cat/11",      query: "https://api.tu-zi.com/reseller/" },
                 "gaccode":    { recharge: "https://store.tu-zi.com/cat/1",        query: "https://gaccode.com/credits" },
               };
               const claudeLinks: Record<string, { recharge: string; query: string }> = {
-                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://api.tu-zi.com/console/log" },
+                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://check.sydney-ai.com/" },
                 "gaccode":    { recharge: "https://store.tu-zi.com/cat/1",        query: "https://gaccode.com/credits" },
               };
               const geminiLinks: Record<string, { recharge: string; query: string }> = {
-                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://api.tu-zi.com/console/log" },
+                "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://check.sydney-ai.com/" },
               };
               const linkMap: Partial<Record<string, Record<string, { recharge: string; query: string }>>> = {
                 codex: codexLinks,
@@ -420,7 +421,18 @@ export function ProviderCard({
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); onOpenWebsite(links.query); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const key = typeof rawKey === "string" && rawKey.trim() ? rawKey.trim() : "";
+                        const useWebview =
+                          provider.id === "tuzi-route" ||
+                          (appId === "codex" && provider.id === "coding" && key !== "");
+                        if (useWebview) {
+                          void invoke("open_webview_with_key", { url: links.query, key });
+                        } else {
+                          onOpenWebsite(links.query);
+                        }
+                      }}
                       className="text-blue-500 hover:underline dark:text-blue-400 cursor-pointer"
                     >
                       查询

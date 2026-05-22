@@ -50,6 +50,95 @@ pub async fn copy_text_to_clipboard(text: String) -> Result<bool, String> {
     .map_err(|e| format!("剪贴板任务执行失败: {e}"))?
 }
 
+/// 在内嵌 WebView 窗口中打开页面，加载完成后自动填入 API key
+#[tauri::command]
+pub async fn open_webview_with_key(
+    app: AppHandle,
+    url: String,
+    key: String,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    use tauri::webview::PageLoadEvent;
+
+    let parsed = url
+        .parse::<url::Url>()
+        .map_err(|e| format!("无效 URL: {e}"))?;
+
+    let label = format!(
+        "query-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+
+    let key_trimmed = key.trim().to_string();
+    let has_key = !key_trimmed.is_empty();
+    let key_json = if has_key {
+        serde_json::to_string(&key_trimmed).map_err(|e| format!("序列化 key 失败: {e}"))?
+    } else {
+        String::new()
+    };
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+        .title("余额查询")
+        .inner_size(1100.0, 750.0)
+        .center()
+        .on_page_load(move |webview, payload| {
+            if payload.event() != PageLoadEvent::Finished {
+                return;
+            }
+            if !has_key {
+                return;
+            }
+            let js = format!(
+                r#"(function() {{
+                    var key = {key_json};
+                    var attempt = 0;
+                    var fill = function() {{
+                        var inputs = document.querySelectorAll('input');
+                        for (var i = 0; i < inputs.length; i++) {{
+                            var t = inputs[i].type;
+                            if (t !== 'hidden' && t !== 'submit' && t !== 'button' && t !== 'checkbox' && t !== 'radio') {{
+                                var inp = inputs[i];
+                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                                nativeInputValueSetter.call(inp, key);
+                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                setTimeout(function() {{
+                                    var btn = null;
+                                    var form = inp.closest('form');
+                                    if (form) {{
+                                        btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type="button"]):not([type="reset"])');
+                                    }}
+                                    if (!btn) {{
+                                        btn = document.querySelector('button[type="submit"], input[type="submit"]');
+                                    }}
+                                    if (!btn) {{
+                                        var btns = document.querySelectorAll('button:not([disabled])');
+                                        for (var j = 0; j < btns.length; j++) {{
+                                            if (btns[j].offsetParent !== null) {{ btn = btns[j]; break; }}
+                                        }}
+                                    }}
+                                    if (btn) btn.click();
+                                }}, 300);
+                                return;
+                            }}
+                        }}
+                        if (++attempt < 20) setTimeout(fill, 200);
+                    }};
+                    fill();
+                }})();"#,
+                key_json = key_json,
+            );
+            let _ = webview.eval(&js);
+        })
+        .build()
+        .map_err(|e| format!("创建查询窗口失败: {e}"))?;
+
+    Ok(())
+}
+
 /// 检查更新
 #[tauri::command]
 pub async fn check_for_updates(handle: AppHandle) -> Result<bool, String> {

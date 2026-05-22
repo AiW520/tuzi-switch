@@ -252,6 +252,11 @@ pub fn run() {
         // 拦截窗口关闭：根据设置决定是否最小化到托盘
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 只拦截主窗口，其他窗口（如查询弹窗）正常关闭
+                if window.label() != "main" {
+                    return;
+                }
+
                 let settings = crate::settings::get_settings();
 
                 if settings.minimize_to_tray_on_close {
@@ -1065,6 +1070,7 @@ pub fn run() {
             commands::open_config_folder,
             commands::pick_directory,
             commands::open_external,
+            commands::open_webview_with_key,
             commands::get_init_error,
             commands::get_migration_result,
             commands::get_skills_migration_result,
