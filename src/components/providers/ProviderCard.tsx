@@ -382,6 +382,10 @@ export function ProviderCard({
             </div>
 
             {(() => {
+              const defaultLinks = {
+                recharge: "https://api.tu-zi.com/console/topup",
+                query: "https://check.sydney-ai.com/",
+              };
               const codexLinks: Record<string, { recharge: string; query: string }> = {
                 "tuzi-route": { recharge: "https://api.tu-zi.com/console/topup", query: "https://check.sydney-ai.com/" },
                 "coding":     { recharge: "https://store.tu-zi.com/cat/11",      query: "https://api.tu-zi.com/reseller/" },
@@ -399,66 +403,63 @@ export function ProviderCard({
                 claude: claudeLinks,
                 gemini: geminiLinks,
               };
-              const links = linkMap[appId]?.[provider.id];
-              if (links) {
-                const cfg = provider.settingsConfig as Record<string, any>;
-                const rawKey =
-                  appId === "codex"  ? cfg?.auth?.OPENAI_API_KEY :
-                  appId === "claude" ? (cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY) :
-                  appId === "gemini" ? cfg?.env?.GEMINI_API_KEY : "";
-                const maskedKey =
-                  typeof rawKey === "string" && rawKey.trim().length > 12
-                    ? `${rawKey.slice(0, 8)}${"*".repeat(8)}${rawKey.slice(-4)}`
-                    : null;
-                return (
-                  <div className="flex items-center gap-3 text-sm">
+              const links = linkMap[appId]?.[provider.id] || defaultLinks;
+              const cfg = provider.settingsConfig as Record<string, any>;
+              const rawKey =
+                appId === "codex"  ? cfg?.auth?.OPENAI_API_KEY :
+                appId === "claude" ? (cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY) :
+                appId === "gemini" ? cfg?.env?.GEMINI_API_KEY : "";
+              const maskedKey =
+                typeof rawKey === "string" && rawKey.trim().length > 12
+                  ? `${rawKey.slice(0, 8)}${"*".repeat(8)}${rawKey.slice(-4)}`
+                  : null;
+              return (
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpenWebsite(links.recharge); }}
+                    className="text-blue-500 hover:underline dark:text-blue-400 cursor-pointer"
+                  >
+                    充值
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const key = typeof rawKey === "string" && rawKey.trim() ? rawKey.trim() : "";
+                      const useWebview =
+                        provider.id === "tuzi-route" ||
+                        (appId === "codex" && provider.id === "coding" && key !== "");
+                      if (useWebview) {
+                        void invoke("open_webview_with_key", { url: links.query, key });
+                      } else {
+                        onOpenWebsite(links.query);
+                      }
+                    }}
+                    className="text-blue-500 hover:underline dark:text-blue-400 cursor-pointer"
+                  >
+                    查询
+                  </button>
+                  {maskedKey ? (
+                    <span className="text-muted-foreground font-mono text-xs">{maskedKey}</span>
+                  ) : displayUrl ? (
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); onOpenWebsite(links.recharge); }}
-                      className="text-blue-500 hover:underline dark:text-blue-400 cursor-pointer"
+                      onClick={handleOpenWebsite}
+                      className={cn(
+                        "inline-flex items-center text-sm max-w-[280px]",
+                        isClickableUrl
+                          ? "text-blue-500 transition-colors hover:underline dark:text-blue-400 cursor-pointer"
+                          : "text-muted-foreground cursor-default",
+                      )}
+                      title={displayUrl}
+                      disabled={!isClickableUrl}
                     >
-                      充值
+                      <span className="truncate">{displayUrl}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const key = typeof rawKey === "string" && rawKey.trim() ? rawKey.trim() : "";
-                        const useWebview =
-                          provider.id === "tuzi-route" ||
-                          (appId === "codex" && provider.id === "coding" && key !== "");
-                        if (useWebview) {
-                          void invoke("open_webview_with_key", { url: links.query, key });
-                        } else {
-                          onOpenWebsite(links.query);
-                        }
-                      }}
-                      className="text-blue-500 hover:underline dark:text-blue-400 cursor-pointer"
-                    >
-                      查询
-                    </button>
-                    {maskedKey && (
-                      <span className="text-muted-foreground font-mono text-xs">{maskedKey}</span>
-                    )}
-                  </div>
-                );
-              }
-              return displayUrl ? (
-                <button
-                  type="button"
-                  onClick={handleOpenWebsite}
-                  className={cn(
-                    "inline-flex items-center text-sm max-w-[280px]",
-                    isClickableUrl
-                      ? "text-blue-500 transition-colors hover:underline dark:text-blue-400 cursor-pointer"
-                      : "text-muted-foreground cursor-default",
-                  )}
-                  title={displayUrl}
-                  disabled={!isClickableUrl}
-                >
-                  <span className="truncate">{displayUrl}</span>
-                </button>
-              ) : null;
+                  ) : null}
+                </div>
+              );
             })()}
           </div>
         </div>
