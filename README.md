@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.1/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.0.1 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.0/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=v1.0.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
@@ -77,14 +77,14 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.0.0`，这一轮更新重点包括：
+当前公开版本为 `v1.0.2`，这一轮更新重点包括：
 
 - Claude / Codex / Gemini 在缺少 Node.js/npm 时不再直接暴露 `npm: command not found`，会先弹窗确认，再按平台自动安装依赖并继续原配置动作
 - macOS 通过 Homebrew 安装 Node.js，Linux 支持 apt/dnf/yum 安装 nodejs/npm，Windows 支持 winget 安装 Node.js LTS
 - OpenClaw 快速接入新增默认模型选择，配置时会写入完整模型列表，并把所选模型同步到 primary 与 fallbacks
 - Claude / Codex / Gemini 路线卡的“已写入”只表示下方业务 provider 卡片存在，删除卡片后不再被真实 CLI route 误判为已写入
 - 保持原版删除逻辑：非当前 provider 只删除下方卡片，当前 provider 仍禁止删除，真实 CLI 配置继续由顶部状态展示
-- Release 与 README 固定安装命令同步到 `v1.0.0`
+- Release 与 README 固定安装命令同步到 `v1.0.2`
 
 ## 产品亮点
 
