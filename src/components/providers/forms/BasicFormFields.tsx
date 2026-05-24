@@ -31,6 +31,8 @@ interface BasicFormFieldsProps {
   afterNameSlot?: ReactNode;
   /** Whether to hide the notes field */
   hideNotes?: boolean;
+  /** Whether to hide both name and notes fields (for openclaw/hermes where they go into advanced) */
+  hideNameAndNotes?: boolean;
 }
 
 export function BasicFormFields({
@@ -38,6 +40,7 @@ export function BasicFormFields({
   beforeNameSlot,
   afterNameSlot,
   hideNotes = false,
+  hideNameAndNotes = false,
 }: BasicFormFieldsProps) {
   const { t } = useTranslation();
   const [iconDialogOpen, setIconDialogOpen] = useState(false);
@@ -128,6 +131,7 @@ export function BasicFormFields({
       {beforeNameSlot}
 
       {/* 基础信息 - 网格布局 */}
+      {!hideNameAndNotes && (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField
           control={form.control}
@@ -164,6 +168,7 @@ export function BasicFormFields({
           />
         )}
       </div>
+      )}
     </>
   );
 }

@@ -25,6 +25,7 @@ interface UseApiKeyLinkProps {
   selectedPresetId: string | null;
   presetEntries: PresetEntry[];
   formWebsiteUrl: string;
+  providerId?: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export function useApiKeyLink({
   selectedPresetId,
   presetEntries,
   formWebsiteUrl,
+  providerId,
 }: UseApiKeyLinkProps) {
   // 判断是否显示 API Key 获取链接
   const shouldShowApiKeyLink = useMemo(() => {
@@ -69,8 +71,27 @@ export function useApiKeyLink({
       }
       return preset.websiteUrl || "";
     }
+    // 编辑模式下 selectedPresetId 为 null
+    // 优先按 providerId 精确匹配预设的 apiKeyUrl
+    if (!formWebsiteUrl && providerId) {
+      const matchedPreset = presetEntries.find(
+        (entry) => entry.id === providerId && (entry.preset as any).apiKeyUrl,
+      );
+      if (matchedPreset) {
+        return (matchedPreset.preset as any).apiKeyUrl || "";
+      }
+    }
+    // 再按 category 模糊匹配
+    if (!formWebsiteUrl && category) {
+      const matchedPreset = presetEntries.find(
+        (entry) => entry.preset.category === category && (entry.preset as any).apiKeyUrl,
+      );
+      if (matchedPreset) {
+        return (matchedPreset.preset as any).apiKeyUrl || "";
+      }
+    }
     return formWebsiteUrl || "";
-  }, [currentPresetEntry, formWebsiteUrl]);
+  }, [currentPresetEntry, formWebsiteUrl, category, presetEntries, providerId]);
 
   return {
     shouldShowApiKeyLink:

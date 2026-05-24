@@ -389,7 +389,7 @@ export function ProviderList({
       : sortedProviders;
 
     // 对 codex/claude/gemini 的预设卡片做二次排序：
-    // 启用中(0) > 有 API key(1) > 无 API key(2)，其余卡片保持原顺序
+    // 启用中(0) > 非预设有key(1) > 预设有key(2) > 预设无key(3)
     const PRESET_IDS: Partial<Record<string, string[]>> = {
       codex:  ["tuzi-route", "coding", "gaccode"],
       claude: ["tuzi-route", "gaccode"],
@@ -405,20 +405,18 @@ export function ProviderList({
              appId === "gemini" ? cfg?.env?.GEMINI_API_KEY : "";
     };
 
-    const presetRank = (provider: Provider): number => {
-      if (!presetIds.includes(provider.id)) return -1; // 非预设，不参与
+    const cardRank = (provider: Provider): number => {
       if (provider.id === currentProviderId) return 0;
-      const key = getPresetApiKey(provider);
-      return typeof key === "string" && key.trim() !== "" ? 1 : 2;
+      const isPreset = presetIds.includes(provider.id);
+      if (isPreset) {
+        const key = getPresetApiKey(provider);
+        return typeof key === "string" && key.trim() !== "" ? 2 : 3;
+      }
+      return 1; // 非预设卡片（有 key 的 default 等）
     };
 
     return [...base].sort((a, b) => {
-      const ra = presetRank(a);
-      const rb = presetRank(b);
-      // 两者都是预设卡片 → 按 rank 排
-      if (ra >= 0 && rb >= 0) return ra - rb;
-      // 只有一个是预设卡片 → 预设卡片保持原相对位置（不强制移动）
-      return 0;
+      return cardRank(a) - cardRank(b);
     });
   }, [searchTerm, sortedProviders, appId, currentProviderId]);
 

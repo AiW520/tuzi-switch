@@ -5,13 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -40,7 +33,6 @@ import {
   showFetchModelsError,
   type FetchedModel,
 } from "@/lib/api/model-fetch";
-import { openclawApiProtocols } from "@/config/openclawProviderPresets";
 import type { ProviderCategory, OpenClawModel } from "@/types";
 
 interface OpenClawFormFieldsProps {
@@ -55,10 +47,6 @@ interface OpenClawFormFieldsProps {
   shouldShowApiKeyLink: boolean;
   websiteUrl: string;
 
-  // API Protocol
-  api: string;
-  onApiChange: (value: string) => void;
-
   // Models
   models: OpenClawModel[];
   onModelsChange: (models: OpenClawModel[]) => void;
@@ -66,6 +54,9 @@ interface OpenClawFormFieldsProps {
   // User-Agent
   userAgent: boolean;
   onUserAgentChange: (checked: boolean) => void;
+
+  // Extra content rendered inside the advanced collapsible
+  advancedExtra?: React.ReactNode;
 }
 
 export function OpenClawFormFields({
@@ -76,12 +67,11 @@ export function OpenClawFormFields({
   category,
   shouldShowApiKeyLink,
   websiteUrl,
-  api,
-  onApiChange,
   models,
   onModelsChange,
   userAgent,
   onUserAgentChange,
+  advancedExtra,
 }: OpenClawFormFieldsProps) {
   const { t } = useTranslation();
   const [expandedModels, setExpandedModels] = useState<Record<number, boolean>>(
@@ -200,37 +190,6 @@ export function OpenClawFormFields({
 
   return (
     <>
-      {/* API Protocol Selector */}
-      <div className="space-y-2">
-        <FormLabel htmlFor="openclaw-api">
-          {t("openclaw.apiProtocol", {
-            defaultValue: "API 协议",
-          })}
-        </FormLabel>
-        <Select value={api} onValueChange={onApiChange}>
-          <SelectTrigger id="openclaw-api">
-            <SelectValue
-              placeholder={t("openclaw.selectProtocol", {
-                defaultValue: "选择 API 协议",
-              })}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {openclawApiProtocols.map((protocol) => (
-              <SelectItem key={protocol.value} value={protocol.value}>
-                {protocol.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          {t("openclaw.apiProtocolHint", {
-            defaultValue:
-              "选择与供应商 API 兼容的协议类型。大多数供应商使用 OpenAI Completions 格式。",
-          })}
-        </p>
-      </div>
-
       {/* Base URL */}
       <div className="space-y-2">
         <FormLabel htmlFor="openclaw-baseurl">
@@ -258,23 +217,38 @@ export function OpenClawFormFields({
         websiteUrl={websiteUrl}
       />
 
-      {/* User-Agent */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <FormLabel>
-            {t("openclaw.userAgent", { defaultValue: "发送 User-Agent" })}
-          </FormLabel>
-          <p className="text-xs text-muted-foreground">
-            {t("openclaw.userAgentHint", {
-              defaultValue: "部分供应商需要浏览器 User-Agent 才能正常访问。",
-            })}
-          </p>
-        </div>
-        <Switch checked={userAgent} onCheckedChange={onUserAgentChange} />
-      </div>
+      {/* Advanced Configuration */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 text-sm text-muted-foreground hover:text-foreground -ml-2"
+          >
+            <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
+            {t("openclaw.advancedConfig", { defaultValue: "高级配置" })}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 pt-2">
+          {advancedExtra}
+          {/* User-Agent */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <FormLabel>
+                {t("openclaw.userAgent", { defaultValue: "发送 User-Agent" })}
+              </FormLabel>
+              <p className="text-xs text-muted-foreground">
+                {t("openclaw.userAgentHint", {
+                  defaultValue: "部分供应商需要浏览器 User-Agent 才能正常访问。",
+                })}
+              </p>
+            </div>
+            <Switch checked={userAgent} onCheckedChange={onUserAgentChange} />
+          </div>
 
-      {/* Models Editor */}
-      <div className="space-y-3">
+          {/* Models Editor */}
+          <div className="space-y-3">
         <div className="flex items-center justify-between">
           <FormLabel>
             {t("openclaw.models", { defaultValue: "模型列表" })}
@@ -659,6 +633,8 @@ export function OpenClawFormFields({
           })}
         </p>
       </div>
+        </CollapsibleContent>
+      </Collapsible>
     </>
   );
 }

@@ -45,6 +45,11 @@ fn build_codex_official_provider(
 }
 
 fn build_claude_official_provider(id: &str, name: &str, base_url: &str, model: &str) -> Provider {
+    let api_key_url = match id {
+        "tuzi-route" => Some("https://api.tu-zi.com"),
+        "gaccode" => Some("https://store.tu-zi.com/cat/1"),
+        _ => None,
+    };
     let mut provider = Provider::with_id(
         id.to_string(),
         name.to_string(),
@@ -59,7 +64,7 @@ fn build_claude_official_provider(id: &str, name: &str, base_url: &str, model: &
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "anthropic/claude-opus-4.7",
             },
         }),
-        None,
+        api_key_url.map(|s| s.to_string()),
     );
     provider.icon = Some(match id {
         "gaccode" => "gaccode",
@@ -70,6 +75,10 @@ fn build_claude_official_provider(id: &str, name: &str, base_url: &str, model: &
 }
 
 fn build_gemini_official_provider(id: &str, name: &str, base_url: &str, model: &str) -> Provider {
+    let api_key_url = match id {
+        "tuzi-route" => Some("https://api.tu-zi.com"),
+        _ => None,
+    };
     let mut provider = Provider::with_id(
         id.to_string(),
         name.to_string(),
@@ -80,7 +89,7 @@ fn build_gemini_official_provider(id: &str, name: &str, base_url: &str, model: &
                 "GEMINI_MODEL": model,
             },
         }),
-        None,
+        api_key_url.map(|s| s.to_string()),
     );
     provider.icon = Some("tuzi".to_string());
     provider.icon_color = None;
@@ -112,8 +121,8 @@ fn build_openclaw_official_provider(
                 ],
                 _ => vec![
                     json!({
-                        "id": "openai/gpt-5.3-codex",
-                        "name": "GPT-5.3 Codex",
+                        "id": "gpt-5.5",
+                        "name": "GPT-5.5",
                         "contextWindow": 200000,
                         "cost": { "input": 5, "output": 15 },
                     })
@@ -122,7 +131,11 @@ fn build_openclaw_official_provider(
         }),
         Some(api_key_url.to_string()),
     );
-    provider.icon = Some("tuzi".to_string());
+    provider.icon = Some(match id {
+        "codex-coding" => "codex-sub",
+        "codex-gaccode" | "claude-gaccode" => "gaccode",
+        _ => "tuzi",
+    }.to_string());
     provider.icon_color = None;
     provider
 }
@@ -152,8 +165,8 @@ fn build_hermes_official_provider(
                 ],
                 _ => vec![
                     json!({
-                        "id": "openai/gpt-5.3-codex",
-                        "name": "GPT-5.3 Codex",
+                        "id": "gpt-5.5",
+                        "name": "GPT-5.5",
                         "context_length": 200000,
                     })
                 ],
@@ -161,7 +174,11 @@ fn build_hermes_official_provider(
         }),
         Some(api_key_url.to_string()),
     );
-    provider.icon = Some("tuzi".to_string());
+    provider.icon = Some(match id {
+        "codex-coding" => "codex-sub",
+        "codex-gaccode" | "claude-gaccode" => "gaccode",
+        _ => "tuzi",
+    }.to_string());
     provider.icon_color = None;
     provider
 }
@@ -897,37 +914,72 @@ fn seed_settings_config_update_for_existing(
     app_type: &str,
     provider: &Provider,
 ) -> Result<Option<Value>, AppError> {
-    if app_type != "codex"
-        || !crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
+    // Codex: 保留用户已填的 API key，其余字段用种子数据覆盖
+    if app_type == "codex"
+        && crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
             .iter()
             .any(|(id, _, _, _, _)| *id == provider.id)
     {
-        return Ok(None);
-    }
+        let existing_settings_config = tx
+            .query_row(
+                "SELECT settings_config FROM providers WHERE app_type = ?1 AND id = ?2",
+                params![app_type, provider.id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let existing_settings_config = tx
-        .query_row(
-            "SELECT settings_config FROM providers WHERE app_type = ?1 AND id = ?2",
-            params![app_type, provider.id],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+        let existing: Value =
+            serde_json::from_str(&existing_settings_config).unwrap_or_else(|_| json!({}));
+        let mut next = provider.settings_config.clone();
 
-    let existing: Value =
-        serde_json::from_str(&existing_settings_config).unwrap_or_else(|_| json!({}));
-    let mut next = provider.settings_config.clone();
-
-    if let Some(api_key) = existing
-        .get("auth")
-        .and_then(|auth| auth.get("OPENAI_API_KEY"))
-        .and_then(|value| value.as_str())
-    {
-        if let Some(auth) = next.get_mut("auth").and_then(|value| value.as_object_mut()) {
-            auth.insert("OPENAI_API_KEY".to_string(), json!(api_key));
+        if let Some(api_key) = existing
+            .get("auth")
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+            .and_then(|value| value.as_str())
+        {
+            if let Some(auth) = next.get_mut("auth").and_then(|value| value.as_object_mut()) {
+                auth.insert("OPENAI_API_KEY".to_string(), json!(api_key));
+            }
         }
+
+        return Ok(Some(next));
     }
 
-    Ok(Some(next))
+    // OpenClaw / Hermes: 保留用户已填的 apiKey / api_key，其余字段用种子数据覆盖
+    if (app_type == "openclaw" || app_type == "hermes")
+        && (crate::database::dao::providers_seed::OPENCLAW_OFFICIAL_PROVIDER_IDS
+            .iter()
+            .any(|(id, _, _, _, _)| *id == provider.id)
+            || crate::database::dao::providers_seed::HERMES_OFFICIAL_PROVIDER_IDS
+                .iter()
+                .any(|(id, _, _, _, _)| *id == provider.id))
+    {
+        let existing_settings_config = tx
+            .query_row(
+                "SELECT settings_config FROM providers WHERE app_type = ?1 AND id = ?2",
+                params![app_type, provider.id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let existing: Value =
+            serde_json::from_str(&existing_settings_config).unwrap_or_else(|_| json!({}));
+        let mut next = provider.settings_config.clone();
+
+        // 保留用户的 apiKey (openclaw) 或 api_key (hermes)
+        let key_field = if app_type == "openclaw" { "apiKey" } else { "api_key" };
+        if let Some(api_key) = existing.get(key_field).and_then(|v| v.as_str()) {
+            if !api_key.is_empty() {
+                if let Some(obj) = next.as_object_mut() {
+                    obj.insert(key_field.to_string(), json!(api_key));
+                }
+            }
+        }
+
+        return Ok(Some(next));
+    }
+
+    Ok(None)
 }
 
 fn ensure_seed_current_provider(

@@ -79,6 +79,7 @@ export const codexProviderPresets: CodexProviderPreset[] = [
   {
     name: "codex订阅",
     websiteUrl: "",
+    apiKeyUrl: "https://store.tu-zi.com/cat/11",
     auth: { OPENAI_API_KEY: "" },
     config: generateThirdPartyConfig(
       "coding",

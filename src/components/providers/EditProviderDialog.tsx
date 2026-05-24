@@ -158,6 +158,7 @@ export function EditProviderDialog({
     if (!provider) return null;
     return {
       name: provider.name,
+      websiteUrl: provider.websiteUrl,
       notes: provider.notes,
       settingsConfig: initialSettingsConfig,
       category: provider.category,

@@ -137,8 +137,8 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "codex_responses",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           context_length: 200000,
         },
       ],
@@ -150,7 +150,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
   {
     name: "codex-coding",
     websiteUrl: "",
-    apiKeyUrl: "https://api.tu-zi.com/coding",
+    apiKeyUrl: "https://store.tu-zi.com/cat/11",
     settingsConfig: {
       name: "codex-coding",
       base_url: "https://api.tu-zi.com/coding",
@@ -158,15 +158,15 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "codex_responses",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           context_length: 200000,
         },
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "codex-sub",
+    theme: { icon: "codex-sub" },
   },
   {
     name: "codex-gaccode",
@@ -179,15 +179,15 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       api_mode: "codex_responses",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           context_length: 200000,
         },
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "gaccode",
+    theme: { icon: "gaccode" },
   },
   {
     name: "claude-tuzi",
@@ -228,8 +228,8 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "gaccode",
+    theme: { icon: "gaccode" },
   },
   {
     name: "OpenRouter",

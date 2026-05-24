@@ -847,6 +847,7 @@ pub fn sync_claude_live_api_key(state: State<'_, AppState>) -> Result<(), String
 
     let api_key = env
         .get("ANTHROPIC_API_KEY")
+        .or_else(|| env.get("ANTHROPIC_AUTH_TOKEN"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -880,7 +881,8 @@ pub fn sync_claude_live_api_key(state: State<'_, AppState>) -> Result<(), String
                 .get_mut("env")
                 .and_then(|v| v.as_object_mut())
             {
-                env_obj.insert("ANTHROPIC_API_KEY".to_string(), json!(api_key));
+                env_obj.insert("ANTHROPIC_API_KEY".to_string(), json!(&api_key));
+                env_obj.insert("ANTHROPIC_AUTH_TOKEN".to_string(), json!(&api_key));
             }
             state
                 .db
@@ -921,8 +923,8 @@ pub fn sync_claude_live_api_key(state: State<'_, AppState>) -> Result<(), String
             json!({
                 "env": {
                     "ANTHROPIC_BASE_URL": detected_url,
-                    "ANTHROPIC_AUTH_TOKEN": "",
-                    "ANTHROPIC_API_KEY": api_key,
+                    "ANTHROPIC_AUTH_TOKEN": &api_key,
+                    "ANTHROPIC_API_KEY": &api_key,
                     "ANTHROPIC_MODEL": "anthropic/claude-sonnet-4.6",
                     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic/claude-haiku-4.5",
                     "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic/claude-sonnet-4.6",

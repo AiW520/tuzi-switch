@@ -11,13 +11,6 @@ import { FormLabel } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -46,7 +39,6 @@ import {
   type FetchedModel,
 } from "@/lib/api/model-fetch";
 import {
-  hermesApiModes,
   type HermesApiMode,
   type HermesModel,
 } from "@/config/hermesProviderPresets";
@@ -60,12 +52,13 @@ interface HermesFormFieldsProps {
   category?: ProviderCategory;
   shouldShowApiKeyLink: boolean;
   websiteUrl: string;
-  apiMode: HermesApiMode;
-  onApiModeChange: (mode: HermesApiMode) => void;
+  apiMode?: HermesApiMode;
+  onApiModeChange?: (mode: HermesApiMode) => void;
   models: HermesModel[];
   onModelsChange: (models: HermesModel[]) => void;
   rateLimitDelay: number | undefined;
   onRateLimitDelayChange: (delay: number | undefined) => void;
+  advancedExtra?: React.ReactNode;
 }
 
 type BaseUrlErrorCode = "empty" | "invalid" | "scheme";
@@ -145,12 +138,11 @@ export function HermesFormFields({
   category,
   shouldShowApiKeyLink,
   websiteUrl,
-  apiMode,
-  onApiModeChange,
   models,
   onModelsChange,
   rateLimitDelay,
   onRateLimitDelayChange,
+  advancedExtra,
 }: HermesFormFieldsProps) {
   const { t } = useTranslation();
   const [expandedModels, setExpandedModels] = useState<Record<number, boolean>>(
@@ -270,32 +262,6 @@ export function HermesFormFields({
   return (
     <>
       <div className="space-y-2">
-        <FormLabel htmlFor="hermes-api-mode">
-          {t("hermes.form.apiMode", { defaultValue: "API 模式" })}
-        </FormLabel>
-        <Select
-          value={apiMode}
-          onValueChange={(v) => onApiModeChange(v as HermesApiMode)}
-        >
-          <SelectTrigger id="hermes-api-mode">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {hermesApiModes.map((mode) => (
-              <SelectItem key={mode.value} value={mode.value}>
-                {t(mode.labelKey)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          {t("hermes.form.apiModeHint", {
-            defaultValue: "供应商 API 协议。请根据端点选择正确的协议。",
-          })}
-        </p>
-      </div>
-
-      <div className="space-y-2">
         <FormLabel htmlFor="hermes-baseurl">
           {t("hermes.form.baseUrl", { defaultValue: "API 端点" })}
         </FormLabel>
@@ -330,6 +296,22 @@ export function HermesFormFields({
         shouldShowLink={shouldShowApiKeyLink}
         websiteUrl={websiteUrl}
       />
+
+      {/* Advanced Configuration */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 text-sm text-muted-foreground hover:text-foreground -ml-2"
+          >
+            <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
+            {t("hermes.form.advancedConfig", { defaultValue: "高级配置" })}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 pt-2">
+          {advancedExtra}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -555,6 +537,9 @@ export function HermesFormFields({
           </p>
         </div>
       </AdvancedSection>
+
+        </CollapsibleContent>
+      </Collapsible>
     </>
   );
 }

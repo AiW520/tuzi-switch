@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import { providersApi, settingsApi, type AppId } from "@/lib/api";
@@ -34,11 +34,13 @@ import {
 } from "@/config/opencodeProviderPresets";
 import {
   openclawProviderPresets,
+  openclawApiProtocols,
   type OpenClawProviderPreset,
   type OpenClawSuggestedDefaults,
 } from "@/config/openclawProviderPresets";
 import {
   hermesProviderPresets,
+  hermesApiModes,
   type HermesProviderPreset,
 } from "@/config/hermesProviderPresets";
 import { OpenCodeFormFields } from "./OpenCodeFormFields";
@@ -65,6 +67,13 @@ import JsonEditor from "@/components/JsonEditor";
 import { ChevronDown, ChevronRight, FileJson, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { BasicFormFields } from "./BasicFormFields";
 import { ClaudeFormFields } from "./ClaudeFormFields";
@@ -1327,6 +1336,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
 
   const { shouldShowApiKeyLink: shouldShowCodexApiKeyLink } = useApiKeyLink({
@@ -1335,6 +1345,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
   const selectedCodexPreset =
     appId === "codex" && selectedPresetId && selectedPresetId !== "custom"
@@ -1345,7 +1356,11 @@ function ProviderFormFull({
     selectedCodexPreset &&
     "apiKeyUrl" in selectedCodexPreset
       ? (selectedCodexPreset.apiKeyUrl as string | undefined)
-      : undefined;
+      : appId === "codex" && !selectedPresetId && providerId
+        ? (presetEntries.find(
+            (entry) => entry.id === providerId && "apiKeyUrl" in entry.preset && (entry.preset as any).apiKeyUrl,
+          )?.preset as any)?.apiKeyUrl as string | undefined
+        : undefined;
 
   const {
     shouldShowApiKeyLink: shouldShowGeminiApiKeyLink,
@@ -1356,6 +1371,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
 
   const { shouldShowApiKeyLink: shouldShowOpencodeApiKeyLink } = useApiKeyLink({
@@ -1364,6 +1380,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
 
   // 使用 API Key 链接 hook (OpenClaw)
@@ -1373,6 +1390,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
   const {
     websiteUrl: openclawApiKeyUrl,
@@ -1382,6 +1400,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
   const {
     shouldShowApiKeyLink: shouldShowHermesApiKeyLink,
@@ -1392,6 +1411,7 @@ function ProviderFormFull({
     selectedPresetId,
     presetEntries,
     formWebsiteUrl: form.watch("websiteUrl") || "",
+    providerId,
   });
 
   // 使用端点测速候选 hook
@@ -1615,6 +1635,7 @@ function ProviderFormFull({
 
           <BasicFormFields
             form={form}
+            hideNameAndNotes={appId === "openclaw" || appId === "hermes"}
             beforeNameSlot={
               appId === "opencode" && !isAnyOmoCategory ? (
                 <div className="space-y-2">
@@ -1684,35 +1705,56 @@ function ProviderFormFull({
                 </div>
               ) : appId === "openclaw" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="openclaw-key">
-                    {t("openclaw.providerKey")}
-                    <span className="text-destructive ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="openclaw-key"
-                    value={openclawForm.openclawProviderKey}
-                    onChange={(e) =>
-                      openclawForm.setOpenclawProviderKey(
-                        e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-                      )
-                    }
-                    placeholder={t("openclaw.providerKeyPlaceholder")}
-                    disabled={
-                      isProviderKeyLocked || isProviderKeyLockStateLoading
-                    }
-                    className={
-                      (additiveExistingProviderKeys.includes(
-                        openclawForm.openclawProviderKey,
-                      ) &&
-                        !isProviderKeyLocked) ||
-                      (openclawForm.openclawProviderKey.trim() !== "" &&
-                        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(
-                          openclawForm.openclawProviderKey,
-                        ))
-                        ? "border-destructive"
-                        : ""
-                    }
-                  />
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="openclaw-key">
+                        {t("openclaw.providerKey")}
+                        <span className="text-destructive ml-1">*</span>
+                      </Label>
+                      <Input
+                        id="openclaw-key"
+                        value={openclawForm.openclawProviderKey}
+                        onChange={(e) =>
+                          openclawForm.setOpenclawProviderKey(
+                            e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                          )
+                        }
+                        placeholder={t("openclaw.providerKeyPlaceholder")}
+                        disabled={
+                          isProviderKeyLocked || isProviderKeyLockStateLoading
+                        }
+                        className={
+                          (additiveExistingProviderKeys.includes(
+                            openclawForm.openclawProviderKey,
+                          ) &&
+                            !isProviderKeyLocked) ||
+                          (openclawForm.openclawProviderKey.trim() !== "" &&
+                            !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(
+                              openclawForm.openclawProviderKey,
+                            ))
+                            ? "border-destructive"
+                            : ""
+                        }
+                      />
+                    </div>
+                    <div className="w-[180px] space-y-1">
+                      <Label htmlFor="openclaw-api-inline">
+                        {t("openclaw.apiProtocol", { defaultValue: "API 协议" })}
+                      </Label>
+                      <Select value={openclawForm.openclawApi} onValueChange={openclawForm.handleOpenclawApiChange}>
+                        <SelectTrigger id="openclaw-api-inline">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {openclawApiProtocols.map((protocol) => (
+                            <SelectItem key={protocol.value} value={protocol.value}>
+                              {protocol.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   {additiveExistingProviderKeys.includes(
                     openclawForm.openclawProviderKey,
                   ) &&
@@ -1750,39 +1792,60 @@ function ProviderFormFull({
                 </div>
               ) : appId === "hermes" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="hermes-key">
-                    {t("hermes.form.providerKey", {
-                      defaultValue: "Provider Key",
-                    })}
-                    <span className="text-destructive ml-1">*</span>
-                  </Label>
-                  <Input
-                    id="hermes-key"
-                    value={hermesForm.hermesProviderKey}
-                    onChange={(e) =>
-                      hermesForm.setHermesProviderKey(
-                        e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-                      )
-                    }
-                    placeholder={t("hermes.form.providerKeyPlaceholder", {
-                      defaultValue: "my-provider",
-                    })}
-                    disabled={
-                      isProviderKeyLocked || isProviderKeyLockStateLoading
-                    }
-                    className={
-                      (additiveExistingProviderKeys.includes(
-                        hermesForm.hermesProviderKey,
-                      ) &&
-                        !isProviderKeyLocked) ||
-                      (hermesForm.hermesProviderKey.trim() !== "" &&
-                        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(
-                          hermesForm.hermesProviderKey,
-                        ))
-                        ? "border-destructive"
-                        : ""
-                    }
-                  />
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="hermes-key">
+                        {t("hermes.form.providerKey", {
+                          defaultValue: "Provider Key",
+                        })}
+                        <span className="text-destructive ml-1">*</span>
+                      </Label>
+                      <Input
+                        id="hermes-key"
+                        value={hermesForm.hermesProviderKey}
+                        onChange={(e) =>
+                          hermesForm.setHermesProviderKey(
+                            e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                          )
+                        }
+                        placeholder={t("hermes.form.providerKeyPlaceholder", {
+                          defaultValue: "my-provider",
+                        })}
+                        disabled={
+                          isProviderKeyLocked || isProviderKeyLockStateLoading
+                        }
+                        className={
+                          (additiveExistingProviderKeys.includes(
+                            hermesForm.hermesProviderKey,
+                          ) &&
+                            !isProviderKeyLocked) ||
+                          (hermesForm.hermesProviderKey.trim() !== "" &&
+                            !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(
+                              hermesForm.hermesProviderKey,
+                            ))
+                            ? "border-destructive"
+                            : ""
+                        }
+                      />
+                    </div>
+                    <div className="w-[180px] space-y-1">
+                      <Label htmlFor="hermes-api-mode-inline">
+                        {t("hermes.form.apiMode", { defaultValue: "API 模式" })}
+                      </Label>
+                      <Select value={hermesForm.hermesApiMode} onValueChange={hermesForm.handleHermesApiModeChange}>
+                        <SelectTrigger id="hermes-api-mode-inline">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {hermesApiModes.map((mode) => (
+                            <SelectItem key={mode.value} value={mode.value}>
+                              {t(mode.labelKey)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   {additiveExistingProviderKeys.includes(
                     hermesForm.hermesProviderKey,
                   ) &&
@@ -1918,7 +1981,7 @@ function ProviderFormFull({
               apiKey={apiKey}
               onApiKeyChange={handleApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowClaudeApiKeyLink}
+              shouldShowApiKeyLink={shouldShowClaudeApiKeyLink}
               websiteUrl={claudeApiKeyUrl}
               isCopilotPreset={
                 templatePreset?.providerType === "github_copilot" ||
@@ -1982,7 +2045,7 @@ function ProviderFormFull({
               codexApiKey={codexApiKey}
               onApiKeyChange={handleCodexApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowCodexApiKeyLink}
+              shouldShowApiKeyLink={shouldShowCodexApiKeyLink}
               websiteUrl={form.watch("websiteUrl") || ""}
               apiKeyUrl={codexApiKeyUrl}
               shouldShowSpeedTest={shouldShowSpeedTest}
@@ -2008,7 +2071,7 @@ function ProviderFormFull({
               apiKey={geminiApiKey}
               onApiKeyChange={handleGeminiApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowGeminiApiKeyLink}
+              shouldShowApiKeyLink={shouldShowGeminiApiKeyLink}
               websiteUrl={geminiApiKeyUrl}
               shouldShowSpeedTest={shouldShowSpeedTest}
               baseUrl={geminiBaseUrl}
@@ -2032,7 +2095,7 @@ function ProviderFormFull({
               apiKey={opencodeForm.opencodeApiKey}
               onApiKeyChange={opencodeForm.handleOpencodeApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowOpencodeApiKeyLink}
+              shouldShowApiKeyLink={shouldShowOpencodeApiKeyLink}
               websiteUrl={form.watch("websiteUrl") || ""}
               baseUrl={opencodeForm.opencodeBaseUrl}
               onBaseUrlChange={opencodeForm.handleOpencodeBaseUrlChange}
@@ -2073,14 +2136,22 @@ function ProviderFormFull({
               apiKey={openclawForm.openclawApiKey}
               onApiKeyChange={openclawForm.handleOpenclawApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowOpenclawApiKeyLink}
+              shouldShowApiKeyLink={shouldShowOpenclawApiKeyLink}
               websiteUrl={openclawApiKeyUrl}
-              api={openclawForm.openclawApi}
-              onApiChange={openclawForm.handleOpenclawApiChange}
               models={openclawForm.openclawModels}
               onModelsChange={openclawForm.handleOpenclawModelsChange}
               userAgent={openclawForm.openclawUserAgent}
               onUserAgentChange={openclawForm.handleOpenclawUserAgentChange}
+              advancedExtra={
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField control={form.control} name="name" render={({ field }) => (
+                    <FormItem><FormLabel>{t("provider.name")}</FormLabel><FormControl><Input {...field} placeholder={t("provider.namePlaceholder")} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="notes" render={({ field }) => (
+                    <FormItem><FormLabel>{t("provider.notes")}</FormLabel><FormControl><Input {...field} placeholder={t("provider.notesPlaceholder")} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                </div>
+              }
             />
           )}
 
@@ -2092,7 +2163,7 @@ function ProviderFormFull({
               apiKey={hermesForm.hermesApiKey}
               onApiKeyChange={hermesForm.handleHermesApiKeyChange}
               category={category}
-              shouldShowApiKeyLink={!isEditMode && shouldShowHermesApiKeyLink}
+              shouldShowApiKeyLink={shouldShowHermesApiKeyLink}
               websiteUrl={hermesApiKeyUrl}
               apiMode={hermesForm.hermesApiMode}
               onApiModeChange={hermesForm.handleHermesApiModeChange}
@@ -2101,6 +2172,16 @@ function ProviderFormFull({
               rateLimitDelay={hermesForm.hermesRateLimitDelay}
               onRateLimitDelayChange={
                 hermesForm.handleHermesRateLimitDelayChange
+              }
+              advancedExtra={
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField control={form.control} name="name" render={({ field }) => (
+                    <FormItem><FormLabel>{t("provider.name")}</FormLabel><FormControl><Input {...field} placeholder={t("provider.namePlaceholder")} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="notes" render={({ field }) => (
+                    <FormItem><FormLabel>{t("provider.notes")}</FormLabel><FormControl><Input {...field} placeholder={t("provider.notesPlaceholder")} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                </div>
               }
             />
           )}

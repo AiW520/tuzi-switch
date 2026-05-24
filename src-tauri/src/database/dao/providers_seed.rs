@@ -56,7 +56,7 @@ pub(crate) const OPENCLAW_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str, &str
     (
         "codex-coding",
         "codex-coding",
-        "https://api.tu-zi.com/coding",
+        "https://store.tu-zi.com/cat/11",
         "https://api.tu-zi.com/coding",
         "openai-completions",
     ),
@@ -94,7 +94,7 @@ pub(crate) const HERMES_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str, &str)]
     (
         "codex-coding",
         "codex-coding",
-        "https://api.tu-zi.com/coding",
+        "https://store.tu-zi.com/cat/11",
         "https://api.tu-zi.com/coding",
         "codex_responses",
     ),

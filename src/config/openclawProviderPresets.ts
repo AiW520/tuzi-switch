@@ -66,8 +66,8 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
       api: "openai-completions",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           contextWindow: 200000,
           cost: { input: 5, output: 15 },
         },
@@ -80,23 +80,23 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
   {
     name: "codex-coding",
     websiteUrl: "",
-    apiKeyUrl: "https://api.tu-zi.com/coding",
+    apiKeyUrl: "https://store.tu-zi.com/cat/11",
     settingsConfig: {
       baseUrl: "https://api.tu-zi.com/coding",
       apiKey: "",
       api: "openai-completions",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           contextWindow: 200000,
           cost: { input: 5, output: 15 },
         },
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "codex-sub",
+    theme: { icon: "codex-sub" },
   },
   {
     name: "codex-gaccode",
@@ -108,16 +108,16 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
       api: "openai-completions",
       models: [
         {
-          id: "openai/gpt-5.3-codex",
-          name: "GPT-5.3 Codex",
+          id: "gpt-5.5",
+          name: "GPT-5.5",
           contextWindow: 200000,
           cost: { input: 5, output: 15 },
         },
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "gaccode",
+    theme: { icon: "gaccode" },
   },
   {
     name: "claude-tuzi",
@@ -158,8 +158,8 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
       ],
     },
     category: "aggregator",
-    icon: "tuzi",
-    theme: { icon: "tuzi" },
+    icon: "gaccode",
+    theme: { icon: "gaccode" },
   },
   {
     name: "DeepSeek",
