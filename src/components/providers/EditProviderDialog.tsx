@@ -9,6 +9,10 @@ import {
   type ProviderFormValues,
 } from "@/components/providers/forms/ProviderForm";
 import { openclawApi, providersApi, vscodeApi, type AppId } from "@/lib/api";
+import {
+  extractCodexBaseUrl,
+  setCodexBaseUrl as setCodexBaseUrlInConfig,
+} from "@/utils/providerConfigUtils";
 
 interface EditProviderDialogProps {
   open: boolean;
@@ -150,8 +154,18 @@ export function EditProviderDialog({
         };
       }
     }
+    if (appId === "codex" && provider?.name === "兔子线路") {
+      const configStr = typeof config.config === "string" ? config.config : "";
+      const existingUrl = extractCodexBaseUrl(configStr);
+      if (!existingUrl || !existingUrl.endsWith("/v1")) {
+        config.config = setCodexBaseUrlInConfig(
+          configStr,
+          "https://api.tu-zi.com/v1",
+        );
+      }
+    }
     return config;
-  }, [appId, liveSettings, provider?.settingsConfig]); // 只依赖 settingsConfig，不依赖整个 provider
+  }, [appId, liveSettings, provider?.name, provider?.settingsConfig]); // 只依赖 settingsConfig，不依赖整个 provider
 
   // 固定 initialData，防止 provider 对象更新时重置表单
   const initialData = useMemo(() => {

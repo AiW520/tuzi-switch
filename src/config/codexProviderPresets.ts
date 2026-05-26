@@ -68,11 +68,11 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     auth: { OPENAI_API_KEY: "" },
     config: generateThirdPartyConfig(
       "tuzi_route",
-      "https://api.tu-zi.com",
+      "https://api.tu-zi.com/v1",
       "gpt-5.5",
     ),
     category: "aggregator",
-    endpointCandidates: ["https://api.tu-zi.com"],
+    endpointCandidates: ["https://api.tu-zi.com/v1"],
     icon: "tuzi",
     theme: { icon: "tuzi" },
   },
