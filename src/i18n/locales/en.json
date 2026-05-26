@@ -804,7 +804,7 @@
     "websiteUrlPlaceholder": "https://example.com (optional)",
     "apiEndpoint": "API Endpoint",
     "apiEndpointPlaceholder": "https://your-api-endpoint.com",
-    "codexApiEndpointPlaceholder": "https://your-api-endpoint.com/v1",
+    "codexApiEndpointPlaceholder": "https://api.tu-zi.com/v1",
     "manageAndTest": "Manage & Test",
     "configContent": "Config Content",
     "officialNoApiKey": "Official login does not require API Key, save directly",

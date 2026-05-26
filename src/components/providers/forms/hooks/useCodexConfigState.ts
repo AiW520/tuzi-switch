@@ -9,6 +9,7 @@ import { normalizeTomlText } from "@/utils/textNormalization";
 
 interface UseCodexConfigStateProps {
   initialData?: {
+    name?: string;
     settingsConfig?: Record<string, unknown>;
   };
 }
@@ -49,6 +50,8 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       const initialBaseUrl = extractCodexBaseUrl(configStr);
       if (initialBaseUrl) {
         setCodexBaseUrl(initialBaseUrl);
+      } else if (initialData?.name === "兔子线路") {
+        setCodexBaseUrl("https://api.tu-zi.com/v1");
       }
 
       // 提取 Model Name

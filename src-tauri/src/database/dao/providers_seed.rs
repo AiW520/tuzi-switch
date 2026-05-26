@@ -20,7 +20,7 @@ pub(crate) const CODEX_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str, &str)] 
         "tuzi-route",
         "兔子线路",
         "https://api.tu-zi.com",
-        "https://api.tu-zi.com",
+        "https://api.tu-zi.com/v1",
         "gpt-5.5",
     ),
     (
