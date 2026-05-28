@@ -8,40 +8,35 @@ export interface CodexProviderPreset {
   name: string;
   nameKey?: string; // i18n key for localized display name
   websiteUrl: string;
-  // 第三方供应商可提供单独的获取 API Key 链接
   apiKeyUrl?: string;
-  auth: Record<string, any>; // 将写入 ~/.codex/auth.json
+  auth: Record<string, any>; // legacy, always {} for new providers
   config: string; // 将写入 ~/.codex/config.toml（TOML 字符串）
-  isOfficial?: boolean; // 标识是否为官方预设
-  category?: ProviderCategory; // 新增：分类
-  isCustomTemplate?: boolean; // 标识是否为自定义模板
-  // 新增：请求地址候选列表（用于地址管理/测速）
+  isOfficial?: boolean;
+  category?: ProviderCategory;
+  isCustomTemplate?: boolean;
   endpointCandidates?: string[];
-  // 新增：视觉主题配置
+  envKey?: string; // 环境变量名，用于 shell rc managed block
   theme?: PresetTheme;
-  // 图标配置
-  icon?: string; // 图标名称
-  iconColor?: string; // 图标颜色
+  icon?: string;
+  iconColor?: string;
 }
 
 /**
- * 生成第三方供应商的 auth.json
+ * 生成第三方供应商的 auth.json (legacy - always empty for new providers)
  */
-export function generateThirdPartyAuth(apiKey: string): Record<string, any> {
-  return {
-    OPENAI_API_KEY: apiKey || "",
-  };
+export function generateThirdPartyAuth(_apiKey: string): Record<string, any> {
+  return {};
 }
 
 /**
- * 生成第三方供应商的 config.toml
+ * 生成第三方供应商的 config.toml (profile-based)
  */
 export function generateThirdPartyConfig(
   providerName: string,
   baseUrl: string,
-  modelName = "gpt-5.4",
+  envKey: string,
+  modelName = "gpt-5.5",
 ): string {
-  // 清理供应商名称，确保符合TOML键名规范
   const cleanProviderName =
     providerName
       .toLowerCase()
@@ -56,6 +51,7 @@ disable_response_storage = true
 [model_providers.${cleanProviderName}]
 name = "${cleanProviderName}"
 base_url = "${baseUrl}"
+env_key = "${envKey}"
 wire_api = "responses"
 requires_openai_auth = true`;
 }
@@ -65,12 +61,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     name: "兔子线路",
     websiteUrl: "",
     apiKeyUrl: "https://api.tu-zi.com",
-    auth: { OPENAI_API_KEY: "" },
-    config: generateThirdPartyConfig(
-      "tuzi_route",
-      "https://api.tu-zi.com/v1",
-      "gpt-5.5",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("tuzi", "https://api.tu-zi.com/v1", "TUZI_CODEX_API_KEY", "gpt-5.5"),
+    envKey: "TUZI_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: ["https://api.tu-zi.com/v1"],
     icon: "tuzi",
@@ -80,12 +73,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     name: "codex订阅",
     websiteUrl: "",
     apiKeyUrl: "https://store.tu-zi.com/cat/11",
-    auth: { OPENAI_API_KEY: "" },
-    config: generateThirdPartyConfig(
-      "coding",
-      "https://api.tu-zi.com/coding",
-      "gpt-5.5",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("codex", "https://api.tu-zi.com/coding", "CODING_CODEX_API_KEY", "gpt-5.5"),
+    envKey: "CODING_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: ["https://api.tu-zi.com/coding"],
     icon: "codex-sub",
@@ -95,12 +85,9 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     name: "gaccode",
     websiteUrl: "",
     apiKeyUrl: "https://store.tu-zi.com/cat/1",
-    auth: { OPENAI_API_KEY: "" },
-    config: generateThirdPartyConfig(
-      "gaccode",
-      "https://gaccode.com/codex/v1",
-      "gpt-5.5",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("gac", "https://gaccode.com/codex/v1", "GAC_CODEX_API_KEY", "gpt-5.5"),
+    envKey: "GAC_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: ["https://gaccode.com/codex/v1"],
     icon: "gaccode",
@@ -115,7 +102,7 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     config: ``,
     theme: {
       icon: "codex",
-      backgroundColor: "#1F2937", // gray-800
+      backgroundColor: "#1F2937",
       textColor: "#FFFFFF",
     },
     icon: "openai",
@@ -123,23 +110,12 @@ export const codexProviderPresets: CodexProviderPreset[] = [
   },
   {
     name: "Azure OpenAI",
-    websiteUrl:
-      "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/codex",
+    websiteUrl: "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/codex",
     category: "third_party",
     isOfficial: true,
-    auth: generateThirdPartyAuth(""),
-    config: `model_provider = "azure"
-model = "gpt-5.4"
-model_reasoning_effort = "high"
-disable_response_storage = true
-
-[model_providers.azure]
-name = "Azure OpenAI"
-base_url = "https://YOUR_RESOURCE_NAME.openai.azure.com/openai"
-env_key = "OPENAI_API_KEY"
-query_params = { "api-version" = "2025-04-01-preview" }
-wire_api = "responses"
-requires_openai_auth = true`,
+    auth: {},
+    config: generateThirdPartyConfig("azure", "https://YOUR_RESOURCE_NAME.openai.azure.com/openai", "AZURE_CODEX_API_KEY", "gpt-5.4"),
+    envKey: "AZURE_CODEX_API_KEY",
     endpointCandidates: ["https://YOUR_RESOURCE_NAME.openai.azure.com/openai"],
     theme: {
       icon: "codex",
@@ -153,50 +129,28 @@ requires_openai_auth = true`,
     name: "AiHubMix",
     websiteUrl: "https://aihubmix.com",
     category: "aggregator",
-    auth: generateThirdPartyAuth(""),
-    config: generateThirdPartyConfig(
-      "aihubmix",
-      "https://aihubmix.com/v1",
-      "gpt-5.4",
-    ),
-    endpointCandidates: [
-      "https://aihubmix.com/v1",
-      "https://api.aihubmix.com/v1",
-    ],
+    auth: {},
+    config: generateThirdPartyConfig("aihubmix", "https://aihubmix.com/v1", "AIHUBMIX_CODEX_API_KEY", "gpt-5.4"),
+    envKey: "AIHUBMIX_CODEX_API_KEY",
+    endpointCandidates: ["https://aihubmix.com/v1", "https://api.aihubmix.com/v1"],
   },
   {
     name: "RelaxyCode",
     websiteUrl: "https://www.relaxycode.com",
     apiKeyUrl: "https://www.relaxycode.com/register",
     category: "third_party",
-    auth: generateThirdPartyAuth(""),
-    config: generateThirdPartyConfig(
-      "relaxycode",
-      "https://www.relaxycode.com/v1",
-      "gpt-5.5",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("relaxycode", "https://www.relaxycode.com/v1", "RELAXYCODE_CODEX_API_KEY", "gpt-5.5"),
+    envKey: "RELAXYCODE_CODEX_API_KEY",
     icon: "relaxcode",
   },
   {
     name: "E-FlowCode",
     websiteUrl: "https://e-flowcode.cc",
     apiKeyUrl: "https://e-flowcode.cc",
-    auth: {
-      OPENAI_API_KEY: "",
-    },
-    config: `model_provider = "e-flowcode"
-model = "gpt-5.4"
-model_reasoning_effort = "high"
-disable_response_storage = true
-personality = "pragmatic"
-
-[model_providers.e-flowcode]
-name = "e-flowcode"
-base_url = "https://e-flowcode.cc/v1"
-wire_api = "responses"
-requires_openai_auth = true
-model_context_window = 1000000
-model_auto_compact_token_limit = 9000000`,
+    auth: {},
+    config: generateThirdPartyConfig("e_flowcode", "https://e-flowcode.cc/v1", "EFLOWCODE_CODEX_API_KEY", "gpt-5.4"),
+    envKey: "EFLOWCODE_CODEX_API_KEY",
     category: "third_party",
     endpointCandidates: ["https://e-flowcode.cc/v1"],
     icon: "eflowcode",
@@ -206,19 +160,9 @@ model_auto_compact_token_limit = 9000000`,
     name: "PIPELLM",
     websiteUrl: "https://code.pipellm.ai",
     apiKeyUrl: "https://code.pipellm.ai/login?ref=uvw650za",
-    auth: {
-      OPENAI_API_KEY: "",
-    },
-    config: `model_provider = "custom"
-model = "gpt-5.4"
-model_reasoning_effort = "medium"
-disable_response_storage = true
-
-[model_providers.custom]
-name = "custom"
-wire_api = "responses"
-requires_openai_auth = true
-base_url = "https://cc-api.pipellm.ai/v1"`,
+    auth: {},
+    config: generateThirdPartyConfig("pipellm", "https://cc-api.pipellm.ai/v1", "PIPELLM_CODEX_API_KEY", "gpt-5.4"),
+    envKey: "PIPELLM_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: ["https://cc-api.pipellm.ai/v1"],
     icon: "pipellm",
@@ -227,12 +171,9 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
     name: "OpenRouter",
     websiteUrl: "https://openrouter.ai",
     apiKeyUrl: "https://openrouter.ai/keys",
-    auth: generateThirdPartyAuth(""),
-    config: generateThirdPartyConfig(
-      "openrouter",
-      "https://openrouter.ai/api/v1",
-      "gpt-5.4",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_CODEX_API_KEY", "gpt-5.4"),
+    envKey: "OPENROUTER_CODEX_API_KEY",
     category: "aggregator",
     icon: "openrouter",
     iconColor: "#6566F1",
@@ -241,12 +182,9 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
     name: "TheRouter",
     websiteUrl: "https://therouter.ai",
     apiKeyUrl: "https://dashboard.therouter.ai",
-    auth: generateThirdPartyAuth(""),
-    config: generateThirdPartyConfig(
-      "therouter",
-      "https://api.therouter.ai/v1",
-      "openai/gpt-5.3-codex",
-    ),
+    auth: {},
+    config: generateThirdPartyConfig("therouter", "https://api.therouter.ai/v1", "THEROUTER_CODEX_API_KEY", "openai/gpt-5.3-codex"),
+    envKey: "THEROUTER_CODEX_API_KEY",
     endpointCandidates: ["https://api.therouter.ai/v1"],
     category: "aggregator",
   },

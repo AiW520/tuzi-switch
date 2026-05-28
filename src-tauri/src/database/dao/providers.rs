@@ -22,16 +22,25 @@ fn build_codex_official_provider(
     name: &str,
     website_url: &str,
     base_url: &str,
+    env_key: &str,
     model: &str,
 ) -> Provider {
+    let route_id = match id {
+        "coding" => "codex",
+        "gaccode" => "gac",
+        "tuzi-route" => "tuzi",
+        _ => id,
+    };
+    let config = format!(
+        "model_provider = \"{route_id}\"\nmodel = \"{model}\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.{route_id}]\nname = \"{route_id}\"\nbase_url = \"{base_url}\"\nenv_key = \"{env_key}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+    );
     let mut provider = Provider::with_id(
         id.to_string(),
         name.to_string(),
         json!({
-            "auth": { "OPENAI_API_KEY": "" },
-            "config": format!(
-                "model_provider = \"{id}\"\nmodel = \"{model}\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.{id}]\nname = \"{id}\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
-            ),
+            "auth": {},
+            "config": config,
+            "env": { "envKey": env_key },
         }),
         Some(website_url.to_string()),
     );
@@ -770,12 +779,12 @@ impl Database {
             seeded += upsert_seed_provider(&tx, "claude", &provider, sort_index)?;
         }
 
-        for (sort_index, (id, name, website_url, base_url, model)) in
+        for (sort_index, (id, name, website_url, base_url, env_key, model)) in
             crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
                 .iter()
                 .enumerate()
         {
-            let provider = build_codex_official_provider(id, name, website_url, base_url, model);
+            let provider = build_codex_official_provider(id, name, website_url, base_url, env_key, model);
             seeded += upsert_seed_provider(&tx, "codex", &provider, sort_index)?;
         }
 
@@ -808,7 +817,10 @@ impl Database {
         }
 
         ensure_seed_current_provider(&tx, "claude", previous_claude_current.as_deref())?;
-        ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
+        // Codex: don't auto-set current — user must explicitly enable a route
+        if previous_codex_current.is_some() {
+            ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
+        }
         ensure_seed_current_provider(&tx, "gemini", previous_gemini_current.as_deref())?;
         ensure_seed_current_provider(&tx, "openclaw", None)?;
         ensure_seed_current_provider(&tx, "hermes", None)?;
@@ -918,7 +930,7 @@ fn seed_settings_config_update_for_existing(
     if app_type == "codex"
         && crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
             .iter()
-            .any(|(id, _, _, _, _)| *id == provider.id)
+            .any(|(id, _, _, _, _, _)| *id == provider.id)
     {
         let existing_settings_config = tx
             .query_row(

@@ -395,3 +395,59 @@ pub async fn extract_common_config_snippet(
     crate::services::provider::ProviderService::extract_common_config_snippet(&state, app)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn read_codex_env_key(envKey: String) -> Result<Option<String>, String> {
+    let result = codex_config::read_managed_env_key(&envKey);
+    log::info!("[CODEX-ENV] read_codex_env_key({}) => has_value={}", envKey, result.is_some());
+    Ok(result)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn write_codex_env_key(envKey: String, value: String) -> Result<(), String> {
+    codex_config::write_managed_env_key(&envKey, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn read_all_codex_env_keys() -> Result<std::collections::HashMap<String, String>, String> {
+    Ok(codex_config::read_managed_env_block())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn save_codex_route(
+    routeId: String,
+    baseUrl: String,
+    envKey: String,
+    apiKey: String,
+    model: String,
+    modelReasoningEffort: String,
+) -> Result<(), String> {
+    // Write API key to shell rc
+    if !apiKey.is_empty() {
+        codex_config::write_managed_env_key(&envKey, &apiKey).map_err(|e| e.to_string())?;
+    }
+
+    // Write route section to config.toml
+    let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
+    let updated = codex_config::save_route_to_config(
+        &existing, &routeId, &baseUrl, &envKey, &model, &modelReasoningEffort,
+    ).map_err(|e| e.to_string())?;
+
+    // Switch to this profile (with model/effort at top level)
+    let final_config = codex_config::switch_codex_profile(
+        &updated, &routeId, Some(&model), Some(&modelReasoningEffort),
+    ).map_err(|e| e.to_string())?;
+
+    // Write config.toml + auth.json with current key
+    let actual_key = if !apiKey.is_empty() {
+        apiKey.clone()
+    } else {
+        codex_config::read_managed_env_key(&envKey).unwrap_or_default()
+    };
+    let auth = serde_json::json!({ "OPENAI_API_KEY": actual_key });
+    codex_config::write_codex_live_atomic(&auth, Some(&final_config))
+        .map_err(|e| e.to_string())
+}

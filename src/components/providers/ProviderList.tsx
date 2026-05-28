@@ -10,8 +10,10 @@ import {
   useMemo,
   useRef,
   useState,
+  useCallback,
   type CSSProperties,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -42,7 +44,6 @@ import {
   useCurrentOmoProviderId,
   useCurrentOmoSlimProviderId,
 } from "@/lib/query/omo";
-import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -116,6 +117,15 @@ export function ProviderList({
   // Hermes: 读取当前 model.provider，用于判断哪个供应商是"当前激活"（高亮）
   const { data: hermesModelConfig } = useHermesModelConfig(appId === "hermes");
   const hermesCurrentProviderId = hermesModelConfig?.provider;
+
+  // Preload all codex env keys for key existence check
+  const [codexEnvKeys, setCodexEnvKeys] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (appId !== "codex") return;
+    invoke<Record<string, string>>("read_all_codex_env_keys")
+      .then((keys) => setCodexEnvKeys(keys))
+      .catch(() => setCodexEnvKeys({}));
+  }, [appId, providers]);
 
   // 判断供应商是否已添加到配置（累加模式应用：OpenCode/OpenClaw/Hermes）
   const isProviderInConfig = useCallback(
@@ -241,8 +251,19 @@ export function ProviderList({
       }
 
       if (appId === "codex") {
+        const cfg = provider.settingsConfig as Record<string, any>;
+        // Check env-first: look up env_key in preloaded shell rc keys
+        const envKeyName = cfg?.env?.envKey
+          || (typeof cfg?.config === "string" ? cfg.config.match(/env_key\s*=\s*"([^"]+)"/)?.[1] : undefined);
+        if (envKeyName && codexEnvKeys[envKeyName]) {
+          return false; // Key exists in shell rc
+        }
+        // Fallback: check legacy auth field
         const apiKey = getApiKeyFromConfig(configString, "codex");
-        return !apiKey.trim();
+        if (apiKey.trim()) {
+          return false; // Key exists in legacy auth
+        }
+        return true; // No key found anywhere
       }
 
       if (appId === "gemini") {
@@ -272,7 +293,7 @@ export function ProviderList({
 
       return false;
     },
-    [appId],
+    [appId, codexEnvKeys],
   );
 
   const handleEnableProvider = useCallback(

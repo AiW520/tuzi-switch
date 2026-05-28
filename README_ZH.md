@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.2/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.0/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.0.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.0.2/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=v1.1.0 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.0/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
@@ -77,14 +77,27 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.0.2`，这一轮更新重点包括：
+当前公开版本为 `v1.1.0`，这一轮更新重点包括：
 
-- Claude / Codex / Gemini 在缺少 Node.js/npm 时不再直接暴露 `npm: command not found`，会先弹窗确认，再按平台自动安装依赖并继续原配置动作
-- macOS 通过 Homebrew 安装 Node.js，Linux 支持 apt/dnf/yum 安装 nodejs/npm，Windows 支持 winget 安装 Node.js LTS
-- OpenClaw 快速接入新增默认模型选择，配置时会写入完整模型列表，并把所选模型同步到 primary 与 fallbacks
-- Claude / Codex / Gemini 路线卡的“已写入”只表示下方业务 provider 卡片存在，删除卡片后不再被真实 CLI route 误判为已写入
-- 保持原版删除逻辑：非当前 provider 只删除下方卡片，当前 provider 仍禁止删除，真实 CLI 配置继续由顶部状态展示
-- Release 与 README 固定安装命令同步到 `v1.0.2`
+### Codex 配置逻辑重构
+
+- **切换不再覆盖配置**：切换线路时只修改顶层 `model_provider` / `model` / `model_reasoning_effort`，不再整套覆盖 config.toml，MCP、Projects 等用户自定义配置不会丢失
+- **多线路共存**：所有线路的 `[model_providers.xxx]` 在同一个 config.toml 中并存，切换只改指针
+- **API Key 安全存储**：Key 主存储在 shell rc 的 managed block 中（所有线路并存，切换不丢失），同时同步到 auth.json 供 Codex 桌面端使用
+- **同线路多 Key 支持**：同一条线路可配置多个 Key（自动后缀 `_2`、`_3`）
+- **对齐官方配置格式**：兼容 Codex CLI 0.134.0+ 的新配置规范（不再使用已废弃的 `[profiles.xxx]`），同时向下兼容旧版本
+- **版本自动检测**：启动时检测 Codex CLI 版本，自动选择新旧配置策略
+- **卡片 Key 实时显示**：从 shell rc 实时读取 Key 显示在卡片上，不再依赖数据库存储
+- **非兔子线路不显示充值/查询按钮**：第三方线路卡片只显示 Key，不显示兔子业务按钮
+
+### 其他改进
+
+- API Key 输入框提示文案更新为”填入 API Key，将自动写入环境变量”
+- 编辑页面补充”获取 API Key”链接
+- TOML 配置编辑器移除已废弃的 auth.json 编辑区和 Common Config 功能
+- 模型名称显示兼容新配置格式
+- 多语言翻译补充（充值/查询按钮、TOML 配置标题）
+- 预设种子卡片配置格式对齐新逻辑
 
 ## 产品亮点
 
@@ -141,23 +154,23 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ### 数据与本地存储
 
-为了兼容上游生态，当前本地数据仍沿用原有 CC Switch 存储路径：
+当前本地数据存储路径：
 
-- `~/.cc-switch/cc-switch.db`
-- `~/.cc-switch/settings.json`
-- `~/.cc-switch/backups/`
-- `~/.cc-switch/skills/`
+- `~/.tuzi-switch/tuzi-switch.db`
+- `~/.tuzi-switch/settings.json`
+- `~/.tuzi-switch/backups/`
+- `~/.codex/config.toml`（Codex 配置）
+- `~/.codex/auth.json`（Codex 认证）
+- `~/.zshrc` 或 `~/.bashrc`（环境变量 managed block）
 
 ## 开发计划 / TODO List
 
+- 已完成：Codex 配置逻辑重构（切换不覆盖、多线路共存、env_key 存储、版本兼容）
 - 已完成：缺 Node.js/npm 时的确认弹窗、自动依赖安装与继续配置链路
 - 已完成：OpenClaw 默认模型选择、primary/fallbacks 写入和配置成功后的默认模型同步
-- 已完成：快速接入“已写入”状态语义与下方 provider 卡片存在性对齐
-- 已完成：README、版本号、Release 文案与 `v1.0.0` 发布同步
+- 已完成：快速接入”已写入”状态语义与下方 provider 卡片存在性对齐
 - 进行中：继续跟踪 Windows 客户机真实反馈，特别是 Node/npm、PATH、winget 与 CLI shim 命中差异
 - 进行中：继续优化 OpenClaw 会话恢复、默认模型选择体验与业务线路表达
-- 进行中：继续统一深色 / 浅色主题下的路线卡、状态区、提示区和列表高亮
-- 下一步：继续精简 release 文案与客户安装提示
 - 下一步：继续推进 macOS 签名分发与客户视角安装说明收口
 
 ## 说明

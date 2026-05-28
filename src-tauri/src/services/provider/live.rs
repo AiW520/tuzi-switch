@@ -725,14 +725,92 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 .settings_config
                 .as_object()
                 .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
-            let auth = obj
-                .get("auth")
-                .ok_or_else(|| AppError::Config("Codex 供应商配置缺少 'auth' 字段".to_string()))?;
-            let config_str = obj.get("config").and_then(|v| v.as_str()).ok_or_else(|| {
-                AppError::Config("Codex 供应商配置缺少 'config' 字段或不是字符串".to_string())
-            })?;
 
-            write_codex_live_atomic_with_stable_provider(auth, Some(config_str))?;
+            let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
+
+            use crate::codex_config::{
+                read_codex_config_text, save_route_to_config, switch_codex_profile,
+                write_codex_live_atomic,
+            };
+
+            // Extract route_id from the provider's config TOML
+            let route_id = config_str
+                .lines()
+                .find_map(|l| {
+                    l.trim()
+                        .strip_prefix("model_provider")
+                        .and_then(|r| r.trim().strip_prefix('='))
+                        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "custom".to_string());
+
+            let existing = read_codex_config_text().unwrap_or_default();
+
+            // Check if route's [model_providers.xxx] section exists
+            let provider_header = format!("[model_providers.{}]", route_id);
+            let has_section = existing.contains(&provider_header);
+
+            // Extract fields from provider's config
+            // env_key must come from the correct [model_providers.<route_id>] section
+            let env_key = {
+                let section_header = format!("[model_providers.{}]", route_id);
+                let mut in_section = false;
+                let mut found = String::new();
+                for line in config_str.lines() {
+                    if line.trim() == section_header {
+                        in_section = true;
+                        continue;
+                    }
+                    if in_section && line.trim().starts_with('[') {
+                        break;
+                    }
+                    if in_section {
+                        if let Some(rest) = line.trim().strip_prefix("env_key") {
+                            if let Some(val) = rest.trim().strip_prefix('=') {
+                                found = val.trim().trim_matches('"').trim_matches('\'').to_string();
+                                break;
+                            }
+                        }
+                    }
+                }
+                found
+            };
+
+            let model = config_str.lines().find_map(|l| {
+                l.trim().strip_prefix("model")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                    .filter(|_| !l.trim().starts_with("model_provider") && !l.trim().starts_with("model_reasoning"))
+                    .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+            }).unwrap_or_else(|| "gpt-5.5".to_string());
+
+            let effort = config_str.lines().find_map(|l| {
+                l.trim().strip_prefix("model_reasoning_effort")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                    .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+            }).unwrap_or_else(|| "high".to_string());
+
+            let config_with_route = if !has_section {
+                let base_url = config_str.lines().find_map(|l| {
+                    l.trim().strip_prefix("base_url")
+                        .and_then(|r| r.trim().strip_prefix('='))
+                        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+                }).unwrap_or_default();
+
+                save_route_to_config(&existing, &route_id, &base_url, &env_key, &model, &effort)?
+            } else {
+                existing
+            };
+
+            // Switch top-level fields (model_provider + model + effort)
+            let final_config = switch_codex_profile(
+                &config_with_route, &route_id, Some(&model), Some(&effort),
+            )?;
+
+            // Write auth.json with current route's key from shell rc
+            let actual_key = crate::codex_config::read_managed_env_key(&env_key).unwrap_or_default();
+            let auth = serde_json::json!({ "OPENAI_API_KEY": actual_key });
+            write_codex_live_atomic(&auth, Some(&final_config))?;
         }
         AppType::Gemini => {
             // Delegate to write_gemini_live which handles env file writing correctly

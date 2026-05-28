@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import {
 } from "@/config/claudeProviderPresets";
 import {
   codexProviderPresets,
+  generateThirdPartyConfig,
   type CodexProviderPreset,
 } from "@/config/codexProviderPresets";
 import {
@@ -438,10 +440,25 @@ function ProviderFormFull({
     () => initialData?.meta?.codexFastMode ?? false,
   );
 
+  // Query existing codex providers for suffix computation
+  const { data: existingCodexProviders } = useQuery({
+    queryKey: ["codexProviders", appId],
+    queryFn: () => providersApi.getAll(appId),
+    enabled: appId === "codex" && !initialData,
+  });
+
+  // Preload shell rc env keys for checking if a route is actually configured
+  const { data: shellEnvKeys } = useQuery({
+    queryKey: ["codexShellEnvKeys"],
+    queryFn: () => invoke<Record<string, string>>("read_all_codex_env_keys"),
+    enabled: appId === "codex" && !initialData,
+  });
+
   const {
     codexAuth,
     codexConfig,
     codexApiKey,
+    codexEnvKey,
     codexBaseUrl,
     codexModelName,
     codexAuthError,
@@ -496,7 +513,7 @@ function ProviderFormFull({
   useEffect(() => {
     if (appId === "codex" && !initialData && selectedPresetId === "custom") {
       const template = getCodexCustomTemplate();
-      resetCodexConfig(template.auth, template.config);
+      resetCodexConfig(template.auth, template.config, "CUSTOM_CODEX_API_KEY");
     }
   }, [appId, initialData, selectedPresetId, resetCodexConfig]);
 
@@ -1121,10 +1138,25 @@ function ProviderFormFull({
 
     if (appId === "codex") {
       try {
-        const authJson = JSON.parse(codexAuth);
+        // Extract route_id from config TOML
+        const routeIdMatch = (codexConfig ?? "").match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+        const routeId = routeIdMatch?.[1] || "custom";
+
+        // Save route to config.toml + key to shell rc via backend
+        if (codexEnvKey && codexBaseUrl) {
+          await invoke("save_codex_route", {
+            routeId,
+            baseUrl: codexBaseUrl,
+            envKey: codexEnvKey,
+            apiKey: codexApiKey || "",
+            model: codexModelName || "gpt-5.5",
+            modelReasoningEffort: "high",
+          });
+        }
         const configObj = {
-          auth: authJson,
+          auth: {},
           config: codexConfig ?? "",
+          env: { envKey: codexEnvKey },
         };
         settingsConfig = JSON.stringify(configObj);
       } catch (err) {
@@ -1357,7 +1389,8 @@ function ProviderFormFull({
     "apiKeyUrl" in selectedCodexPreset
       ? (selectedCodexPreset.apiKeyUrl as string | undefined)
       : appId === "codex" && !selectedPresetId && providerId
-        ? (presetEntries.find(
+        ? // Edit mode: use provider's websiteUrl as apiKeyUrl
+          (initialData as any)?.websiteUrl || (presetEntries.find(
             (entry) => entry.id === providerId && "apiKeyUrl" in entry.preset && (entry.preset as any).apiKeyUrl,
           )?.preset as any)?.apiKeyUrl as string | undefined
         : undefined;
@@ -1432,7 +1465,7 @@ function ProviderFormFull({
 
       if (appId === "codex") {
         const template = getCodexCustomTemplate();
-        resetCodexConfig(template.auth, template.config);
+        resetCodexConfig(template.auth, template.config, "CUSTOM_CODEX_API_KEY");
       }
       if (appId === "gemini") {
         resetGeminiConfig({}, {});
@@ -1463,14 +1496,53 @@ function ProviderFormFull({
 
     if (appId === "codex") {
       const preset = entry.preset as CodexProviderPreset;
-      const auth = preset.auth ?? {};
-      const config = preset.config ?? "";
+      let config = preset.config ?? "";
+      let envKey = preset.envKey ?? "";
+      let displayName = preset.nameKey ? t(preset.nameKey) : preset.name;
 
-      resetCodexConfig(auth, config);
+      // Compute suffix: only count providers that actually have a key in shell rc
+      if (existingCodexProviders) {
+        const baseName = preset.nameKey ? t(preset.nameKey) : preset.name;
+        const allMatching = Object.values(existingCodexProviders).filter((p) => {
+          const nameMatches = p.name === baseName || p.name.match(new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+$`));
+          if (!nameMatches) return false;
+          // Check if actually configured: env_key exists AND has value in shell rc
+          const cfg = p.settingsConfig as Record<string, any>;
+          const envKeyName = cfg?.env?.envKey
+            || (typeof cfg?.config === "string" ? cfg.config.match(/env_key\s*=\s*"([^"]+)"/)?.[1] : undefined);
+          if (!envKeyName) return false;
+          return Boolean(shellEnvKeys?.[envKeyName]);
+        });
+        const count = allMatching.length;
+
+        if (count > 0) {
+          const suffix = count + 1;
+          displayName = `${baseName}_${suffix}`;
+
+          // Extract base route_id from config
+          const routeIdMatch = config.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+          const baseRouteId = routeIdMatch?.[1] || "custom";
+          const newRouteId = `${baseRouteId}_${suffix}`;
+
+          // Generate new env_key with suffix
+          const baseEnvKey = preset.envKey || "CUSTOM_CODEX_API_KEY";
+          envKey = `${baseEnvKey}_${suffix}`;
+
+          // Regenerate config with suffixed route_id and env_key
+          config = generateThirdPartyConfig(
+            newRouteId,
+            preset.endpointCandidates?.[0] || "",
+            envKey,
+            "gpt-5.5",
+          );
+        }
+      }
+
+      resetCodexConfig({}, config, envKey);
 
       form.reset({
-        name: preset.nameKey ? t(preset.nameKey) : preset.name,
-        settingsConfig: JSON.stringify({ auth, config }, null, 2),
+        name: displayName,
+        settingsConfig: JSON.stringify({ auth: {}, config, env: { envKey } }, null, 2),
         icon: preset.icon ?? "",
         iconColor: preset.iconColor ?? "",
       });
@@ -2201,7 +2273,7 @@ function ProviderFormFull({
                 )}
                 <span className="font-medium">
                   {appId === "codex"
-                    ? t("provider.configToml", { defaultValue: "TOML 配置" })
+                    ? t("codexConfig.configToml", { defaultValue: "TOML 配置" })
                     : t("provider.configJson", { defaultValue: "JSON 配置" })}
                 </span>
               </div>

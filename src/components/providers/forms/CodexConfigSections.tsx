@@ -224,32 +224,38 @@ export const CodexConfigSection: React.FC<CodexConfigSectionProps> = ({
         >
           {t("codexConfig.configToml")}
         </label>
-
-        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-          <input
-            type="checkbox"
-            checked={useCommonConfig}
-            onChange={(e) => onCommonConfigToggle(e.target.checked)}
-            className="w-4 h-4 text-blue-500 bg-white dark:bg-gray-800 border-border-default  rounded focus:ring-blue-500 dark:focus:ring-blue-400 focus:ring-2"
-          />
-          {t("codexConfig.writeCommonConfig")}
-        </label>
       </div>
 
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          onClick={onEditCommonConfig}
-          className="text-xs text-blue-500 dark:text-blue-400 hover:underline"
-        >
-          {t("codexConfig.editCommonConfig")}
-        </button>
-      </div>
+      {useCommonConfig !== false && onCommonConfigToggle && (
+        <>
+          <div className="flex items-center justify-between">
+            <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useCommonConfig}
+                onChange={(e) => onCommonConfigToggle(e.target.checked)}
+                className="w-4 h-4 text-blue-500 bg-white dark:bg-gray-800 border-border-default  rounded focus:ring-blue-500 dark:focus:ring-blue-400 focus:ring-2"
+              />
+              {t("codexConfig.writeCommonConfig")}
+            </label>
+          </div>
 
-      {commonConfigError && (
-        <p className="text-xs text-red-500 dark:text-red-400 text-right">
-          {commonConfigError}
-        </p>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onEditCommonConfig}
+              className="text-xs text-blue-500 dark:text-blue-400 hover:underline"
+            >
+              {t("codexConfig.editCommonConfig")}
+            </button>
+          </div>
+
+          {commonConfigError && (
+            <p className="text-xs text-red-500 dark:text-red-400 text-right">
+              {commonConfigError}
+            </p>
+          )}
+        </>
       )}
 
       {/* Codex 1M 上下文 UI 已隐藏：模型不再支持该字段。

@@ -8,23 +8,21 @@ export interface CodexTemplate {
   config: string;
 }
 
-/**
- * 获取 Codex 自定义模板
- * @returns Codex 模板配置
- */
 export function getCodexCustomTemplate(): CodexTemplate {
   const config = `model_provider = "custom"
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "high"
 disable_response_storage = true
 
 [model_providers.custom]
 name = "custom"
+base_url = "https://your-api-endpoint.com/v1"
+env_key = "CUSTOM_CODEX_API_KEY"
 wire_api = "responses"
 requires_openai_auth = true`;
 
   return {
-    auth: { OPENAI_API_KEY: "" },
+    auth: {},
     config,
   };
 }

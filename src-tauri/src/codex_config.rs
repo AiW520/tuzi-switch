@@ -1,4 +1,4 @@
-// unused imports removed
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::config::{
@@ -24,6 +24,339 @@ const CODEX_RESERVED_MODEL_PROVIDER_IDS: &[&str] = &[
     "oss",
     "ollama-chat",
 ];
+
+const MANAGED_ENV_BEGIN: &str = "# >>> tuzi-switch codex env >>>";
+const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
+
+// ---------------------------------------------------------------------------
+// Codex CLI version detection
+// ---------------------------------------------------------------------------
+
+/// Detect Codex CLI version. Returns (major, minor, patch) or None if not found.
+pub fn get_codex_version() -> Option<(u32, u32, u32)> {
+    use std::process::Command;
+    let output = Command::new("codex").arg("--version").output().ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Format: "codex-cli 0.133.0" or similar
+    let version_str = stdout.trim().split_whitespace().last()?;
+    let parts: Vec<&str> = version_str.split('.').collect();
+    if parts.len() >= 3 {
+        let major = parts[0].parse().ok()?;
+        let minor = parts[1].parse().ok()?;
+        let patch = parts[2].parse().ok()?;
+        Some((major, minor, patch))
+    } else {
+        None
+    }
+}
+
+/// Check if Codex CLI version is >= 0.134.0 (new profile format)
+pub fn is_new_profile_format() -> bool {
+    match get_codex_version() {
+        Some((major, minor, _)) => major > 0 || minor >= 134,
+        None => true, // Default to new format if can't detect
+    }
+}
+// Shell RC managed block
+// ---------------------------------------------------------------------------
+
+fn get_shell_rc_path() -> PathBuf {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let home = get_home_dir();
+    if shell.contains("zsh") {
+        home.join(".zshrc")
+    } else {
+        home.join(".bashrc")
+    }
+}
+
+pub fn read_managed_env_block() -> HashMap<String, String> {
+    let rc_path = get_shell_rc_path();
+    let content = match fs::read_to_string(&rc_path) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    parse_managed_block(&content)
+}
+
+pub fn read_managed_env_key(env_key: &str) -> Option<String> {
+    read_managed_env_block().remove(env_key)
+}
+
+pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
+    let rc_path = get_shell_rc_path();
+    let content = fs::read_to_string(&rc_path).unwrap_or_default();
+    let mut env_map = parse_managed_block(&content);
+    env_map.insert(env_key.to_string(), value.to_string());
+    let new_content = rebuild_rc_with_managed_block(&content, &env_map);
+    atomic_write(&rc_path, new_content.as_bytes())
+}
+
+#[allow(dead_code)]
+pub fn remove_managed_env_key(env_key: &str) -> Result<(), AppError> {
+    let rc_path = get_shell_rc_path();
+    let content = match fs::read_to_string(&rc_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+    let mut env_map = parse_managed_block(&content);
+    if env_map.remove(env_key).is_none() {
+        return Ok(());
+    }
+    let new_content = rebuild_rc_with_managed_block(&content, &env_map);
+    atomic_write(&rc_path, new_content.as_bytes())
+}
+
+fn parse_managed_block(content: &str) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    let mut in_block = false;
+    for line in content.lines() {
+        if line.trim() == MANAGED_ENV_BEGIN {
+            in_block = true;
+            continue;
+        }
+        if line.trim() == MANAGED_ENV_END {
+            break;
+        }
+        if in_block {
+            if let Some((k, v)) = parse_export_line(line) {
+                result.insert(k, v);
+            }
+        }
+    }
+    result
+}
+
+fn parse_export_line(line: &str) -> Option<(String, String)> {
+    let rest = line.trim().strip_prefix("export ")?;
+    let (key, val_raw) = rest.split_once('=')?;
+    let val = val_raw.trim().trim_matches('"').trim_matches('\'').to_string();
+    Some((key.trim().to_string(), val))
+}
+
+fn rebuild_rc_with_managed_block(content: &str, env_map: &HashMap<String, String>) -> String {
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    let mut state = 0u8; // 0=before, 1=in block, 2=after
+
+    for line in content.lines() {
+        match state {
+            0 => {
+                if line.trim() == MANAGED_ENV_BEGIN {
+                    state = 1;
+                } else {
+                    before.push(line);
+                }
+            }
+            1 => {
+                if line.trim() == MANAGED_ENV_END {
+                    state = 2;
+                }
+            }
+            _ => {
+                after.push(line);
+            }
+        }
+    }
+
+    let mut result = before.join("\n");
+    if !env_map.is_empty() {
+        if !result.is_empty() && !result.ends_with('\n') {
+            result.push('\n');
+        }
+        result.push_str(MANAGED_ENV_BEGIN);
+        result.push('\n');
+        let mut keys: Vec<&String> = env_map.keys().collect();
+        keys.sort();
+        for key in keys {
+            result.push_str(&format!("export {}=\"{}\"\n", key, env_map[key]));
+        }
+        result.push_str(MANAGED_ENV_END);
+        result.push('\n');
+    }
+    if !after.is_empty() {
+        result.push_str(&after.join("\n"));
+        if !result.ends_with('\n') {
+            result.push('\n');
+        }
+    } else if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Profile-based route management
+// ---------------------------------------------------------------------------
+
+/// Switch active profile: only changes top-level `profile` and `model_provider`.
+pub fn switch_codex_profile(
+    config_text: &str,
+    route_id: &str,
+    model: Option<&str>,
+    model_reasoning_effort: Option<&str>,
+) -> Result<String, AppError> {
+    let new_format = is_new_profile_format();
+
+    if config_text.trim().is_empty() {
+        let m = model.unwrap_or("gpt-5.5");
+        let e = model_reasoning_effort.unwrap_or("high");
+        let mut s = format!("model_provider = \"{route_id}\"\nmodel = \"{m}\"\nmodel_reasoning_effort = \"{e}\"\ndisable_response_storage = true\n");
+        if !new_format {
+            s = format!("profile = \"{route_id}\"\n{s}");
+        }
+        return Ok(s);
+    }
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+
+    if !new_format {
+        doc["profile"] = toml_edit::value(route_id);
+    } else {
+        // Remove profile field if it exists (not needed in new format)
+        doc.as_table_mut().remove("profile");
+    }
+    doc["model_provider"] = toml_edit::value(route_id);
+
+    if let Some(m) = model {
+        doc["model"] = toml_edit::value(m);
+    }
+    if let Some(e) = model_reasoning_effort {
+        doc["model_reasoning_effort"] = toml_edit::value(e);
+    }
+
+    Ok(doc.to_string())
+}
+
+/// Save a route's [profiles.xxx] and [model_providers.xxx] into existing config.toml.
+/// Uses text-based insertion to avoid toml_edit formatting issues.
+/// Preserves all other content (mcp_servers, projects, notify, etc).
+pub fn save_route_to_config(
+    existing_config: &str,
+    route_id: &str,
+    base_url: &str,
+    env_key: &str,
+    model: &str,
+    model_reasoning_effort: &str,
+) -> Result<String, AppError> {
+    let new_format = is_new_profile_format();
+
+    let provider_section = format!(
+        "[model_providers.{route_id}]\nname = \"{route_id}\"\nbase_url = \"{base_url}\"\nenv_key = \"{env_key}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+    );
+
+    let mut lines: Vec<String> = existing_config.lines().map(|l| l.to_string()).collect();
+
+    // Remove existing sections for this route
+    let profile_header = format!("[profiles.{}]", route_id);
+    let provider_header = format!("[model_providers.{}]", route_id);
+    lines = remove_section(&lines, &profile_header);
+    lines = remove_section(&lines, &provider_header);
+
+    // Remove empty parent headers
+    lines.retain(|l| l.trim() != "[profiles]" && l.trim() != "[model_providers]");
+
+    // Ensure top-level fields exist
+    if !lines.iter().any(|l| l.trim().starts_with("disable_response_storage")) {
+        lines.insert(0, "disable_response_storage = true".to_string());
+    }
+
+    // Find insertion point: before the first non-route section (mcp_servers, projects, etc)
+    let insert_idx = find_other_section_start(&lines);
+
+    // Build route block
+    let mut route_block = Vec::new();
+    route_block.push(String::new());
+
+    // For old versions (< 0.134.0), also write [profiles.xxx]
+    if !new_format {
+        route_block.push(format!("[profiles.{}]", route_id));
+        route_block.push(format!("model_provider = \"{}\"", route_id));
+        route_block.push(format!("model = \"{}\"", model));
+        route_block.push(format!("model_reasoning_effort = \"{}\"", model_reasoning_effort));
+        route_block.push("approval_policy = \"on-request\"".to_string());
+        route_block.push(String::new());
+    }
+
+    for line in provider_section.lines() {
+        route_block.push(line.to_string());
+    }
+
+    for (i, line) in route_block.into_iter().enumerate() {
+        lines.insert(insert_idx + i, line);
+    }
+
+    let mut result = lines.join("\n");
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    while result.contains("\n\n\n") {
+        result = result.replace("\n\n\n", "\n\n");
+    }
+    Ok(result)
+}
+
+/// Remove a route's [profiles.xxx] and [model_providers.xxx] sections from config.toml.
+pub fn remove_route_from_config(config_text: &str, route_id: &str) -> String {
+    let lines: Vec<String> = config_text.lines().map(|l| l.to_string()).collect();
+    let profile_header = format!("[profiles.{}]", route_id);
+    let provider_header = format!("[model_providers.{}]", route_id);
+    let after_profile = remove_section(&lines, &profile_header);
+    let after_both = remove_section(&after_profile, &provider_header);
+    let mut result = after_both.join("\n");
+    // Clean up multiple blank lines
+    while result.contains("\n\n\n") {
+        result = result.replace("\n\n\n", "\n\n");
+    }
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn remove_section(lines: &[String], header: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut skipping = false;
+    for line in lines {
+        if line.trim() == header {
+            skipping = true;
+            continue;
+        }
+        if skipping && line.trim().starts_with('[') {
+            skipping = false;
+        }
+        if !skipping {
+            result.push(line.clone());
+        }
+    }
+    result
+}
+
+fn find_other_section_start(lines: &[String]) -> usize {
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[')
+            && !trimmed.starts_with("[profiles.")
+            && !trimmed.starts_with("[model_providers.")
+            && !trimmed.starts_with("[profiles]")
+            && !trimmed.starts_with("[model_providers]")
+        {
+            return i;
+        }
+    }
+    lines.len()
+}
+
+/// Legacy merge function kept for compatibility
+#[allow(dead_code)]
+pub fn merge_codex_route(existing_config: &str, new_config: &str) -> Result<String, AppError> {
+    if new_config.trim().is_empty() {
+        return Ok(existing_config.to_string());
+    }
+    // Just return existing - switch no longer merges
+    Ok(existing_config.to_string())
+}
 
 /// 获取 Codex 配置目录路径
 pub fn get_codex_config_dir() -> PathBuf {

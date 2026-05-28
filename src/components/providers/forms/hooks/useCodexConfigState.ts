@@ -4,8 +4,10 @@ import {
   setCodexBaseUrl as setCodexBaseUrlInConfig,
   extractCodexModelName,
   setCodexModelName as setCodexModelNameInConfig,
+  getCodexEnvKey,
 } from "@/utils/providerConfigUtils";
 import { normalizeTomlText } from "@/utils/textNormalization";
+import { invoke } from "@tauri-apps/api/core";
 
 interface UseCodexConfigStateProps {
   initialData?: {
@@ -15,13 +17,87 @@ interface UseCodexConfigStateProps {
 }
 
 /**
- * 管理 Codex 配置状态
- * Codex 配置包含两部分：auth.json (JSON) 和 config.toml (TOML 字符串)
+ * Migrate legacy config format to new format (no [profiles.xxx], model at top level).
+ * If already has [model_providers.xxx] with env_key, returns as-is.
+ */
+function migrateLegacyConfig(configStr: string): string {
+  if (!configStr.trim()) return configStr;
+  // Already has model_providers with env_key — no migration needed
+  if (configStr.match(/\[model_providers\.\w+\]/) && configStr.includes("env_key")) {
+    // Remove [profiles.xxx] sections if present (deprecated in 0.134.0+)
+    return configStr.replace(/\[profiles\.[^\]]+\][^\[]*/g, "").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  }
+
+  // Extract model_provider name from top-level
+  const providerMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+  if (!providerMatch) return configStr;
+  const providerName = providerMatch[1];
+
+  // Extract model and model_reasoning_effort from top-level
+  const modelMatch = configStr.match(/^\s*model\s*=\s*"([^"]+)"/m);
+  const effortMatch = configStr.match(/^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m);
+  const model = modelMatch?.[1] || "gpt-5.5";
+  const effort = effortMatch?.[1] || "high";
+
+  // Build new format
+  const result: string[] = [];
+  result.push(`model_provider = "${providerName}"`);
+  result.push(`model = "${model}"`);
+  result.push(`model_reasoning_effort = "${effort}"`);
+  result.push(`disable_response_storage = true`);
+  result.push("");
+
+  // Copy existing [model_providers.xxx] section, adding env_key if missing
+  const lines = configStr.split("\n");
+  let inModelProviders = false;
+  let hasEnvKey = false;
+  let wroteModelProviders = false;
+
+  for (const line of lines) {
+    if (line.trim().startsWith("[model_providers.")) {
+      inModelProviders = true;
+      wroteModelProviders = true;
+      result.push(line);
+      continue;
+    }
+    if (inModelProviders) {
+      if (line.trim().startsWith("[") && !line.trim().startsWith("[model_providers.")) {
+        if (!hasEnvKey) {
+          result.push(`env_key = "OPENAI_API_KEY"`);
+        }
+        inModelProviders = false;
+        result.push(line);
+      } else {
+        if (line.trim().startsWith("env_key")) hasEnvKey = true;
+        result.push(line);
+      }
+    }
+  }
+
+  if (inModelProviders && !hasEnvKey) {
+    result.push(`env_key = "OPENAI_API_KEY"`);
+  }
+
+  if (!wroteModelProviders) {
+    result.push(`[model_providers.${providerName}]`);
+    result.push(`name = "${providerName}"`);
+    result.push(`env_key = "OPENAI_API_KEY"`);
+    result.push(`wire_api = "responses"`);
+    result.push(`requires_openai_auth = true`);
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * 管理 Codex 配置状态 (profile-based, env-first)
+ * API Key 存储在 shell rc managed block，不再写入 auth.json
  */
 export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
-  const [codexAuth, setCodexAuthState] = useState("");
+  const [codexAuth, setCodexAuthState] = useState("{}");
   const [codexConfig, setCodexConfigState] = useState("");
   const [codexApiKey, setCodexApiKey] = useState("");
+  const [codexEnvKey, setCodexEnvKey] = useState("");
   const [codexBaseUrl, setCodexBaseUrl] = useState("");
   const [codexModelName, setCodexModelName] = useState("");
   const [codexAuthError, setCodexAuthError] = useState("");
@@ -35,79 +111,67 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
     const config = initialData.settingsConfig;
     if (typeof config === "object" && config !== null) {
-      // 设置 auth.json
-      const auth = (config as any).auth || {};
-      setCodexAuthState(JSON.stringify(auth, null, 2));
+      setCodexAuthState("{}");
 
-      // 设置 config.toml
-      const configStr =
+      let configStr =
         typeof (config as any).config === "string"
           ? (config as any).config
           : "";
+
+      // Migrate legacy format: if no [profiles.xxx] section, auto-generate it
+      configStr = migrateLegacyConfig(configStr);
+
       setCodexConfigState(configStr);
 
-      // 提取 Base URL
       const initialBaseUrl = extractCodexBaseUrl(configStr);
-      if (initialBaseUrl) {
-        setCodexBaseUrl(initialBaseUrl);
-      } else if (initialData?.name === "兔子线路") {
-        setCodexBaseUrl("https://api.tu-zi.com/v1");
-      }
+      if (initialBaseUrl) setCodexBaseUrl(initialBaseUrl);
 
-      // 提取 Model Name
       const initialModelName = extractCodexModelName(configStr);
-      if (initialModelName) {
-        setCodexModelName(initialModelName);
-      }
+      if (initialModelName) setCodexModelName(initialModelName);
 
-      // 提取 API Key
-      try {
-        if (auth && typeof auth.OPENAI_API_KEY === "string") {
+      // Determine envKey: from env field or from TOML config
+      const envObj = (config as any).env;
+      const envKeyFromField = envObj?.envKey;
+      const envKeyFromToml = getCodexEnvKey(configStr);
+      const resolvedEnvKey = envKeyFromField || envKeyFromToml || "";
+      setCodexEnvKey(resolvedEnvKey);
+
+      // Read API key from shell rc via backend
+      if (resolvedEnvKey) {
+        invoke<string | null>("read_codex_env_key", { envKey: resolvedEnvKey })
+          .then((key) => { if (key) setCodexApiKey(key); })
+          .catch(() => {
+            // Fallback: legacy auth field
+            const auth = (config as any).auth;
+            if (auth?.OPENAI_API_KEY && typeof auth.OPENAI_API_KEY === "string") {
+              setCodexApiKey(auth.OPENAI_API_KEY);
+            }
+          });
+      } else {
+        // Legacy provider without envKey
+        const auth = (config as any).auth;
+        if (auth?.OPENAI_API_KEY && typeof auth.OPENAI_API_KEY === "string") {
           setCodexApiKey(auth.OPENAI_API_KEY);
         }
-      } catch {
-        // ignore
       }
     }
   }, [initialData]);
 
   // 与 TOML 配置保持基础 URL 同步
   useEffect(() => {
-    if (isUpdatingCodexBaseUrlRef.current) {
-      return;
-    }
+    if (isUpdatingCodexBaseUrlRef.current) return;
     const extracted = extractCodexBaseUrl(codexConfig) || "";
     setCodexBaseUrl((prev) => (prev === extracted ? prev : extracted));
   }, [codexConfig]);
 
   // 与 TOML 配置保持模型名称同步
   useEffect(() => {
-    if (isUpdatingCodexModelNameRef.current) {
-      return;
-    }
+    if (isUpdatingCodexModelNameRef.current) return;
     const extracted = extractCodexModelName(codexConfig) || "";
     setCodexModelName((prev) => (prev === extracted ? prev : extracted));
   }, [codexConfig]);
 
-  // 获取 API Key（从 auth JSON）
-  const getCodexAuthApiKey = useCallback((authString: string): string => {
-    try {
-      const auth = JSON.parse(authString || "{}");
-      return typeof auth.OPENAI_API_KEY === "string" ? auth.OPENAI_API_KEY : "";
-    } catch {
-      return "";
-    }
-  }, []);
-
-  // 从 codexAuth 中提取并同步 API Key
-  useEffect(() => {
-    const extractedKey = getCodexAuthApiKey(codexAuth);
-    if (extractedKey !== codexApiKey) {
-      setCodexApiKey(extractedKey);
-    }
-  }, [codexAuth, codexApiKey]);
-
-  // 验证 Codex Auth JSON
+  // 验证 Codex Auth JSON (legacy compatibility)
   const validateCodexAuth = useCallback((value: string): string => {
     if (!value.trim()) return "";
     try {
@@ -121,7 +185,6 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
     }
   }, []);
 
-  // 设置 auth 并验证
   const setCodexAuth = useCallback(
     (value: string) => {
       setCodexAuthState(value);
@@ -130,7 +193,6 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
     [validateCodexAuth],
   );
 
-  // 设置 config (支持函数更新)
   const setCodexConfig = useCallback(
     (value: string | ((prev: string) => string)) => {
       setCodexConfigState((prev) =>
@@ -142,118 +204,93 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
     [],
   );
 
-  // 处理 Codex API Key 输入并写回 auth.json
-  const handleCodexApiKeyChange = useCallback(
-    (key: string) => {
-      const trimmed = key.trim();
-      setCodexApiKey(trimmed);
-      try {
-        const auth = JSON.parse(codexAuth || "{}");
-        auth.OPENAI_API_KEY = trimmed;
-        setCodexAuth(JSON.stringify(auth, null, 2));
-      } catch {
-        // ignore
-      }
-    },
-    [codexAuth, setCodexAuth],
-  );
+  // API Key 输入：只更新本地状态，实际写入在保存时通过后端完成
+  const handleCodexApiKeyChange = useCallback((key: string) => {
+    setCodexApiKey(key.trim());
+  }, []);
 
-  // 处理 Codex Base URL 变化
   const handleCodexBaseUrlChange = useCallback(
     (url: string) => {
       const sanitized = url.trim();
       setCodexBaseUrl(sanitized);
-
       isUpdatingCodexBaseUrlRef.current = true;
       setCodexConfig((prev) => setCodexBaseUrlInConfig(prev, sanitized));
-      setTimeout(() => {
-        isUpdatingCodexBaseUrlRef.current = false;
-      }, 0);
+      setTimeout(() => { isUpdatingCodexBaseUrlRef.current = false; }, 0);
     },
     [setCodexConfig],
   );
 
-  // 处理 Codex Model Name 变化
   const handleCodexModelNameChange = useCallback(
     (modelName: string) => {
       const trimmed = modelName.trim();
       setCodexModelName(trimmed);
-
       isUpdatingCodexModelNameRef.current = true;
       setCodexConfig((prev) => setCodexModelNameInConfig(prev, trimmed));
-      setTimeout(() => {
-        isUpdatingCodexModelNameRef.current = false;
-      }, 0);
+      setTimeout(() => { isUpdatingCodexModelNameRef.current = false; }, 0);
     },
     [setCodexConfig],
   );
 
-  // 处理 config 变化（同步 Base URL 和 Model Name）
   const handleCodexConfigChange = useCallback(
     (value: string) => {
-      // 归一化中文/全角/弯引号，避免 TOML 解析报错
       const normalized = normalizeTomlText(value);
       setCodexConfig(normalized);
 
       if (!isUpdatingCodexBaseUrlRef.current) {
         const extracted = extractCodexBaseUrl(normalized) || "";
-        if (extracted !== codexBaseUrl) {
-          setCodexBaseUrl(extracted);
-        }
+        if (extracted !== codexBaseUrl) setCodexBaseUrl(extracted);
       }
-
       if (!isUpdatingCodexModelNameRef.current) {
         const extractedModel = extractCodexModelName(normalized) || "";
-        if (extractedModel !== codexModelName) {
-          setCodexModelName(extractedModel);
-        }
+        if (extractedModel !== codexModelName) setCodexModelName(extractedModel);
       }
+      // Sync env_key from config
+      const newEnvKey = getCodexEnvKey(normalized);
+      if (newEnvKey && newEnvKey !== codexEnvKey) setCodexEnvKey(newEnvKey);
     },
-    [setCodexConfig, codexBaseUrl, codexModelName],
+    [setCodexConfig, codexBaseUrl, codexModelName, codexEnvKey],
   );
 
-  // 重置配置（用于预设切换）
+  // 重置配置（用于预设切换时，新建模式下不预填充 key）
   const resetCodexConfig = useCallback(
-    (auth: Record<string, unknown>, config: string) => {
-      const authString = JSON.stringify(auth, null, 2);
-      setCodexAuth(authString);
+    (_auth: Record<string, unknown>, config: string, envKey?: string) => {
+      setCodexAuth("{}");
       setCodexConfig(config);
 
       const baseUrl = extractCodexBaseUrl(config);
-      if (baseUrl) {
-        setCodexBaseUrl(baseUrl);
-      }
+      if (baseUrl) setCodexBaseUrl(baseUrl);
+      else setCodexBaseUrl("");
 
       const modelName = extractCodexModelName(config);
-      if (modelName) {
-        setCodexModelName(modelName);
-      } else {
-        setCodexModelName("");
-      }
+      if (modelName) setCodexModelName(modelName);
+      else setCodexModelName("");
 
-      // 提取 API Key
-      try {
-        if (auth && typeof auth.OPENAI_API_KEY === "string") {
-          setCodexApiKey(auth.OPENAI_API_KEY);
-        } else {
-          setCodexApiKey("");
-        }
-      } catch {
-        setCodexApiKey("");
-      }
+      const resolvedEnvKey = envKey || getCodexEnvKey(config) || "";
+      setCodexEnvKey(resolvedEnvKey);
+
+      // Don't pre-fill key on preset switch (new mode) — user should enter their own key
+      setCodexApiKey("");
     },
     [setCodexAuth, setCodexConfig],
+  );
+
+  // Legacy helper
+  const getCodexAuthApiKey = useCallback(
+    (_authString: string): string => codexApiKey,
+    [codexApiKey],
   );
 
   return {
     codexAuth,
     codexConfig,
     codexApiKey,
+    codexEnvKey,
     codexBaseUrl,
     codexModelName,
     codexAuthError,
     setCodexAuth,
     setCodexConfig,
+    setCodexEnvKey,
     handleCodexApiKeyChange,
     handleCodexBaseUrlChange,
     handleCodexModelNameChange,

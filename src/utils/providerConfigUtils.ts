@@ -185,13 +185,17 @@ export const getApiKeyFromConfig = (
 
     const env = config?.env;
 
-    // Codex API Key（保存在 auth.OPENAI_API_KEY）
+    // Codex API Key
     if (appType === "codex") {
+      // New env-first format: key is in shell rc, we only have envKey name here
+      if (env?.envKey && typeof env.envKey === "string") {
+        return ""; // Key is stored externally, read via backend command
+      }
+      // Legacy format
       if (typeof config?.auth?.OPENAI_API_KEY === "string") {
         return config.auth.OPENAI_API_KEY;
       }
-      if (!env) return "";
-      const codexKey = env.CODEX_API_KEY;
+      const codexKey = env?.CODEX_API_KEY;
       return typeof codexKey === "string" ? codexKey : "";
     }
 
@@ -421,7 +425,7 @@ export const hasTomlCommonConfigSnippet = (
 
 const TOML_SECTION_HEADER_PATTERN = /^\s*\[([^\]\r\n]+)\]\s*$/;
 const TOML_BASE_URL_PATTERN =
-  /^\s*base_url\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/;
+  /^\s*base_url\s*=\s*(["'])([^"'\r\n]*)\1\s*(?:#.*)?$/;
 const TOML_MODEL_PATTERN = /^\s*model\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/;
 const TOML_MODEL_PROVIDER_LINE_PATTERN =
   /^\s*model_provider\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/;
@@ -787,13 +791,25 @@ export const extractCodexModelName = (
     const text = normalizeTomlText(raw);
     if (!text) return undefined;
     const lines = text.split("\n");
+    // Try top-level first
     const topLevelMatch = findTomlAssignmentInRange(
       lines,
       TOML_MODEL_PATTERN,
       0,
       getTopLevelEndIndex(lines),
     );
-    return topLevelMatch?.value;
+    if (topLevelMatch?.value) return topLevelMatch.value;
+    // Fallback: search in [profiles.*] sections
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().startsWith("[profiles.")) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim().startsWith("[")) break;
+          const match = lines[j].match(TOML_MODEL_PATTERN);
+          if (match?.[2]) return match[2];
+        }
+      }
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -920,4 +936,37 @@ export const removeCodexTopLevelField = (
     lines.splice(existing.index, 1);
   }
   return finalizeTomlText(lines);
+};
+
+/**
+ * Extract env_key from the active model_provider section in config.toml.
+ */
+export const getCodexEnvKey = (configText: string): string | null => {
+  if (!configText) return null;
+  const lines = configText.split("\n");
+
+  let activeProvider: string | null = null;
+  for (const line of lines) {
+    const match = line.match(/^\s*model_provider\s*=\s*"([^"]+)"/);
+    if (match) {
+      activeProvider = match[1];
+      break;
+    }
+  }
+  if (!activeProvider) return null;
+
+  const sectionHeader = `[model_providers.${activeProvider}]`;
+  let inSection = false;
+  for (const line of lines) {
+    if (line.trim() === sectionHeader) {
+      inSection = true;
+      continue;
+    }
+    if (inSection) {
+      if (line.trim().startsWith("[")) break;
+      const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+      if (envKeyMatch) return envKeyMatch[1];
+    }
+  }
+  return null;
 };

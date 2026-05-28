@@ -128,6 +128,8 @@
     "editCodexProvider": "Codex プロバイダーを編集",
     "configError": "設定エラー",
     "notConfigured": "公式サイト用に未設定",
+    "recharge": "チャージ",
+    "query": "照会",
     "applyToClaudePlugin": "Claude プラグインに適用",
     "removeFromClaudePlugin": "Claude プラグインから解除",
     "dragToReorder": "ドラッグで並べ替え",
