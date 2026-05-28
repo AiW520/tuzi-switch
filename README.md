@@ -1,6 +1,6 @@
 <div align="center">
 
-# tuzi-switch
+# CC Switch For TuZi
 
 ### 面向 Claude Code、Codex、Gemini 与 OpenClaw 的兔子业务桌面助手
 
