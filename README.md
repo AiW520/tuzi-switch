@@ -32,14 +32,14 @@
 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.0/scripts/install_tuzi_switch.sh | bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "open /Applications/CC\ Switch\ For\ TuZi.app/"
 ```
 安装指定版本：
 ```
 TUZI_SWITCH_TAG=v1.1.0 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.0/scripts/install_tuzi_switch.sh | bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "open /Applications/CC\ Switch\ For\ TuZi.app/"
 ```
 补充说明：
 
@@ -56,8 +56,8 @@ open "/Applications/tuzi switch.app"
 2. 或在终端执行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/tuzi-switch.app"
-open "/Applications/tuzi-switch.app"
+xattr -dr com.apple.quarantine "open /Applications/CC\ Switch\ For\ TuZi.app/"
+open "open /Applications/CC\ Switch\ For\ TuZi.app/"
 ```
 
 如果你不是把应用放在 `/Applications`，把命令里的路径改成你自己的实际路径即可。
