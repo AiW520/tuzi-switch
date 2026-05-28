@@ -71,6 +71,9 @@ fn get_shell_rc_path() -> PathBuf {
 }
 
 pub fn read_managed_env_block() -> HashMap<String, String> {
+    if cfg!(target_os = "windows") {
+        return read_windows_env_keys();
+    }
     let rc_path = get_shell_rc_path();
     let content = match fs::read_to_string(&rc_path) {
         Ok(c) => c,
@@ -80,10 +83,16 @@ pub fn read_managed_env_block() -> HashMap<String, String> {
 }
 
 pub fn read_managed_env_key(env_key: &str) -> Option<String> {
+    if cfg!(target_os = "windows") {
+        return std::env::var(env_key).ok().filter(|v| !v.is_empty());
+    }
     read_managed_env_block().remove(env_key)
 }
 
 pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
+    if cfg!(target_os = "windows") {
+        return write_windows_env_key(env_key, value);
+    }
     let rc_path = get_shell_rc_path();
     let content = fs::read_to_string(&rc_path).unwrap_or_default();
     let mut env_map = parse_managed_block(&content);
@@ -94,6 +103,9 @@ pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError>
 
 #[allow(dead_code)]
 pub fn remove_managed_env_key(env_key: &str) -> Result<(), AppError> {
+    if cfg!(target_os = "windows") {
+        return remove_windows_env_key(env_key);
+    }
     let rc_path = get_shell_rc_path();
     let content = match fs::read_to_string(&rc_path) {
         Ok(c) => c,
@@ -183,6 +195,59 @@ fn rebuild_rc_with_managed_block(content: &str, env_map: &HashMap<String, String
         result.push('\n');
     }
     result
+}
+
+// ---------------------------------------------------------------------------
+// Windows environment variable management (via registry/setx)
+// ---------------------------------------------------------------------------
+
+/// Read all CODEX-related env keys from Windows user environment variables
+fn read_windows_env_keys() -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    // Read from current process environment (which inherits user env vars)
+    for (key, value) in std::env::vars() {
+        if key.ends_with("_CODEX_API_KEY") || key == "CODEX_API_KEY" {
+            result.insert(key, value);
+        }
+    }
+    result
+}
+
+/// Write a user environment variable on Windows using setx
+fn write_windows_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
+    use std::process::Command;
+    let output = Command::new("setx")
+        .arg(env_key)
+        .arg(value)
+        .output()
+        .map_err(|e| AppError::Message(format!("Failed to run setx: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Message(format!("setx failed: {stderr}")));
+    }
+
+    // Also set in current process so it's immediately available
+    std::env::set_var(env_key, value);
+    Ok(())
+}
+
+/// Remove a user environment variable on Windows
+#[allow(dead_code)]
+fn remove_windows_env_key(env_key: &str) -> Result<(), AppError> {
+    use std::process::Command;
+    // setx with empty string effectively removes the variable
+    let output = Command::new("reg")
+        .args(["delete", "HKCU\\Environment", "/v", env_key, "/f"])
+        .output()
+        .map_err(|e| AppError::Message(format!("Failed to run reg delete: {e}")))?;
+
+    if !output.status.success() {
+        // Ignore error if key doesn't exist
+    }
+
+    std::env::remove_var(env_key);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
