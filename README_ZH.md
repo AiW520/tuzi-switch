@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.1/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.1.1 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.1/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=v1.1.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
@@ -77,7 +77,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.1.1`，这一轮更新重点包括：
+当前公开版本为 `v1.1.2`，这一轮更新重点包括：
 
 ### Codex 配置逻辑重构
 
@@ -92,6 +92,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ### 其他改进
 
+- **Windows 环境变量支持**：Windows 平台通过 `setx` 写入用户环境变量（注册表），macOS/Linux 通过 shell rc managed block，平台自动检测
 - API Key 输入框提示文案更新为”填入 API Key，将自动写入环境变量”
 - 编辑页面补充”获取 API Key”链接
 - TOML 配置编辑器移除已废弃的 auth.json 编辑区和 Common Config 功能
