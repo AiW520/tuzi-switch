@@ -11,7 +11,22 @@ permissions:
   contents: write
 
 jobs:
+  validate-updater-signing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Tauri updater signing key
+        env:
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RAW_SIGNING_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY Secret 为空，无法发布可自动更新的版本。" >&2
+            echo "请配置与 src-tauri/tauri.conf.json 中 updater.pubkey 匹配的私钥。" >&2
+            exit 1
+          fi
+
   create-release:
+    needs: validate-updater-signing
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +73,37 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
       - run: pnpm install
+      - name: Prepare Tauri signing key
+        shell: bash
+        env:
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RAW_SIGNING_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY Secret 为空，无法生成 Tauri updater 签名。" >&2
+            exit 1
+          fi
+
+          KEY_PATH="$RUNNER_TEMP/tauri_signing.key"
+          PASSWORD="${RAW_SIGNING_PASSWORD:-}"
+          if printf '%s' "$RAW_SIGNING_KEY" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$RAW_SIGNING_KEY" > "$KEY_PATH"
+          elif DECODED=$(printf '%s' "$RAW_SIGNING_KEY" | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
+            && printf '%s' "$DECODED" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$DECODED" > "$KEY_PATH"
+          elif printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n' | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+            ONE=$(printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n')
+            printf '%s\n%s\n' "untrusted comment: tauri signing key" "$ONE" > "$KEY_PATH"
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY 格式无法识别。" >&2
+            exit 1
+          fi
+
+          KEY_B64=$(base64 < "$KEY_PATH" | tr -d '\r\n')
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_B64" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
       - name: Build
         env:
           APPLE_SIGNING_IDENTITY: "-"
@@ -67,9 +113,38 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           BUNDLE="src-tauri/target/aarch64-apple-darwin/release/bundle"
-          find "$BUNDLE/dmg"   -name "*.dmg"   -exec sh -c 'cp "$1" "tuzi-switch-macos-aarch64.dmg"   && gh release upload "$TAG" "tuzi-switch-macos-aarch64.dmg"   --clobber' _ {} \;
-          find "$BUNDLE/macos" -name "*.tar.gz" -exec sh -c 'cp "$1" "tuzi-switch-macos-aarch64.tar.gz" && gh release upload "$TAG" "tuzi-switch-macos-aarch64.tar.gz" --clobber' _ {} \;
+
+          upload_asset() {
+            local src="$1"
+            local dest="$2"
+            local require_sig="${3:-false}"
+            cp "$src" "$dest"
+            if [ -f "$src.sig" ]; then
+              cp "$src.sig" "$dest.sig"
+            elif [ "$require_sig" = "true" ]; then
+              pnpm tauri signer sign -f "$TAURI_SIGNING_PRIVATE_KEY_PATH" -p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$dest"
+            fi
+            gh release upload "$TAG" "$dest" --clobber
+            if [ -f "$dest.sig" ]; then
+              gh release upload "$TAG" "$dest.sig" --clobber
+            elif [ "$require_sig" = "true" ]; then
+              echo "缺少 updater 签名文件: $dest.sig" >&2
+              exit 1
+            fi
+          }
+
+          DMG=$(find "$BUNDLE/dmg" -name "*.dmg" -type f | head -1 || true)
+          TAR_GZ=$(find "$BUNDLE/macos" -name "*.tar.gz" -type f | head -1 || true)
+          if [ -n "$DMG" ]; then
+            upload_asset "$DMG" "tuzi-switch-macos-aarch64.dmg" false
+          fi
+          if [ -z "$TAR_GZ" ]; then
+            echo "缺少 macOS updater tar.gz 产物。" >&2
+            exit 1
+          fi
+          upload_asset "$TAR_GZ" "tuzi-switch-macos-aarch64.tar.gz" true
 
   build-windows:
     needs: create-release
@@ -87,6 +162,37 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
       - run: pnpm install
+      - name: Prepare Tauri signing key
+        shell: bash
+        env:
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RAW_SIGNING_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY Secret 为空，无法生成 Tauri updater 签名。" >&2
+            exit 1
+          fi
+
+          KEY_PATH="$RUNNER_TEMP/tauri_signing.key"
+          PASSWORD="${RAW_SIGNING_PASSWORD:-}"
+          if printf '%s' "$RAW_SIGNING_KEY" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$RAW_SIGNING_KEY" > "$KEY_PATH"
+          elif DECODED=$(printf '%s' "$RAW_SIGNING_KEY" | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
+            && printf '%s' "$DECODED" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$DECODED" > "$KEY_PATH"
+          elif printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n' | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+            ONE=$(printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n')
+            printf '%s\n%s\n' "untrusted comment: tauri signing key" "$ONE" > "$KEY_PATH"
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY 格式无法识别。" >&2
+            exit 1
+          fi
+
+          KEY_B64=$(base64 < "$KEY_PATH" | tr -d '\r\n')
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_B64" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
       - name: Build
         run: pnpm tauri build
       - name: Upload assets
@@ -95,14 +201,34 @@ jobs:
           TAG: ${{ github.ref_name }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $bundle = "src-tauri/target/release/bundle"
-          Get-ChildItem "$bundle/msi/*.msi" | ForEach-Object {
-            Copy-Item $_.FullName "tuzi-switch-windows-x86_64.msi"
-            gh release upload $env:TAG "tuzi-switch-windows-x86_64.msi" --clobber
+
+          function Upload-Asset($Source, $Dest, $RequireSignature) {
+            Copy-Item $Source $Dest
+            $sigPath = "$Source.sig"
+            if (Test-Path $sigPath) {
+              Copy-Item $sigPath "$Dest.sig"
+            } elseif ($RequireSignature) {
+              pnpm tauri signer sign -f $env:TAURI_SIGNING_PRIVATE_KEY_PATH -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $Dest
+            }
+            gh release upload $env:TAG $Dest --clobber
+            if (Test-Path "$Dest.sig") {
+              gh release upload $env:TAG "$Dest.sig" --clobber
+            } elseif ($RequireSignature) {
+              Write-Error "缺少 updater 签名文件: $Dest.sig"
+            }
           }
-          Get-ChildItem "$bundle/nsis/*-setup.exe" | ForEach-Object {
-            Copy-Item $_.FullName "tuzi-switch-windows-x86_64-setup.exe"
-            gh release upload $env:TAG "tuzi-switch-windows-x86_64-setup.exe" --clobber
+
+          $msi = Get-ChildItem "$bundle/msi/*.msi" | Select-Object -First 1
+          if ($null -eq $msi) {
+            Write-Error "缺少 Windows MSI 产物"
+          }
+          Upload-Asset $msi.FullName "tuzi-switch-windows-x86_64.msi" $true
+
+          $setup = Get-ChildItem "$bundle/nsis/*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -ne $setup) {
+            Upload-Asset $setup.FullName "tuzi-switch-windows-x86_64-setup.exe" $true
           }
 
   build-linux:
@@ -125,6 +251,37 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
       - run: pnpm install
+      - name: Prepare Tauri signing key
+        shell: bash
+        env:
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RAW_SIGNING_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY Secret 为空，无法生成 Tauri updater 签名。" >&2
+            exit 1
+          fi
+
+          KEY_PATH="$RUNNER_TEMP/tauri_signing.key"
+          PASSWORD="${RAW_SIGNING_PASSWORD:-}"
+          if printf '%s' "$RAW_SIGNING_KEY" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$RAW_SIGNING_KEY" > "$KEY_PATH"
+          elif DECODED=$(printf '%s' "$RAW_SIGNING_KEY" | (base64 --decode 2>/dev/null || base64 -D 2>/dev/null)) \
+            && printf '%s' "$DECODED" | head -n1 | grep -q '^untrusted comment:'; then
+            printf '%s\n' "$DECODED" > "$KEY_PATH"
+          elif printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n' | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+            ONE=$(printf '%s' "$RAW_SIGNING_KEY" | tr -d '\r\n')
+            printf '%s\n%s\n' "untrusted comment: tauri signing key" "$ONE" > "$KEY_PATH"
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY 格式无法识别。" >&2
+            exit 1
+          fi
+
+          KEY_B64=$(base64 < "$KEY_PATH" | tr -d '\r\n')
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_B64" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
       - name: Build
         run: pnpm tauri build
       - name: Upload assets
@@ -132,10 +289,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           BUNDLE="src-tauri/target/release/bundle"
-          find "$BUNDLE/appimage" -name "*.AppImage" -exec sh -c 'cp "$1" "tuzi-switch-linux-x86_64.AppImage" && gh release upload "$TAG" "tuzi-switch-linux-x86_64.AppImage" --clobber' _ {} \;
-          find "$BUNDLE/deb"      -name "*.deb"      -exec sh -c 'cp "$1" "tuzi-switch-linux-x86_64.deb"      && gh release upload "$TAG" "tuzi-switch-linux-x86_64.deb"      --clobber' _ {} \;
-          find "$BUNDLE/rpm"      -name "*.rpm"      -exec sh -c 'cp "$1" "tuzi-switch-linux-x86_64.rpm"      && gh release upload "$TAG" "tuzi-switch-linux-x86_64.rpm"      --clobber' _ {} \;
+
+          upload_asset() {
+            local src="$1"
+            local dest="$2"
+            local require_sig="${3:-false}"
+            cp "$src" "$dest"
+            if [ -f "$src.sig" ]; then
+              cp "$src.sig" "$dest.sig"
+            elif [ "$require_sig" = "true" ]; then
+              pnpm tauri signer sign -f "$TAURI_SIGNING_PRIVATE_KEY_PATH" -p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$dest"
+            fi
+            gh release upload "$TAG" "$dest" --clobber
+            if [ -f "$dest.sig" ]; then
+              gh release upload "$TAG" "$dest.sig" --clobber
+            elif [ "$require_sig" = "true" ]; then
+              echo "缺少 updater 签名文件: $dest.sig" >&2
+              exit 1
+            fi
+          }
+
+          APPIMAGE=$(find "$BUNDLE/appimage" -name "*.AppImage" -type f | head -1 || true)
+          DEB=$(find "$BUNDLE/deb" -name "*.deb" -type f | head -1 || true)
+          RPM=$(find "$BUNDLE/rpm" -name "*.rpm" -type f | head -1 || true)
+          if [ -z "$APPIMAGE" ]; then
+            echo "缺少 Linux AppImage 产物。" >&2
+            exit 1
+          fi
+          upload_asset "$APPIMAGE" "tuzi-switch-linux-x86_64.AppImage" true
+          if [ -n "$DEB" ]; then
+            upload_asset "$DEB" "tuzi-switch-linux-x86_64.deb" true
+          fi
+          if [ -n "$RPM" ]; then
+            upload_asset "$RPM" "tuzi-switch-linux-x86_64.rpm" true
+          fi
 
   upload-install-script:
     needs: [build-macos-arm, build-windows, build-linux]
@@ -149,3 +338,91 @@ jobs:
           gh release upload "${{ github.ref_name }}" \
             scripts/install_tuzi_switch.sh \
             --clobber
+
+  assemble-latest-json:
+    needs: upload-install-script
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl
+          gh release download "$TAG" --dir dl --repo "$GITHUB_REPOSITORY"
+          ls -la dl
+      - name: Generate latest.json
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const repo = process.env.REPO;
+          const tag = process.env.TAG;
+          const version = tag.replace(/^v/, "");
+          const baseUrl = `https://github.com/${repo}/releases/download/${tag}`;
+          const platforms = {};
+
+          function addPlatform(assetName, keys) {
+            const sigPath = path.join("dl", `${assetName}.sig`);
+            if (!fs.existsSync(sigPath)) return false;
+            const signature = fs.readFileSync(sigPath, "utf8").trim();
+            if (!signature) return false;
+            const url = `${baseUrl}/${assetName}`;
+            for (const key of keys) {
+              platforms[key] = { signature, url };
+            }
+            return true;
+          }
+
+          addPlatform("tuzi-switch-macos-aarch64.tar.gz", [
+            "darwin-aarch64-app",
+            "darwin-aarch64",
+          ]);
+          addPlatform("tuzi-switch-windows-x86_64.msi", [
+            "windows-x86_64-msi",
+            "windows-x86_64",
+          ]);
+          addPlatform("tuzi-switch-windows-x86_64-setup.exe", [
+            "windows-x86_64-nsis",
+          ]);
+          addPlatform("tuzi-switch-linux-x86_64.AppImage", [
+            "linux-x86_64-appimage",
+            "linux-x86_64",
+          ]);
+          addPlatform("tuzi-switch-linux-x86_64.deb", [
+            "linux-x86_64-deb",
+          ]);
+          addPlatform("tuzi-switch-linux-x86_64.rpm", [
+            "linux-x86_64-rpm",
+          ]);
+
+          const required = [
+            "darwin-aarch64",
+            "windows-x86_64-msi",
+            "linux-x86_64-appimage",
+          ];
+          const missing = required.filter((key) => !platforms[key]);
+          if (missing.length > 0) {
+            console.error(`latest.json 缺少必要平台签名: ${missing.join(", ")}`);
+            process.exit(1);
+          }
+
+          const manifest = {
+            version,
+            notes: `Release ${tag}`,
+            pub_date: new Date().toISOString(),
+            platforms,
+          };
+          fs.writeFileSync("latest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+          jq . latest.json
+      - name: Upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" latest.json --clobber

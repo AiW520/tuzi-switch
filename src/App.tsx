@@ -209,25 +209,33 @@ function App() {
   // 切换到 Codex 时，自动把 ~/.codex 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "codex") return;
-    invoke("sync_codex_live_api_key").then(() => {
-      queryClient.invalidateQueries({ queryKey: ["providers", "codex"] });
-    }).catch(() => {/* 静默失败，不影响正常使用 */});
+    invoke("sync_codex_live_api_key")
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["providers", "codex"] });
+      })
+      .catch(() => {
+        /* 静默失败，不影响正常使用 */
+      });
   }, [activeApp]);
 
   // 切换到 Claude 时，自动把 ~/.claude/settings.json 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "claude") return;
-    invoke("sync_claude_live_api_key").then(() => {
-      queryClient.invalidateQueries({ queryKey: ["providers", "claude"] });
-    }).catch(() => {});
+    invoke("sync_claude_live_api_key")
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["providers", "claude"] });
+      })
+      .catch(() => {});
   }, [activeApp]);
 
   // 切换到 Gemini 时，自动把 ~/.gemini/.env 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "gemini") return;
-    invoke("sync_gemini_live_api_key").then(() => {
-      queryClient.invalidateQueries({ queryKey: ["providers", "gemini"] });
-    }).catch(() => {});
+    invoke("sync_gemini_live_api_key")
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["providers", "gemini"] });
+      })
+      .catch(() => {});
   }, [activeApp]);
 
   // Fallback from sessions view when switching to an app without session support
@@ -1209,7 +1217,7 @@ function App() {
               <div className="flex items-center gap-2">
                 <div className="relative inline-flex items-center">
                   <a
-                    href="https://github.com/lkj020626-lgtm/tu-zi-switch"
+                    href="https://github.com/tuziapi/tuzi-switch"
                     target="_blank"
                     rel="noreferrer"
                     className={cn(

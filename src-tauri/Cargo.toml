@@ -4,7 +4,7 @@ version = "1.0.1"
 description = "All-in-One Assistant for Claude Code, Codex & Gemini CLI - tuzi switch"
 authors = ["lkj020626-lgtm"]
 license = "MIT"
-repository = "https://github.com/lkj020626-lgtm/tu-zi-switch"
+repository = "https://github.com/tuziapi/tuzi-switch"
 edition = "2021"
 rust-version = "1.85.0"
 
