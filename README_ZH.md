@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.3/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.1.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=v1.1.3 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.3/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
@@ -44,7 +44,7 @@ open "/Applications/tuzi switch.app"
 补充说明：
 
 - 当前 Release 已按正式版本发布，GitHub `releases/latest` 会优先命中当前推荐版本
-- 当前 README 默认固定到 `v1.0.0`，这样可以确保安装到我们当前推荐版本
+- 当前 README 默认固定到 `v1.1.3`，这样可以确保安装到我们当前推荐版本
 - 需要安装其它版本时，可以改用 `env TUZI_SWITCH_TAG=vX.Y.Z bash`
 - 这个脚本会自动按系统选择对应安装包，macOS 装 `.zip`，Linux 装 `.AppImage`
 
@@ -77,13 +77,21 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.1.2`，这一轮更新重点包括：
+当前公开版本为 `v1.1.3`，这一轮更新重点包括：
 
-### Codex 配置逻辑重构
+### Codex 新配置适配
+
+- **适配 Codex 0.134+/0.135+**：保留 `model_provider`、`[model_providers.xxx]`、`env_key` 与 `wire_api = "responses"` 的兔子线路模型
+- **第三方线路不覆盖登录态**：切换第三方 Codex Provider 时只写 `config.toml`，不覆盖用户 `auth.json` 中的 ChatGPT/OAuth 登录状态
+- **Provider 级 Token 注入**：从现有 `env_key` 读取 API Key，写入对应 provider 的 `experimental_bearer_token`，同时保留 `env_key` 用于 UI 与迁移兼容
+- **模型目录与本地路由**：支持保存 Codex 模型目录、reasoning 能力和 Chat Completions 本地路由元数据，实际 Codex 配置仍保持 Responses 格式
+- **配置读写更稳**：支持 section-aware `wire_api`、`experimental_bearer_token` 清理、`model_catalog_json` 生成/移除和保留 `tuziswitch` 稳定 provider bucket
+
+### 既有 Codex 配置能力
 
 - **切换不再覆盖配置**：切换线路时只修改顶层 `model_provider` / `model` / `model_reasoning_effort`，不再整套覆盖 config.toml，MCP、Projects 等用户自定义配置不会丢失
 - **多线路共存**：所有线路的 `[model_providers.xxx]` 在同一个 config.toml 中并存，切换只改指针
-- **API Key 安全存储**：Key 主存储在 shell rc 的 managed block 中（所有线路并存，切换不丢失），同时同步到 auth.json 供 Codex 桌面端使用
+- **API Key 安全存储**：Key 主存储在环境变量或 shell rc 的 managed block 中（所有线路并存，切换不丢失）
 - **同线路多 Key 支持**：同一条线路可配置多个 Key（自动后缀 `_2`、`_3`）
 - **对齐官方配置格式**：兼容 Codex CLI 0.134.0+ 的新配置规范（不再使用已废弃的 `[profiles.xxx]`），同时向下兼容旧版本
 - **版本自动检测**：启动时检测 Codex CLI 版本，自动选择新旧配置策略
