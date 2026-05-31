@@ -292,13 +292,11 @@ export function ProviderList({
       }
 
       if (appId === "opencode") {
+        const config = provider.settingsConfig as Record<string, unknown> | null;
+        const options = config?.options as Record<string, unknown> | undefined;
         return !(
-          typeof (provider.settingsConfig as Record<string, unknown>)
-            ?.options?.apiKey === "string" &&
-          String(
-            (provider.settingsConfig as Record<string, unknown>)?.options
-              ?.apiKey ?? "",
-          ).trim()
+          typeof options?.apiKey === "string" &&
+          String(options?.apiKey ?? "").trim()
         );
       }
 
