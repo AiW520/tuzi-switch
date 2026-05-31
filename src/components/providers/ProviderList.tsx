@@ -119,13 +119,13 @@ export function ProviderList({
   const hermesCurrentProviderId = hermesModelConfig?.provider;
 
   // Preload all codex env keys for key existence check
-  const [codexEnvKeys, setCodexEnvKeys] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (appId !== "codex") return;
-    invoke<Record<string, string>>("read_all_codex_env_keys")
-      .then((keys) => setCodexEnvKeys(keys))
-      .catch(() => setCodexEnvKeys({}));
-  }, [appId, providers]);
+  const { data: codexEnvKeys } = useQuery({
+    queryKey: ["codexEnvKeys"],
+    queryFn: () => invoke<Record<string, string>>("read_all_codex_env_keys"),
+    enabled: appId === "codex",
+    refetchOnWindowFocus: true,
+    staleTime: 1000,
+  });
 
   // 判断供应商是否已添加到配置（累加模式应用：OpenCode/OpenClaw/Hermes）
   const isProviderInConfig = useCallback(
@@ -255,7 +255,8 @@ export function ProviderList({
         // Check env-first: look up env_key in preloaded shell rc keys
         const envKeyName = cfg?.env?.envKey
           || (typeof cfg?.config === "string" ? cfg.config.match(/env_key\s*=\s*"([^"]+)"/)?.[1] : undefined);
-        if (envKeyName && codexEnvKeys[envKeyName]) {
+        const envKeys = codexEnvKeys ?? {};
+        if (envKeyName && envKeys[envKeyName]) {
           return false; // Key exists in shell rc
         }
         // Fallback: check legacy auth field
