@@ -23,14 +23,19 @@ interface UseCodexConfigStateProps {
  */
 function migrateLegacyConfig(configStr: string): string {
   if (!configStr.trim()) return configStr;
+
+  // Remove top-level profile = "xxx" field (deprecated in Codex 0.134.0+)
+  // This is the main fix for: "不再支持旧版 `profile = "codex"` 配置"
+  let result = configStr.replace(/^\s*profile\s*=\s*"[^"]+"\s*$/gm, "");
+
   // Already has model_providers with env_key — no migration needed
   if (
-    configStr.match(/\[model_providers\.\w+\]/) &&
-    configStr.includes("env_key")
+    result.match(/\[model_providers\.\w+\]/) &&
+    result.includes("env_key")
   ) {
     // Remove [profiles.xxx] sections if present (deprecated in 0.134.0+)
     return (
-      configStr
+      result
         .replace(/\[profiles\.[^\]]+\][^\[]*/g, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim() + "\n"
@@ -38,28 +43,28 @@ function migrateLegacyConfig(configStr: string): string {
   }
 
   // Extract model_provider name from top-level
-  const providerMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
-  if (!providerMatch) return configStr;
+  const providerMatch = result.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+  if (!providerMatch) return result.trim() + "\n";
   const providerName = providerMatch[1];
 
   // Extract model and model_reasoning_effort from top-level
-  const modelMatch = configStr.match(/^\s*model\s*=\s*"([^"]+)"/m);
-  const effortMatch = configStr.match(
+  const modelMatch = result.match(/^\s*model\s*=\s*"([^"]+)"/m);
+  const effortMatch = result.match(
     /^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m,
   );
   const model = modelMatch?.[1] || "gpt-5.5";
   const effort = effortMatch?.[1] || "high";
 
   // Build new format
-  const result: string[] = [];
-  result.push(`model_provider = "${providerName}"`);
-  result.push(`model = "${model}"`);
-  result.push(`model_reasoning_effort = "${effort}"`);
-  result.push(`disable_response_storage = true`);
-  result.push("");
+  const output: string[] = [];
+  output.push(`model_provider = "${providerName}"`);
+  output.push(`model = "${model}"`);
+  output.push(`model_reasoning_effort = "${effort}"`);
+  output.push(`disable_response_storage = true`);
+  output.push("");
 
   // Copy existing [model_providers.xxx] section, adding env_key if missing
-  const lines = configStr.split("\n");
+  const lines = result.split("\n");
   let inModelProviders = false;
   let hasEnvKey = false;
   let wroteModelProviders = false;
@@ -68,7 +73,7 @@ function migrateLegacyConfig(configStr: string): string {
     if (line.trim().startsWith("[model_providers.")) {
       inModelProviders = true;
       wroteModelProviders = true;
-      result.push(line);
+      output.push(line);
       continue;
     }
     if (inModelProviders) {
@@ -77,30 +82,30 @@ function migrateLegacyConfig(configStr: string): string {
         !line.trim().startsWith("[model_providers.")
       ) {
         if (!hasEnvKey) {
-          result.push(`env_key = "OPENAI_API_KEY"`);
+          output.push(`env_key = "OPENAI_API_KEY"`);
         }
         inModelProviders = false;
-        result.push(line);
+        output.push(line);
       } else {
         if (line.trim().startsWith("env_key")) hasEnvKey = true;
-        result.push(line);
+        output.push(line);
       }
     }
   }
 
   if (inModelProviders && !hasEnvKey) {
-    result.push(`env_key = "OPENAI_API_KEY"`);
+    output.push(`env_key = "OPENAI_API_KEY"`);
   }
 
   if (!wroteModelProviders) {
-    result.push(`[model_providers.${providerName}]`);
-    result.push(`name = "${providerName}"`);
-    result.push(`env_key = "OPENAI_API_KEY"`);
-    result.push(`wire_api = "responses"`);
-    result.push(`requires_openai_auth = true`);
+    output.push(`[model_providers.${providerName}]`);
+    output.push(`name = "${providerName}"`);
+    output.push(`env_key = "OPENAI_API_KEY"`);
+    output.push(`wire_api = "responses"`);
+    output.push(`requires_openai_auth = true`);
   }
 
-  return result.join("\n");
+  return output.join("\n");
 }
 
 /**

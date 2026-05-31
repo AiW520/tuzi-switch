@@ -174,6 +174,12 @@ export const getApiKeyFromConfig = (
   try {
     const config = JSON.parse(jsonString);
 
+    // OpenCode API Key (检查 options.apiKey)
+    if (appType === "opencode") {
+      const opencodeKey = config?.options?.apiKey;
+      return typeof opencodeKey === "string" ? opencodeKey : "";
+    }
+
     // 优先检查顶层 apiKey 字段（用于 Bedrock API Key 等预设）
     if (
       typeof config?.apiKey === "string" &&
@@ -275,6 +281,14 @@ export const hasApiKeyField = (
   try {
     const config = JSON.parse(jsonString);
 
+    // OpenCode API Key
+    if (appType === "opencode") {
+      return (
+        Object.prototype.hasOwnProperty.call(config, "options") &&
+        Object.prototype.hasOwnProperty.call(config.options, "apiKey")
+      );
+    }
+
     // 检查顶层 apiKey 字段（用于 Bedrock API Key 等预设）
     if (Object.prototype.hasOwnProperty.call(config, "apiKey")) {
       return true;
@@ -318,6 +332,16 @@ export const setApiKeyInConfig = (
   const { createIfMissing = false, appType, apiKeyField } = options;
   try {
     const config = JSON.parse(jsonString);
+
+    // OpenCode API Key
+    if (appType === "opencode") {
+      if (!config.options && !createIfMissing) return jsonString;
+      if (!config.options) {
+        config.options = {};
+      }
+      config.options.apiKey = apiKey;
+      return JSON.stringify(config, null, 2);
+    }
 
     // 优先检查顶层 apiKey 字段（用于 Bedrock API Key 等预设）
     if (Object.prototype.hasOwnProperty.call(config, "apiKey")) {
