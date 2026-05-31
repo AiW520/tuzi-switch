@@ -206,7 +206,7 @@ function App() {
     }
   }, [visibleApps, activeApp]);
 
-  // 切换到 Codex 时，自动把 ~/.codex 里的 API key 回填到对应的预设卡片
+  // 切换�?Codex 时，自动�?~/.codex 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "codex") return;
     invoke("sync_codex_live_api_key").then(() => {
@@ -214,7 +214,7 @@ function App() {
     }).catch(() => {/* 静默失败，不影响正常使用 */});
   }, [activeApp]);
 
-  // 切换到 Claude 时，自动把 ~/.claude/settings.json 里的 API key 回填到对应的预设卡片
+  // 切换�?Claude 时，自动�?~/.claude/settings.json 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "claude") return;
     invoke("sync_claude_live_api_key").then(() => {
@@ -222,7 +222,7 @@ function App() {
     }).catch(() => {});
   }, [activeApp]);
 
-  // 切换到 Gemini 时，自动把 ~/.gemini/.env 里的 API key 回填到对应的预设卡片
+  // 切换�?Gemini 时，自动�?~/.gemini/.env 里的 API key 回填到对应的预设卡片
   useEffect(() => {
     if (activeApp !== "gemini") return;
     invoke("sync_gemini_live_api_key").then(() => {
@@ -461,7 +461,7 @@ function App() {
         toast.warning(
           t("notifications.proxyOfficialWarning", {
             name: providerName,
-            defaultValue: `当前供应商 ${providerName} 是官方供应商，建议切换到第三方供应商后再使用代理接管`,
+            defaultValue: `当前供应�?${providerName} 是官方供应商，建议切换到第三方供应商后再使用代理接管`,
           }),
           { duration: 8000 },
         );
@@ -505,7 +505,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // settingsData 未加载时跳过，避免用 fallback false 覆盖 Rust 侧已设好的装饰状态
+    // settingsData 未加载时跳过，避免用 fallback false 覆盖 Rust 侧已设好的装饰状�?
     if (!settingsData) return;
 
     const syncWindowDecorations = async () => {
@@ -745,13 +745,13 @@ function App() {
       addToLive?: boolean;
     } = {
       name: `${provider.name} copy`,
-      settingsConfig: JSON.parse(JSON.stringify(provider.settingsConfig)), // 深拷贝
+      settingsConfig: JSON.parse(JSON.stringify(provider.settingsConfig)), // 深拷�?
       websiteUrl: provider.websiteUrl,
       category: provider.category,
-      sortIndex: newSortIndex, // 复制原 sortIndex + 1
+      sortIndex: newSortIndex, // 复制�?sortIndex + 1
       meta: provider.meta
         ? JSON.parse(JSON.stringify(provider.meta))
-        : undefined, // 深拷贝
+        : undefined, // 深拷�?
       icon: provider.icon,
       iconColor: provider.iconColor,
     };
@@ -1219,7 +1219,7 @@ function App() {
                         : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
                     )}
                   >
-                    CC Switch For TuZi
+                    tuzi switch
                   </a>
                 </div>
                 <Button

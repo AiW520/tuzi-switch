@@ -119,7 +119,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     ) => {
       if (toolNames.length === 0) return;
 
-      // 单工具刷新使用统一后端入口（get_tool_versions）并带工具过滤。
+      // 单工具刷新使用统一后端入口（get_tool_versions）并带工具过滤�?
       setLoadingTools((prev) => {
         const next = { ...prev };
         for (const name of toolNames) next[name] = true;
@@ -334,9 +334,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <img src={appIcon} alt="CC Switch For TuZi" className="h-5 w-5" />
+              <img src={appIcon} alt="tuzi switch" className="h-5 w-5" />
               <h4 className="text-lg font-semibold text-foreground">
-                CC Switch For TuZi
+                tuzi switch
               </h4>
             </div>
             <div className="flex items-center gap-2">

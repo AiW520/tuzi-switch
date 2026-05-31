@@ -64,7 +64,7 @@ export function useProviderActions(
     [activeApp, t],
   );
 
-  // 添加供应商
+  // 添加供应�?
   const addProvider = useCallback(
     async (
       provider: Omit<Provider, "id"> & {
@@ -125,7 +125,7 @@ export function useProviderActions(
     [addProviderMutation, activeApp, queryClient, t],
   );
 
-  // 更新供应商
+  // 更新供应�?
   const updateProvider = useCallback(
     async (provider: Provider, originalId?: string) => {
       await updateProviderMutation.mutateAsync({ provider, originalId });
@@ -143,7 +143,7 @@ export function useProviderActions(
     [updateProviderMutation],
   );
 
-  // 切换供应商
+  // 切换供应�?
   const switchProvider = useCallback(
     async (provider: Provider) => {
       const isCopilotProvider =
@@ -228,17 +228,17 @@ export function useProviderActions(
         // 若已弹过 proxyRequired 警告则不再弹 success
         if (!proxyRequiredReason) {
           let messageKey = "notifications.switchSuccess";
-          let defaultMessage = "切换成功！";
-          if (activeApp === "claude-desktop") {
-            if (provider.meta?.claudeDesktopMode === "proxy") {
-              messageKey = "notifications.claudeDesktopProxyRestartRequired";
-              defaultMessage =
-                "切换成功，请保持 CC Switch For TuZi 运行，并重启 Claude Desktop 后生效";
-            } else {
-              messageKey = "notifications.claudeDesktopRestartRequired";
-              defaultMessage = "切换成功，重启 Claude Desktop 后生效";
-            }
-          } else if (activeApp === "opencode" || activeApp === "openclaw") {
+          let defaultMessage = "切换成功";
+        if (activeApp === "claude-desktop") {
+          if (provider.meta?.claudeDesktopMode === "proxy") {
+            messageKey = "notifications.claudeDesktopProxyRestartRequired";
+            defaultMessage =
+              "切换成功，请保持 tuzi switch 运行，并重启 Claude Desktop 后生效";
+          } else {
+            messageKey = "notifications.claudeDesktopRestartRequired";
+            defaultMessage = "切换成功，重启 Claude Desktop 后生效";
+          }
+        } else if (activeApp === "opencode" || activeApp === "openclaw") {
             messageKey = "notifications.addToConfigSuccess";
             defaultMessage = "已添加到配置";
           }
@@ -247,7 +247,7 @@ export function useProviderActions(
           });
         }
       } catch {
-        // 错误提示由 mutation 处理
+        // 错误提示�?mutation 处理
       }
     },
     [
@@ -260,7 +260,7 @@ export function useProviderActions(
     ],
   );
 
-  // 删除供应商
+  // 删除供应�?
   const deleteProvider = useCallback(
     async (id: string) => {
       await deleteProviderMutation.mutateAsync(id);
@@ -284,8 +284,8 @@ export function useProviderActions(
         await queryClient.invalidateQueries({
           queryKey: ["providers", activeApp],
         });
-        // 🔧 保存用量脚本后，也应该失效该 provider 的用量查询缓存
-        // 这样主页列表会使用新配置重新查询，而不是使用测试时的缓存
+        // 🔧 保存用量脚本后，也应该失效该 provider 的用量查询缓�?
+        // 这样主页列表会使用新配置重新查询，而不是使用测试时的缓�?
         await queryClient.invalidateQueries({
           queryKey: ["usage", provider.id, activeApp],
         });
