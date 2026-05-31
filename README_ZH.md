@@ -29,7 +29,7 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.3/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
