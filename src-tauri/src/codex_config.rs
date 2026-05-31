@@ -329,6 +329,12 @@ pub fn save_route_to_config(
     // Remove empty parent headers
     lines.retain(|l| l.trim() != "[profiles]" && l.trim() != "[model_providers]");
 
+    // For new format (0.134.0+), remove top-level profile = "xxx" field
+    // This fixes: "不再支持旧版 `profile = "codex"` 配置"
+    if new_format {
+        lines.retain(|l| !l.trim().starts_with("profile = \""));
+    }
+
     // Ensure top-level fields exist
     if !lines
         .iter()

@@ -291,6 +291,17 @@ export function ProviderList({
         );
       }
 
+      if (appId === "opencode") {
+        return !(
+          typeof (provider.settingsConfig as Record<string, unknown>)
+            ?.options?.apiKey === "string" &&
+          String(
+            (provider.settingsConfig as Record<string, unknown>)?.options
+              ?.apiKey ?? "",
+          ).trim()
+        );
+      }
+
       return false;
     },
     [appId, codexEnvKeys],
