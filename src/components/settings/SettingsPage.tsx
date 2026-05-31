@@ -234,7 +234,7 @@ export function SettingsPage({
                       onMigrated={(location) =>
                         updateSettings({
                           skillStorageLocation:
-                            location === "cc_switch"
+                            location === "tuzi_switch"
                               ? "tuzi_switch"
                               : location,
                         })

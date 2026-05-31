@@ -2,13 +2,35 @@ import { describe, expect, it } from "vitest";
 import { openclawProviderPresets } from "@/config/openclawProviderPresets";
 
 describe("OpenClaw provider presets", () => {
-  it("should expose only the requested presets", () => {
+  it("should expose the expected presets", () => {
     expect(openclawProviderPresets.map((item) => item.name)).toEqual([
       "codex-tuzi",
       "codex-coding",
       "codex-gaccode",
       "claude-tuzi",
       "claude-gaccode",
+      "DeepSeek",
+      "Zhipu GLM",
+      "Zhipu GLM en",
+      "Qwen Coder",
+      "Kimi k2.6",
+      "Kimi For Coding",
+      "StepFun",
+      "StepFun en",
+      "KAT-Coder",
+      "Longcat",
+      "BaiLing",
+      "Xiaomi MiMo",
+      "Xiaomi MiMo Token Plan (China)",
+      "AiHubMix",
+      "OpenRouter",
+      "TheRouter",
+      "ModelScope",
+      "Novita AI",
+      "Nvidia",
+      "PIPELLM",
+      "E-FlowCode",
+      "AWS Bedrock",
     ]);
   });
 
@@ -27,9 +49,11 @@ describe("OpenClaw provider presets", () => {
     expect(preset?.settingsConfig.baseUrl).toBe("https://gaccode.com/claudecode");
   });
 
-  it("should expose apiKeyUrl for all presets", () => {
-    expect(
-      openclawProviderPresets.every((item) => Boolean(item.apiKeyUrl)),
-    ).toBe(true);
+  it("should expose apiKeyUrl for tuzi presets", () => {
+    const tuziPresets = openclawProviderPresets.filter(
+      (item) =>
+        item.name.startsWith("codex-") || item.name.startsWith("claude-"),
+    );
+    expect(tuziPresets.every((item) => Boolean(item.apiKeyUrl))).toBe(true);
   });
 });

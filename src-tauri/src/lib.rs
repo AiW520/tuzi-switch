@@ -32,6 +32,7 @@ mod settings;
 mod store;
 
 mod tray;
+mod usage_events;
 mod usage_script;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};

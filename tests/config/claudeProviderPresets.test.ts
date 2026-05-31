@@ -2,8 +2,41 @@ import { describe, expect, it } from "vitest";
 import { providerPresets } from "@/config/claudeProviderPresets";
 
 describe("Claude provider presets", () => {
-  it("should include only the two requested presets", () => {
-    expect(providerPresets.map((p) => p.name)).toEqual(["兔子线路", "gaccode"]);
+  it("should include the expected presets", () => {
+    expect(providerPresets.map((p) => p.name)).toEqual([
+      "兔子线路",
+      "gaccode",
+      "Claude Official",
+      "Gemini Native",
+      "DeepSeek",
+      "Zhipu GLM",
+      "Zhipu GLM en",
+      "Baidu Qianfan Coding Plan",
+      "Bailian",
+      "Bailian For Coding",
+      "Kimi",
+      "Kimi For Coding",
+      "StepFun",
+      "StepFun en",
+      "ModelScope",
+      "KAT-Coder",
+      "Longcat",
+      "BaiLing",
+      "AiHubMix",
+      "RelaxyCode",
+      "E-FlowCode",
+      "OpenRouter",
+      "TheRouter",
+      "Novita AI",
+      "GitHub Copilot",
+      "Codex",
+      "Nvidia",
+      "PIPELLM",
+      "Xiaomi MiMo",
+      "Xiaomi MiMo Token Plan (China)",
+      "AWS Bedrock (AKSK)",
+      "AWS Bedrock (API Key)",
+    ]);
   });
 
   it("should configure rabbit route for Claude", () => {

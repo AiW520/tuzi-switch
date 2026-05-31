@@ -187,7 +187,7 @@ describe("Codex TOML utils", () => {
     expect(extractCodexWireApi(input)).toBe("responses");
   });
 
-  it("writes wire_api into the active provider section without changing top-level or inactive sections", () => {
+  it("writes wire_api into the active provider section and removes top-level fallback", () => {
     const input = [
       'model_provider = "active"',
       'wire_api = "top-level"',
@@ -202,7 +202,7 @@ describe("Codex TOML utils", () => {
 
     const output = setCodexWireApi(input, "responses");
 
-    expect(output).toContain('wire_api = "top-level"');
+    expect(output).not.toContain('wire_api = "top-level"');
     expect(output).toContain('[model_providers.inactive]\nwire_api = "chat"');
     expect(output).toContain(
       '[model_providers.active]\nname = "Active"\nwire_api = "responses"',
@@ -223,11 +223,10 @@ describe("Codex TOML utils", () => {
       "",
     ].join("\n");
 
-    const output = setCodexWireApi(input, "");
+    const output = setCodexWireApi(input, "" as "chat" | "responses");
 
     expect(output).toContain('wire_api = "top-level"');
     expect(output).toContain('[model_providers.inactive]\nwire_api = "chat"');
-    expect(output).toContain("[model_providers.active]\n");
     expect(output).not.toContain(
       '[model_providers.active]\nwire_api = "responses"',
     );

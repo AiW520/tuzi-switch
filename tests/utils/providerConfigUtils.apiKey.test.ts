@@ -6,10 +6,10 @@ import {
 } from "@/utils/providerConfigUtils";
 
 describe("providerConfigUtils api key handling", () => {
-  it("reads and writes Codex API key from auth.OPENAI_API_KEY", () => {
+  it("reads and writes Codex API key from env.CODEX_API_KEY", () => {
     const input = JSON.stringify({
-      auth: { OPENAI_API_KEY: "abc123" },
-      config: "model = \"gpt-5.5\"",
+      env: { CODEX_API_KEY: "abc123" },
+      config: { model: "gpt-5.5" },
     });
 
     expect(getApiKeyFromConfig(input, "codex")).toBe("abc123");
@@ -20,7 +20,7 @@ describe("providerConfigUtils api key handling", () => {
     });
     const parsed = JSON.parse(updated);
 
-    expect(parsed.auth.OPENAI_API_KEY).toBe("new-key");
+    expect(parsed.env.CODEX_API_KEY).toBe("new-key");
   });
 
   it("keeps Gemini API key in env.GEMINI_API_KEY", () => {

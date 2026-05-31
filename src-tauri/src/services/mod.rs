@@ -22,6 +22,9 @@ pub mod webdav;
 pub mod webdav_auto_sync;
 pub mod webdav_sync;
 
+pub mod codex_oauth_models;
+pub mod sql_helpers;
+
 pub use config::ConfigService;
 pub use mcp::McpService;
 pub use omo::OmoService;

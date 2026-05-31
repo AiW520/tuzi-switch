@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
-const THINK_OPEN_TAG: &str = "<think>";
-const THINK_CLOSE_TAG: &str = "</think>";
+const THINK_OPEN_TAG: &str = " thinking";
+const THINK_CLOSE_TAG: &str = " response";
 
 pub(crate) fn extract_reasoning_field_text(value: &Value) -> Option<String> {
     for key in ["reasoning_content", "reasoning"] {
@@ -22,9 +22,13 @@ pub(crate) fn extract_reasoning_field_text(value: &Value) -> Option<String> {
         }
     }
 
-    value
-        .get("reasoning_details")
-        .and_then(extract_reasoning_details_text)
+    if let Some(details) = value.get("reasoning_details") {
+        if let Some(text) = extract_reasoning_details_text(details) {
+            return Some(text);
+        }
+    }
+
+    None
 }
 
 fn extract_reasoning_details_text(value: &Value) -> Option<String> {
@@ -117,13 +121,12 @@ pub(crate) fn append_reasoning_content(message: &mut Map<String, Value>, reasoni
     true
 }
 
-pub(crate) fn attach_optional_reasoning_content_field(
-    item: &mut Value,
-    reasoning: Option<&str>,
-) -> bool {
-    let Some(reasoning) = reasoning.map(str::trim).filter(|value| !value.is_empty()) else {
+pub(crate) fn attach_reasoning_content_field(item: &mut Value, reasoning: &str) -> bool {
+    let reasoning = reasoning.trim();
+    if reasoning.is_empty() {
         return false;
-    };
+    }
+
     if let Some(obj) = item.as_object_mut() {
         obj.insert(
             "reasoning_content".to_string(),
@@ -131,7 +134,18 @@ pub(crate) fn attach_optional_reasoning_content_field(
         );
         return true;
     }
+
     false
+}
+
+pub(crate) fn attach_optional_reasoning_content_field(
+    item: &mut Value,
+    reasoning: Option<&str>,
+) -> bool {
+    let Some(reasoning) = reasoning else {
+        return false;
+    };
+    attach_reasoning_content_field(item, reasoning)
 }
 
 pub(crate) fn response_function_call_item(
@@ -154,6 +168,25 @@ pub(crate) fn response_function_call_item(
     item
 }
 
+pub(crate) fn response_item_call_id(item: &Value) -> Option<String> {
+    item.get("call_id")
+        .or_else(|| item.get("id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+pub(crate) fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(value) => value.trim().is_empty(),
+        Value::Array(value) => value.is_empty(),
+        Value::Object(value) => value.is_empty(),
+        _ => false,
+    }
+}
+
 pub(crate) fn split_leading_think_block(text: &str) -> Option<(String, String)> {
     let leading_ws_len = text.len() - text.trim_start().len();
     let after_ws = &text[leading_ws_len..];
@@ -168,9 +201,7 @@ pub(crate) fn split_leading_think_block(text: &str) -> Option<(String, String)> 
 
     Some((
         text[body_start..close_start].trim().to_string(),
-        text[answer_start..]
-            .trim_start_matches(['\r', '\n', '\t', ' '])
-            .to_string(),
+        strip_think_answer_separator(&text[answer_start..]).to_string(),
     ))
 }
 
@@ -180,4 +211,8 @@ pub(crate) fn strip_leading_think_open_tag(text: &str) -> Option<String> {
     after_ws
         .strip_prefix(THINK_OPEN_TAG)
         .map(|value| value.trim().to_string())
+}
+
+fn strip_think_answer_separator(text: &str) -> &str {
+    text.trim_start_matches(['\r', '\n', '\t', ' '])
 }

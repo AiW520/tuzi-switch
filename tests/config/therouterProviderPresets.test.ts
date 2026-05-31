@@ -6,26 +6,34 @@ describe("Provider presets", () => {
   it("provides the requested Codex presets with OpenAI-compatible endpoints", () => {
     expect(codexProviderPresets.map((item) => item.name)).toEqual([
       "兔子线路",
-      "coding",
+      "codex订阅",
       "gaccode",
+      "OpenAI Official",
+      "Azure OpenAI",
+      "AiHubMix",
+      "RelaxyCode",
+      "E-FlowCode",
+      "PIPELLM",
+      "OpenRouter",
+      "TheRouter",
     ]);
 
     const expectedPresets = [
       {
         name: "兔子线路",
-        provider: "tuzi_route",
-        baseUrl: "https://api.tu-zi.com",
+        provider: "tuzi",
+        baseUrl: "https://api.tu-zi.com/v1",
         model: "gpt-5.5",
       },
       {
-        name: "coding",
-        provider: "coding",
+        name: "codex订阅",
+        provider: "codex",
         baseUrl: "https://api.tu-zi.com/coding",
         model: "gpt-5.5",
       },
       {
         name: "gaccode",
-        provider: "gaccode",
+        provider: "gac",
         baseUrl: "https://gaccode.com/codex/v1",
         model: "gpt-5.5",
       },
@@ -39,13 +47,13 @@ describe("Provider presets", () => {
       expect(preset?.apiKeyUrl).toBe(
         name === "兔子线路"
           ? "https://api.tu-zi.com"
-          : name === "coding"
+          : name === "codex订阅"
             ? "https://store.tu-zi.com/cat/11"
             : "https://store.tu-zi.com/cat/1",
       );
       expect(preset?.category).toBe("aggregator");
       expect(preset?.endpointCandidates).toEqual([baseUrl]);
-      expect(preset?.auth).toEqual({ OPENAI_API_KEY: "" });
+      expect(preset?.auth).toEqual({});
       expect(preset?.config).toContain(`model_provider = "${provider}"`);
       expect(preset?.config).toContain(`model = "${model}"`);
       expect(preset?.config).toContain(`base_url = "${baseUrl}"`);

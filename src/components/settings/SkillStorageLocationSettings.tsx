@@ -81,7 +81,7 @@ export function SkillStorageLocationSettings({
         <StorageButton
           active={value === "tuzi_switch"}
           disabled={isMigrating}
-          onClick={() => handleSelect("cc_switch")}
+          onClick={() => handleSelect("tuzi_switch")}
         >
           {t("settings.skillStorage.ccSwitch")}
         </StorageButton>

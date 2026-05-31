@@ -2,13 +2,36 @@ import { describe, expect, it } from "vitest";
 import { hermesProviderPresets } from "@/config/hermesProviderPresets";
 
 describe("Hermes provider presets", () => {
-  it("should expose only the requested presets", () => {
+  it("should expose the expected presets", () => {
     expect(hermesProviderPresets.map((item) => item.name)).toEqual([
       "codex-tuzi",
       "codex-coding",
       "codex-gaccode",
       "claude-tuzi",
       "claude-gaccode",
+      "OpenRouter",
+      "DeepSeek",
+      "Together AI",
+      "Nous Research",
+      "Zhipu GLM",
+      "Zhipu GLM en",
+      "Bailian",
+      "Bailian For Coding",
+      "Kimi",
+      "Kimi For Coding",
+      "StepFun",
+      "ModelScope",
+      "KAT-Coder",
+      "Longcat",
+      "BaiLing",
+      "AiHubMix",
+      "E-FlowCode",
+      "TheRouter",
+      "Novita AI",
+      "Nvidia",
+      "PIPELLM",
+      "Xiaomi MiMo",
+      "Xiaomi MiMo Token Plan (China)",
     ]);
   });
 
