@@ -36,7 +36,7 @@ open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.1.3 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.3/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=main curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
