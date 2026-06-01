@@ -125,7 +125,7 @@ export function ProviderList({
     invoke<Record<string, string>>("read_all_codex_env_keys")
       .then((keys) => setCodexEnvKeys(keys))
       .catch(() => setCodexEnvKeys({}));
-  }, [appId, providers]);
+  }, [appId, providers, currentProviderId]);
 
   // 判断供应商是否已添加到配置（累加模式应用：OpenCode/OpenClaw/Hermes）
   const isProviderInConfig = useCallback(
@@ -251,19 +251,63 @@ export function ProviderList({
       }
 
       if (appId === "codex") {
-        const cfg = provider.settingsConfig as Record<string, any>;
-        // Check env-first: look up env_key in preloaded shell rc keys
-        const envKeyName = cfg?.env?.envKey
-          || (typeof cfg?.config === "string" ? cfg.config.match(/env_key\s*=\s*"([^"]+)"/)?.[1] : undefined);
-        if (envKeyName && codexEnvKeys[envKeyName]) {
-          return false; // Key exists in shell rc
+        let cfg = provider.settingsConfig as Record<string, any>;
+        if (typeof cfg === "string") {
+          try { cfg = JSON.parse(cfg); } catch {}
         }
-        // Fallback: check legacy auth field
+        let envKeyName = cfg?.env?.envKey;
+        if (!envKeyName) {
+          const configStr = typeof cfg?.config === "string" ? cfg.config : "";
+          // 1. 先尝试从 model_provider 找 (新格式)
+          const mpMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+          const mpName = mpMatch?.[1];
+          if (mpName) {
+            const sectionHeader = `[model_providers.${mpName}]`;
+            const lines = configStr.split("\n");
+            let inSection = false;
+            for (const line of lines) {
+              if (line.trim() === sectionHeader) { inSection = true; continue; }
+              if (inSection && line.trim().startsWith("[")) break;
+              if (inSection) {
+                const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+                if (m) { envKeyName = m[1]; break; }
+              }
+            }
+          }
+          // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
+          if (!envKeyName) {
+            const envKeyMatch = configStr.match(/^\s*env_key\s*=\s*"([^"]+)"/m);
+            if (envKeyMatch?.[1]) {
+              envKeyName = envKeyMatch[1];
+            }
+          }
+          // 3. 如果还找不到，尝试从旧版 profile 找
+          if (!envKeyName) {
+            const profileMatch = configStr.match(/^\s*profile\s*=\s*"([^"]+)"/m);
+            const profileName = profileMatch?.[1];
+            if (profileName) {
+              const sectionHeader = `[profiles.${profileName}]`;
+              const lines = configStr.split("\n");
+              let inSection = false;
+              for (const line of lines) {
+                if (line.trim() === sectionHeader) { inSection = true; continue; }
+                if (inSection && line.trim().startsWith("[")) break;
+                if (inSection) {
+                  const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+                  if (m) { envKeyName = m[1]; break; }
+                }
+              }
+            }
+          }
+        }
+        if (envKeyName && codexEnvKeys[envKeyName]) {
+          return false;
+        }
         const apiKey = getApiKeyFromConfig(configString, "codex");
         if (apiKey.trim()) {
-          return false; // Key exists in legacy auth
+          return false;
         }
-        return true; // No key found anywhere
+        return true;
       }
 
       if (appId === "gemini") {
