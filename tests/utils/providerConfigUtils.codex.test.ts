@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractCodexBaseUrl,
   extractCodexExperimentalBearerToken,
+  getCodexEnvKey,
   extractCodexModelCatalogJson,
   extractCodexModelName,
   extractCodexWireApi,
@@ -13,6 +14,36 @@ import {
 } from "@/utils/providerConfigUtils";
 
 describe("Codex TOML utils", () => {
+  it("reads env_key from active model provider, top-level, and legacy profile config", () => {
+    expect(
+      getCodexEnvKey(
+        [
+          'model_provider = "deepseek"',
+          "",
+          "[model_providers.deepseek]",
+          'env_key = "DEEPSEEK_API_KEY"',
+          "",
+        ].join("\n"),
+      ),
+    ).toBe("DEEPSEEK_API_KEY");
+
+    expect(getCodexEnvKey('env_key = "OPENAI_API_KEY"\n')).toBe(
+      "OPENAI_API_KEY",
+    );
+
+    expect(
+      getCodexEnvKey(
+        [
+          'profile = "work"',
+          "",
+          "[profiles.work]",
+          'env_key = "LEGACY_API_KEY"',
+          "",
+        ].join("\n"),
+      ),
+    ).toBe("LEGACY_API_KEY");
+  });
+
   it("removes base_url line when set to empty", () => {
     const input = [
       'model_provider = "openai"',

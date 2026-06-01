@@ -19,7 +19,10 @@ import { PROVIDER_TYPES } from "@/config/constants";
 import { isHermesReadOnlyProvider } from "@/config/hermesProviderPresets";
 import { ProviderHealthBadge } from "@/components/providers/ProviderHealthBadge";
 import { FailoverPriorityBadge } from "@/components/providers/FailoverPriorityBadge";
-import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
+import {
+  extractCodexBaseUrl,
+  getCodexEnvKey,
+} from "@/utils/providerConfigUtils";
 import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
 
@@ -186,7 +189,10 @@ export function ProviderCard({
   // Load API key from shell rc for Codex providers
   const [envKeyValue, setEnvKeyValue] = useState<string | null>(null);
   useEffect(() => {
-    if (appId !== "codex") return;
+    if (appId !== "codex") {
+      setEnvKeyValue(null);
+      return;
+    }
     let cfg = provider.settingsConfig as any;
     if (typeof cfg === "string") {
       try { cfg = JSON.parse(cfg); } catch { return; }
@@ -194,56 +200,19 @@ export function ProviderCard({
     let envKeyName = cfg?.env?.envKey;
     if (!envKeyName) {
       const configStr = typeof cfg?.config === "string" ? cfg.config : "";
-      // 1. 先尝试从 model_provider 找 (新格式)
-      const mpMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
-      const mpName = mpMatch?.[1];
-      if (mpName) {
-        const sectionHeader = `[model_providers.${mpName}]`;
-        const lines = configStr.split("\n");
-        let inSection = false;
-        for (const line of lines) {
-          if (line.trim() === sectionHeader) { inSection = true; continue; }
-          if (inSection && line.trim().startsWith("[")) break;
-          if (inSection) {
-            const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-            if (m) { envKeyName = m[1]; break; }
-          }
-        }
-      }
-      // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
-      if (!envKeyName) {
-        const envKeyMatch = configStr.match(/^\s*env_key\s*=\s*"([^"]+)"/m);
-        if (envKeyMatch?.[1]) {
-          envKeyName = envKeyMatch[1];
-        }
-      }
-      // 3. 如果还找不到，尝试从旧版 profile 找
-      if (!envKeyName) {
-        const profileMatch = configStr.match(/^\s*profile\s*=\s*"([^"]+)"/m);
-        const profileName = profileMatch?.[1];
-        if (profileName) {
-          const sectionHeader = `[profiles.${profileName}]`;
-          const lines = configStr.split("\n");
-          let inSection = false;
-          for (const line of lines) {
-            if (line.trim() === sectionHeader) { inSection = true; continue; }
-            if (inSection && line.trim().startsWith("[")) break;
-            if (inSection) {
-              const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-              if (m) { envKeyName = m[1]; break; }
-            }
-          }
-        }
-      }
+      envKeyName = getCodexEnvKey(configStr) ?? undefined;
     }
-    if (!envKeyName) return;
+    if (!envKeyName) {
+      setEnvKeyValue(null);
+      return;
+    }
     const timer = setTimeout(() => {
       invoke<string | null>("read_codex_env_key", { envKey: envKeyName })
         .then((val) => setEnvKeyValue(val || null))
         .catch(() => setEnvKeyValue(null));
     }, 100);
     return () => clearTimeout(timer);
-  }, [appId, provider.id]);
+  }, [appId, provider.id, provider.settingsConfig]);
 
   const isOfficialBlockedByProxy =
     isProxyTakeover && (provider.category === "official" || isOfficial);

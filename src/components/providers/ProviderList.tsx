@@ -48,7 +48,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { settingsApi } from "@/lib/api/settings";
-import { getApiKeyFromConfig } from "@/utils/providerConfigUtils";
+import {
+  getApiKeyFromConfig,
+  getCodexEnvKey,
+} from "@/utils/providerConfigUtils";
 
 interface ProviderListProps {
   providers: Record<string, Provider>;
@@ -233,6 +236,32 @@ export function ProviderList({
     [checkProvider, settings?.streamCheckConfirmed],
   );
 
+  const getCodexProviderEnvKey = useCallback((provider: Provider) => {
+    let cfg = provider.settingsConfig;
+    if (typeof cfg === "string") {
+      try {
+        cfg = JSON.parse(cfg);
+      } catch {
+        return "";
+      }
+    }
+
+    const envKey = cfg?.env?.envKey;
+    if (typeof envKey === "string" && envKey.trim()) {
+      return envKey.trim();
+    }
+
+    const configText = typeof cfg?.config === "string" ? cfg.config : "";
+    return getCodexEnvKey(configText) ?? "";
+  }, []);
+
+  const hasOpenCodeApiKey = (provider: Provider): boolean => {
+    const options = provider.settingsConfig?.options;
+    if (!options || typeof options !== "object") return false;
+    const apiKey = (options as Record<string, unknown>).apiKey;
+    return typeof apiKey === "string" && apiKey.trim() !== "";
+  };
+
   const needsApiKey = useCallback(
     (provider: Provider) => {
       if (provider.category === "official") {
@@ -251,55 +280,7 @@ export function ProviderList({
       }
 
       if (appId === "codex") {
-        let cfg = provider.settingsConfig as Record<string, any>;
-        if (typeof cfg === "string") {
-          try { cfg = JSON.parse(cfg); } catch {}
-        }
-        let envKeyName = cfg?.env?.envKey;
-        if (!envKeyName) {
-          const configStr = typeof cfg?.config === "string" ? cfg.config : "";
-          // 1. 先尝试从 model_provider 找 (新格式)
-          const mpMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
-          const mpName = mpMatch?.[1];
-          if (mpName) {
-            const sectionHeader = `[model_providers.${mpName}]`;
-            const lines = configStr.split("\n");
-            let inSection = false;
-            for (const line of lines) {
-              if (line.trim() === sectionHeader) { inSection = true; continue; }
-              if (inSection && line.trim().startsWith("[")) break;
-              if (inSection) {
-                const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-                if (m) { envKeyName = m[1]; break; }
-              }
-            }
-          }
-          // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
-          if (!envKeyName) {
-            const envKeyMatch = configStr.match(/^\s*env_key\s*=\s*"([^"]+)"/m);
-            if (envKeyMatch?.[1]) {
-              envKeyName = envKeyMatch[1];
-            }
-          }
-          // 3. 如果还找不到，尝试从旧版 profile 找
-          if (!envKeyName) {
-            const profileMatch = configStr.match(/^\s*profile\s*=\s*"([^"]+)"/m);
-            const profileName = profileMatch?.[1];
-            if (profileName) {
-              const sectionHeader = `[profiles.${profileName}]`;
-              const lines = configStr.split("\n");
-              let inSection = false;
-              for (const line of lines) {
-                if (line.trim() === sectionHeader) { inSection = true; continue; }
-                if (inSection && line.trim().startsWith("[")) break;
-                if (inSection) {
-                  const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-                  if (m) { envKeyName = m[1]; break; }
-                }
-              }
-            }
-          }
-        }
+        const envKeyName = getCodexProviderEnvKey(provider);
         if (envKeyName && codexEnvKeys[envKeyName]) {
           return false;
         }
@@ -336,19 +317,12 @@ export function ProviderList({
       }
 
       if (appId === "opencode") {
-        return !(
-          typeof (provider.settingsConfig as Record<string, unknown>)
-            ?.options?.apiKey === "string" &&
-          String(
-            (provider.settingsConfig as Record<string, unknown>)?.options
-              ?.apiKey ?? "",
-          ).trim()
-        );
+        return !hasOpenCodeApiKey(provider);
       }
 
       return false;
     },
-    [appId, codexEnvKeys],
+    [appId, codexEnvKeys, getCodexProviderEnvKey],
   );
 
   const handleEnableProvider = useCallback(
@@ -476,8 +450,14 @@ export function ProviderList({
 
     const getPresetApiKey = (provider: Provider) => {
       const cfg = provider.settingsConfig as Record<string, any>;
-      return appId === "codex"  ? cfg?.auth?.OPENAI_API_KEY :
-             appId === "claude" ? (cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY) :
+      if (appId === "codex") {
+        const envKeyName = getCodexProviderEnvKey(provider);
+        if (envKeyName && codexEnvKeys[envKeyName]) {
+          return codexEnvKeys[envKeyName];
+        }
+        return cfg?.auth?.OPENAI_API_KEY;
+      }
+      return appId === "claude" ? (cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY) :
              appId === "gemini" ? cfg?.env?.GEMINI_API_KEY : "";
     };
 
@@ -494,7 +474,14 @@ export function ProviderList({
     return [...base].sort((a, b) => {
       return cardRank(a) - cardRank(b);
     });
-  }, [searchTerm, sortedProviders, appId, currentProviderId]);
+  }, [
+    searchTerm,
+    sortedProviders,
+    appId,
+    currentProviderId,
+    codexEnvKeys,
+    getCodexProviderEnvKey,
+  ]);
 
   const claudeDesktopStatusMessages = useMemo(() => {
     if (appId !== "claude-desktop" || !claudeDesktopStatus) return [];
