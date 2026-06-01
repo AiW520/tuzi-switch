@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Fixed Codex CLI 0.134.0+ compatibility issue (deprecated `profile = "xxx"` configuration)
 - Fixed multi-provider configuration conflict in Codex module
 - Fixed Codex provider switch and API Key display inconsistency (provider list vs card display)
+- Fixed legacy Codex provider API Key detection (support old config formats with env_key at top-level or in profiles section)
 
 ### Improvements
 

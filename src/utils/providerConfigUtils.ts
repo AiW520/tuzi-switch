@@ -1346,6 +1346,7 @@ export const getCodexEnvKey = (configText: string): string | null => {
   if (!configText) return null;
   const lines = configText.split("\n");
 
+  // 1. 先尝试从 model_provider 找 (新格式)
   let activeProvider: string | null = null;
   for (const line of lines) {
     const match = line.match(/^\s*model_provider\s*=\s*"([^"]+)"/);
@@ -1354,20 +1355,52 @@ export const getCodexEnvKey = (configText: string): string | null => {
       break;
     }
   }
-  if (!activeProvider) return null;
-
-  const sectionHeader = `[model_providers.${activeProvider}]`;
-  let inSection = false;
-  for (const line of lines) {
-    if (line.trim() === sectionHeader) {
-      inSection = true;
-      continue;
-    }
-    if (inSection) {
-      if (line.trim().startsWith("[")) break;
-      const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-      if (envKeyMatch) return envKeyMatch[1];
+  if (activeProvider) {
+    const sectionHeader = `[model_providers.${activeProvider}]`;
+    let inSection = false;
+    for (const line of lines) {
+      if (line.trim() === sectionHeader) {
+        inSection = true;
+        continue;
+      }
+      if (inSection) {
+        if (line.trim().startsWith("[")) break;
+        const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+        if (envKeyMatch) return envKeyMatch[1];
+      }
     }
   }
+
+  // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
+  for (const line of lines) {
+    const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+    if (envKeyMatch) return envKeyMatch[1];
+  }
+
+  // 3. 如果还找不到，尝试从旧版 profile 找
+  let profileName: string | null = null;
+  for (const line of lines) {
+    const match = line.match(/^\s*profile\s*=\s*"([^"]+)"/);
+    if (match) {
+      profileName = match[1];
+      break;
+    }
+  }
+  if (profileName) {
+    const sectionHeader = `[profiles.${profileName}]`;
+    let inSection = false;
+    for (const line of lines) {
+      if (line.trim() === sectionHeader) {
+        inSection = true;
+        continue;
+      }
+      if (inSection) {
+        if (line.trim().startsWith("[")) break;
+        const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+        if (envKeyMatch) return envKeyMatch[1];
+      }
+    }
+  }
+
   return null;
 };

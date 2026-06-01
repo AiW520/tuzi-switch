@@ -258,6 +258,7 @@ export function ProviderList({
         let envKeyName = cfg?.env?.envKey;
         if (!envKeyName) {
           const configStr = typeof cfg?.config === "string" ? cfg.config : "";
+          // 1. 先尝试从 model_provider 找 (新格式)
           const mpMatch = configStr.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
           const mpName = mpMatch?.[1];
           if (mpName) {
@@ -270,6 +271,31 @@ export function ProviderList({
               if (inSection) {
                 const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
                 if (m) { envKeyName = m[1]; break; }
+              }
+            }
+          }
+          // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
+          if (!envKeyName) {
+            const envKeyMatch = configStr.match(/^\s*env_key\s*=\s*"([^"]+)"/m);
+            if (envKeyMatch?.[1]) {
+              envKeyName = envKeyMatch[1];
+            }
+          }
+          // 3. 如果还找不到，尝试从旧版 profile 找
+          if (!envKeyName) {
+            const profileMatch = configStr.match(/^\s*profile\s*=\s*"([^"]+)"/m);
+            const profileName = profileMatch?.[1];
+            if (profileName) {
+              const sectionHeader = `[profiles.${profileName}]`;
+              const lines = configStr.split("\n");
+              let inSection = false;
+              for (const line of lines) {
+                if (line.trim() === sectionHeader) { inSection = true; continue; }
+                if (inSection && line.trim().startsWith("[")) break;
+                if (inSection) {
+                  const m = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
+                  if (m) { envKeyName = m[1]; break; }
+                }
               }
             }
           }
