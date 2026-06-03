@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=main curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/scripts/install_tuzi_switch.sh | bash
+TUZI_SWITCH_TAG=v1.1.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/tuzi switch.app"
@@ -44,7 +44,7 @@ open "/Applications/tuzi switch.app"
 补充说明：
 
 - 当前 Release 已按正式版本发布，GitHub `releases/latest` 会优先命中当前推荐版本
-- 当前 README 默认固定到 `v1.1.3`，这样可以确保安装到我们当前推荐版本
+- 当前 README 默认固定到 `v1.1.2`，这样可以确保安装到我们当前推荐版本
 - 需要安装其它版本时，可以改用 `env TUZI_SWITCH_TAG=vX.Y.Z bash`
 - 这个脚本会自动按系统选择对应安装包，macOS 装 `.zip`，Linux 装 `.AppImage`
 
@@ -77,7 +77,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.1.3`，这一轮更新重点包括：
+当前公开版本为 `v1.1.2`，这一轮更新重点包括：
 
 ### Codex 新配置适配
 
