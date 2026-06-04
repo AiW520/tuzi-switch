@@ -5,6 +5,7 @@ import {
   extractCodexModelName,
   setCodexModelName as setCodexModelNameInConfig,
   getCodexEnvKey,
+  getCodexProviderEnvKeyFromSettings,
 } from "@/utils/providerConfigUtils";
 import { normalizeTomlText } from "@/utils/textNormalization";
 import { invoke } from "@tauri-apps/api/core";
@@ -174,11 +175,10 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       const initialModelName = extractCodexModelName(configStr);
       if (initialModelName) setCodexModelName(initialModelName);
 
-      // Determine envKey: from env field or from TOML config
-      const envObj = (config as any).env;
-      const envKeyFromField = envObj?.envKey;
-      const envKeyFromToml = getCodexEnvKey(configStr);
-      const resolvedEnvKey = envKeyFromField || envKeyFromToml || "";
+      // TOML is the source of truth. The legacy env.envKey field is only a fallback.
+      const resolvedEnvKey =
+        getCodexProviderEnvKeyFromSettings({ ...config, config: configStr }) ||
+        "";
       setCodexEnvKey(resolvedEnvKey);
 
       // Read API key from shell rc via backend
@@ -300,8 +300,8 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
           setCodexModelName(extractedModel);
       }
       // Sync env_key from config
-      const newEnvKey = getCodexEnvKey(normalized);
-      if (newEnvKey && newEnvKey !== codexEnvKey) setCodexEnvKey(newEnvKey);
+      const newEnvKey = getCodexEnvKey(normalized) || "";
+      if (newEnvKey !== codexEnvKey) setCodexEnvKey(newEnvKey);
     },
     [setCodexConfig, codexBaseUrl, codexModelName, codexEnvKey],
   );
@@ -321,7 +321,10 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       else setCodexModelName("");
       setCodexCatalogModels([]);
 
-      const resolvedEnvKey = envKey || getCodexEnvKey(config) || "";
+      const resolvedEnvKey = getCodexProviderEnvKeyFromSettings({
+        config,
+        env: { envKey },
+      });
       setCodexEnvKey(resolvedEnvKey);
 
       // Don't pre-fill key on preset switch (new mode) — user should enter their own key

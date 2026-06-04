@@ -21,7 +21,7 @@ import { ProviderHealthBadge } from "@/components/providers/ProviderHealthBadge"
 import { FailoverPriorityBadge } from "@/components/providers/FailoverPriorityBadge";
 import {
   extractCodexBaseUrl,
-  getCodexEnvKey,
+  getCodexProviderEnvKeyFromSettings,
 } from "@/utils/providerConfigUtils";
 import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
@@ -76,9 +76,9 @@ function isOfficialProvider(provider: Provider, appId: AppId): boolean {
     return !baseUrl || (typeof baseUrl === "string" && baseUrl.trim() === "");
   }
   if (appId === "codex") {
-    // 无 OPENAI_API_KEY 且无 env.envKey → 使用 Codex CLI 内置 OAuth（官方）
+    // 无 OPENAI_API_KEY 且无有效 env_key → 使用 Codex CLI 内置 OAuth（官方）
     const apiKey = config?.auth?.OPENAI_API_KEY;
-    const envKey = config?.env?.envKey;
+    const envKey = getCodexProviderEnvKeyFromSettings(provider.settingsConfig);
     return (!apiKey || (typeof apiKey === "string" && apiKey.trim() === "")) && !envKey;
   }
   if (appId === "gemini") {
@@ -193,15 +193,9 @@ export function ProviderCard({
       setEnvKeyValue(null);
       return;
     }
-    let cfg = provider.settingsConfig as any;
-    if (typeof cfg === "string") {
-      try { cfg = JSON.parse(cfg); } catch { return; }
-    }
-    let envKeyName = cfg?.env?.envKey;
-    if (!envKeyName) {
-      const configStr = typeof cfg?.config === "string" ? cfg.config : "";
-      envKeyName = getCodexEnvKey(configStr) ?? undefined;
-    }
+    const envKeyName = getCodexProviderEnvKeyFromSettings(
+      provider.settingsConfig,
+    );
     if (!envKeyName) {
       setEnvKeyValue(null);
       return;

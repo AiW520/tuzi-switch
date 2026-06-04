@@ -1081,15 +1081,15 @@ fn restore_codex_provider_token_for_backfill_with_env_writer(
 
     if let Some(obj) = settings.as_object_mut() {
         let env_key = template_settings
-            .get("env")
-            .and_then(|env| env.get("envKey"))
+            .get("config")
             .and_then(Value::as_str)
-            .map(str::to_string)
+            .and_then(extract_codex_env_key)
             .or_else(|| {
                 template_settings
-                    .get("config")
+                    .get("env")
+                    .and_then(|env| env.get("envKey"))
                     .and_then(Value::as_str)
-                    .and_then(extract_codex_env_key)
+                    .map(str::to_string)
             });
         if let Some(env_key) = env_key.as_deref() {
             write_env_key(env_key, &token)?;
@@ -2078,7 +2078,7 @@ experimental_bearer_token = "sk-backfill"
         });
         let template_settings = json!({
             "auth": {},
-            "env": { "envKey": "TUZI_BACKFILL_CODEX_API_KEY" },
+            "env": { "envKey": "STALE_CODEX_API_KEY" },
             "config": r#"model_provider = "vendor_alpha"
 
 [model_providers.vendor_alpha]

@@ -50,7 +50,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { settingsApi } from "@/lib/api/settings";
 import {
   getApiKeyFromConfig,
-  getCodexEnvKey,
+  getCodexProviderEnvKeyFromSettings,
 } from "@/utils/providerConfigUtils";
 
 interface ProviderListProps {
@@ -237,22 +237,7 @@ export function ProviderList({
   );
 
   const getCodexProviderEnvKey = useCallback((provider: Provider) => {
-    let cfg = provider.settingsConfig;
-    if (typeof cfg === "string") {
-      try {
-        cfg = JSON.parse(cfg);
-      } catch {
-        return "";
-      }
-    }
-
-    const envKey = cfg?.env?.envKey;
-    if (typeof envKey === "string" && envKey.trim()) {
-      return envKey.trim();
-    }
-
-    const configText = typeof cfg?.config === "string" ? cfg.config : "";
-    return getCodexEnvKey(configText) ?? "";
+    return getCodexProviderEnvKeyFromSettings(provider.settingsConfig);
   }, []);
 
   const hasOpenCodeApiKey = (provider: Provider): boolean => {

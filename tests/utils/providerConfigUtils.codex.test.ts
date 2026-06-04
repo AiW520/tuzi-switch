@@ -3,6 +3,7 @@ import {
   extractCodexBaseUrl,
   extractCodexExperimentalBearerToken,
   getCodexEnvKey,
+  getCodexProviderEnvKeyFromSettings,
   extractCodexModelCatalogJson,
   extractCodexModelName,
   extractCodexWireApi,
@@ -42,6 +43,28 @@ describe("Codex TOML utils", () => {
         ].join("\n"),
       ),
     ).toBe("LEGACY_API_KEY");
+  });
+
+  it("prefers the active provider TOML env_key over legacy settings envKey", () => {
+    const config = [
+      'model_provider = "tuzi"',
+      "",
+      "[model_providers.tuzi]",
+      'base_url = "https://tuzi.example/v1"',
+      'env_key = "TUZI_CODEX_KEY"',
+      "",
+      "[model_providers.other]",
+      'base_url = "https://other.example/v1"',
+      'env_key = "OTHER_CODEX_KEY"',
+      "",
+    ].join("\n");
+
+    expect(
+      getCodexProviderEnvKeyFromSettings({
+        config,
+        env: { envKey: "STALE_CODEX_KEY" },
+      }),
+    ).toBe("TUZI_CODEX_KEY");
   });
 
   it("removes base_url line when set to empty", () => {

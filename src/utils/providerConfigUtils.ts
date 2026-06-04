@@ -1404,3 +1404,37 @@ export const getCodexEnvKey = (configText: string): string | null => {
 
   return null;
 };
+
+export const getCodexProviderEnvKeyFromSettings = (
+  settingsConfig: unknown,
+): string => {
+  let cfg = settingsConfig;
+  if (typeof cfg === "string") {
+    try {
+      cfg = JSON.parse(cfg);
+    } catch {
+      return "";
+    }
+  }
+
+  if (!cfg || typeof cfg !== "object") {
+    return "";
+  }
+
+  const configText =
+    typeof (cfg as Record<string, unknown>).config === "string"
+      ? ((cfg as Record<string, unknown>).config as string)
+      : "";
+  const envKeyFromToml = getCodexEnvKey(configText);
+  if (envKeyFromToml?.trim()) {
+    return envKeyFromToml.trim();
+  }
+
+  const envObj = (cfg as Record<string, unknown>).env;
+  if (!envObj || typeof envObj !== "object") {
+    return "";
+  }
+
+  const envKey = (envObj as Record<string, unknown>).envKey;
+  return typeof envKey === "string" ? envKey.trim() : "";
+};

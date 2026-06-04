@@ -69,6 +69,7 @@ import type { UniversalProviderPreset } from "@/config/universalProviderPresets"
 import {
   applyTemplateValues,
   extractCodexWireApi,
+  getCodexProviderEnvKeyFromSettings,
   hasApiKeyField,
   setCodexModelName as setCodexModelNameInConfig,
   setCodexWireApi,
@@ -1297,12 +1298,17 @@ function ProviderFormFull({
           /^\s*model_provider\s*=\s*"([^"]+)"/m,
         );
         const routeId = routeIdMatch?.[1] || "tuziswitch";
+        const resolvedCodexEnvKey =
+          getCodexProviderEnvKeyFromSettings({
+            config: normalizedCodexConfig,
+            env: { envKey: codexEnvKey },
+          }) || codexEnvKey;
 
-        if (codexEnvKey && codexBaseUrl) {
+        if (resolvedCodexEnvKey && codexBaseUrl) {
           await invoke("save_codex_route", {
             routeId,
             baseUrl: codexBaseUrl,
-            envKey: codexEnvKey,
+            envKey: resolvedCodexEnvKey,
             apiKey: codexApiKey || "",
             model:
               normalizedCatalogModels[0]?.model || codexModelName || "gpt-5.5",
@@ -1318,7 +1324,7 @@ function ProviderFormFull({
         } = {
           auth: {},
           config: normalizedCodexConfig,
-          env: { envKey: codexEnvKey },
+          env: { envKey: resolvedCodexEnvKey },
         };
         if (normalizedCatalogModels.length > 0) {
           configObj.modelCatalog = { models: normalizedCatalogModels };
@@ -1331,7 +1337,13 @@ function ProviderFormFull({
         settingsConfig = JSON.stringify({
           auth: {},
           config: fallbackConfig,
-          env: { envKey: codexEnvKey },
+          env: {
+            envKey:
+              getCodexProviderEnvKeyFromSettings({
+                config: fallbackConfig,
+                env: { envKey: codexEnvKey },
+              }) || codexEnvKey,
+          },
         });
       }
     } else if (appId === "gemini") {
@@ -1707,12 +1719,9 @@ function ProviderFormFull({
               );
             if (!nameMatches) return false;
             // Check if actually configured: env_key exists AND has value in shell rc
-            const cfg = p.settingsConfig as Record<string, any>;
-            const envKeyName =
-              cfg?.env?.envKey ||
-              (typeof cfg?.config === "string"
-                ? cfg.config.match(/env_key\s*=\s*"([^"]+)"/)?.[1]
-                : undefined);
+            const envKeyName = getCodexProviderEnvKeyFromSettings(
+              p.settingsConfig,
+            );
             if (!envKeyName) return false;
             return Boolean(shellEnvKeys?.[envKeyName]);
           },
