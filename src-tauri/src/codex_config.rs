@@ -31,6 +31,24 @@ const CODEX_RESERVED_MODEL_PROVIDER_IDS: &[&str] = &[
 const MANAGED_ENV_BEGIN: &str = "# >>> tuzi-switch codex env >>>";
 const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
 
+fn is_valid_env_key_name(env_key: &str) -> bool {
+    let mut chars = env_key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn validate_env_key_name(env_key: &str) -> Result<(), AppError> {
+    if is_valid_env_key_name(env_key) {
+        return Ok(());
+    }
+    Err(AppError::Message(format!(
+        "Invalid Codex env_key name: {env_key}"
+    )))
+}
+
 // ---------------------------------------------------------------------------
 // Codex CLI version detection
 // ---------------------------------------------------------------------------
@@ -86,6 +104,9 @@ pub fn read_managed_env_block() -> HashMap<String, String> {
 }
 
 pub fn read_managed_env_key(env_key: &str) -> Option<String> {
+    if !is_valid_env_key_name(env_key) {
+        return None;
+    }
     if cfg!(target_os = "windows") {
         return std::env::var(env_key).ok().filter(|v| !v.is_empty());
     }
@@ -93,6 +114,7 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
 }
 
 pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
+    validate_env_key_name(env_key)?;
     if cfg!(target_os = "windows") {
         return write_windows_env_key(env_key, value);
     }
@@ -106,6 +128,7 @@ pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError>
 
 #[allow(dead_code)]
 pub fn remove_managed_env_key(env_key: &str) -> Result<(), AppError> {
+    validate_env_key_name(env_key)?;
     if cfg!(target_os = "windows") {
         return remove_windows_env_key(env_key);
     }
@@ -145,12 +168,16 @@ fn parse_managed_block(content: &str) -> HashMap<String, String> {
 fn parse_export_line(line: &str) -> Option<(String, String)> {
     let rest = line.trim().strip_prefix("export ")?;
     let (key, val_raw) = rest.split_once('=')?;
+    let key = key.trim();
+    if !is_valid_env_key_name(key) {
+        return None;
+    }
     let val = val_raw
         .trim()
         .trim_matches('"')
         .trim_matches('\'')
         .to_string();
-    Some((key.trim().to_string(), val))
+    Some((key.to_string(), val))
 }
 
 fn rebuild_rc_with_managed_block(content: &str, env_map: &HashMap<String, String>) -> String {
@@ -1092,6 +1119,7 @@ fn restore_codex_provider_token_for_backfill_with_env_writer(
                     .map(str::to_string)
             });
         if let Some(env_key) = env_key.as_deref() {
+            validate_env_key_name(env_key)?;
             write_env_key(env_key, &token)?;
             let cleaned_config = remove_codex_experimental_bearer_token(&config_text)?;
             obj.insert("config".to_string(), Value::String(cleaned_config));
@@ -2109,6 +2137,41 @@ env_key = "TUZI_BACKFILL_CODEX_API_KEY"
                 "TUZI_BACKFILL_CODEX_API_KEY".to_string(),
                 "sk-backfill".to_string()
             )]
+        );
+    }
+
+    #[test]
+    fn restore_backfill_rejects_invalid_env_key_without_cleaning_token() {
+        let mut live_settings = json!({
+            "auth": {},
+            "config": r#"model_provider = "vendor_alpha"
+
+[model_providers.vendor_alpha]
+env_key = "SAFE_CODEX_API_KEY"
+experimental_bearer_token = "sk-backfill"
+"#
+        });
+        let template_settings = json!({
+            "auth": {},
+            "config": r#"model_provider = "vendor_alpha"
+
+[model_providers.vendor_alpha]
+env_key = "BAD; echo injected"
+"#
+        });
+
+        let err = restore_codex_provider_token_for_backfill_with_env_writer(
+            &mut live_settings,
+            &template_settings,
+            |key, value| panic!("unexpected write for {key}={value}"),
+        )
+        .unwrap_err();
+        let config = live_settings.get("config").and_then(Value::as_str).unwrap();
+
+        assert!(err.to_string().contains("Invalid Codex env_key name"));
+        assert!(
+            config.contains("experimental_bearer_token"),
+            "token must stay in config when env_key is rejected"
         );
     }
 

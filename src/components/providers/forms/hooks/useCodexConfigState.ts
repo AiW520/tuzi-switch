@@ -30,10 +30,7 @@ function migrateLegacyConfig(configStr: string): string {
   let result = configStr.replace(/^\s*profile\s*=\s*"[^"]+"\s*$/gm, "");
 
   // Already has model_providers with env_key — no migration needed
-  if (
-    result.match(/\[model_providers\.\w+\]/) &&
-    result.includes("env_key")
-  ) {
+  if (result.match(/\[model_providers\.\w+\]/) && result.includes("env_key")) {
     // Remove [profiles.xxx] sections if present (deprecated in 0.134.0+)
     return (
       result

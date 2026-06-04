@@ -426,7 +426,7 @@ export function ProviderList({
     // 对 codex/claude/gemini 的预设卡片做二次排序：
     // 启用中(0) > 非预设有key(1) > 预设有key(2) > 预设无key(3)
     const PRESET_IDS: Partial<Record<string, string[]>> = {
-      codex:  ["tuzi-route", "coding", "gaccode"],
+      codex: ["tuzi-route", "coding", "gaccode"],
       claude: ["tuzi-route", "gaccode"],
       gemini: ["tuzi-route"],
     };
@@ -442,8 +442,11 @@ export function ProviderList({
         }
         return cfg?.auth?.OPENAI_API_KEY;
       }
-      return appId === "claude" ? (cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY) :
-             appId === "gemini" ? cfg?.env?.GEMINI_API_KEY : "";
+      return appId === "claude"
+        ? cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY
+        : appId === "gemini"
+          ? cfg?.env?.GEMINI_API_KEY
+          : "";
     };
 
     const cardRank = (provider: Provider): number => {

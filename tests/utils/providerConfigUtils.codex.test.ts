@@ -67,6 +67,36 @@ describe("Codex TOML utils", () => {
     ).toBe("TUZI_CODEX_KEY");
   });
 
+  it("reads env_key from valid single-quoted TOML strings", () => {
+    expect(
+      getCodexEnvKey(
+        [
+          "model_provider = 'tuzi'",
+          "",
+          "[model_providers.tuzi]",
+          "env_key = 'TUZI_SINGLE_QUOTED_KEY'",
+          "",
+        ].join("\n"),
+      ),
+    ).toBe("TUZI_SINGLE_QUOTED_KEY");
+
+    expect(getCodexEnvKey("env_key = 'TOP_LEVEL_SINGLE_KEY'\n")).toBe(
+      "TOP_LEVEL_SINGLE_KEY",
+    );
+
+    expect(
+      getCodexEnvKey(
+        [
+          "profile = 'legacy'",
+          "",
+          "[profiles.legacy]",
+          "env_key = 'LEGACY_SINGLE_KEY'",
+          "",
+        ].join("\n"),
+      ),
+    ).toBe("LEGACY_SINGLE_KEY");
+  });
+
   it("removes base_url line when set to empty", () => {
     const input = [
       'model_provider = "openai"',

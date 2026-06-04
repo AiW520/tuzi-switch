@@ -466,6 +466,8 @@ const TOML_MODEL_CATALOG_JSON_REPLACE_PATTERN =
   /^(\s*model_catalog_json\s*=\s*)(?:"(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*')(\s*(?:#.*)?)$/;
 const TOML_MODEL_PROVIDER_LINE_PATTERN =
   /^\s*model_provider\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/;
+const TOML_ENV_KEY_PATTERN =
+  /^\s*env_key\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/;
 const CODEX_RESERVED_MODEL_PROVIDER_IDS = new Set([
   "amazon-bedrock",
   "openai",
@@ -1349,9 +1351,9 @@ export const getCodexEnvKey = (configText: string): string | null => {
   // 1. 先尝试从 model_provider 找 (新格式)
   let activeProvider: string | null = null;
   for (const line of lines) {
-    const match = line.match(/^\s*model_provider\s*=\s*"([^"]+)"/);
-    if (match) {
-      activeProvider = match[1];
+    const match = line.match(TOML_MODEL_PROVIDER_LINE_PATTERN);
+    if (match?.[2]) {
+      activeProvider = match[2];
       break;
     }
   }
@@ -1365,24 +1367,26 @@ export const getCodexEnvKey = (configText: string): string | null => {
       }
       if (inSection) {
         if (line.trim().startsWith("[")) break;
-        const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-        if (envKeyMatch) return envKeyMatch[1];
+        const envKeyMatch = line.match(TOML_ENV_KEY_PATTERN);
+        if (envKeyMatch?.[2]) return envKeyMatch[2];
       }
     }
   }
 
   // 2. 如果找不到，尝试从顶级找 env_key (旧格式)
   for (const line of lines) {
-    const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-    if (envKeyMatch) return envKeyMatch[1];
+    const envKeyMatch = line.match(TOML_ENV_KEY_PATTERN);
+    if (envKeyMatch?.[2]) return envKeyMatch[2];
   }
 
   // 3. 如果还找不到，尝试从旧版 profile 找
   let profileName: string | null = null;
   for (const line of lines) {
-    const match = line.match(/^\s*profile\s*=\s*"([^"]+)"/);
-    if (match) {
-      profileName = match[1];
+    const match = line.match(
+      /^\s*profile\s*=\s*(["'])([^"'\r\n]+)\1\s*(?:#.*)?$/,
+    );
+    if (match?.[2]) {
+      profileName = match[2];
       break;
     }
   }
@@ -1396,8 +1400,8 @@ export const getCodexEnvKey = (configText: string): string | null => {
       }
       if (inSection) {
         if (line.trim().startsWith("[")) break;
-        const envKeyMatch = line.match(/^\s*env_key\s*=\s*"([^"]+)"/);
-        if (envKeyMatch) return envKeyMatch[1];
+        const envKeyMatch = line.match(TOML_ENV_KEY_PATTERN);
+        if (envKeyMatch?.[2]) return envKeyMatch[2];
       }
     }
   }
