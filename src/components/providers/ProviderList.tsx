@@ -423,53 +423,8 @@ export function ProviderList({
         })
       : sortedProviders;
 
-    // 对 codex/claude/gemini 的预设卡片做二次排序：
-    // 启用中(0) > 非预设有key(1) > 预设有key(2) > 预设无key(3)
-    const PRESET_IDS: Partial<Record<string, string[]>> = {
-      codex: ["tuzi-route", "coding", "gaccode"],
-      claude: ["tuzi-route", "gaccode"],
-      gemini: ["tuzi-route"],
-    };
-    const presetIds = PRESET_IDS[appId];
-    if (!presetIds) return base;
-
-    const getPresetApiKey = (provider: Provider) => {
-      const cfg = provider.settingsConfig as Record<string, any>;
-      if (appId === "codex") {
-        const envKeyName = getCodexProviderEnvKey(provider);
-        if (envKeyName && codexEnvKeys[envKeyName]) {
-          return codexEnvKeys[envKeyName];
-        }
-        return cfg?.auth?.OPENAI_API_KEY;
-      }
-      return appId === "claude"
-        ? cfg?.env?.ANTHROPIC_AUTH_TOKEN || cfg?.env?.ANTHROPIC_API_KEY
-        : appId === "gemini"
-          ? cfg?.env?.GEMINI_API_KEY
-          : "";
-    };
-
-    const cardRank = (provider: Provider): number => {
-      if (provider.id === currentProviderId) return 0;
-      const isPreset = presetIds.includes(provider.id);
-      if (isPreset) {
-        const key = getPresetApiKey(provider);
-        return typeof key === "string" && key.trim() !== "" ? 2 : 3;
-      }
-      return 1; // 非预设卡片（有 key 的 default 等）
-    };
-
-    return [...base].sort((a, b) => {
-      return cardRank(a) - cardRank(b);
-    });
-  }, [
-    searchTerm,
-    sortedProviders,
-    appId,
-    currentProviderId,
-    codexEnvKeys,
-    getCodexProviderEnvKey,
-  ]);
+    return base;
+  }, [searchTerm, sortedProviders]);
 
   const claudeDesktopStatusMessages = useMemo(() => {
     if (appId !== "claude-desktop" || !claudeDesktopStatus) return [];
