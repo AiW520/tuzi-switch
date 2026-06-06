@@ -810,8 +810,15 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 save_route_to_config(&existing, &route_id, &base_url, &env_key, &model, &effort)?;
 
             // Switch top-level fields (model_provider + model + effort)
-            let final_config =
+            let mut final_config =
                 switch_codex_profile(&config_with_route, &route_id, Some(&model), Some(&effort))?;
+
+            // Restore experimental_bearer_token if it exists in the provider's config
+            if let Some(token) = crate::codex_config::extract_codex_experimental_bearer_token(config_str) {
+                if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(&final_config, &token) {
+                    final_config = updated;
+                }
+            }
 
             write_codex_provider_live_with_catalog(
                 &provider.settings_config,

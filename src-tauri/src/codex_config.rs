@@ -56,9 +56,14 @@ fn validate_env_key_name(env_key: &str) -> Result<(), AppError> {
 /// Detect Codex CLI version. Returns (major, minor, patch) or None if not found.
 pub fn get_codex_version() -> Option<(u32, u32, u32)> {
     use std::process::Command;
-    let output = Command::new("codex").arg("--version").output().ok()?;
+    
+    // Check both codex and opencode commands
+    let output = Command::new("codex").arg("--version").output()
+        .or_else(|_| Command::new("opencode").arg("--version").output())
+        .ok()?;
+        
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Format: "codex-cli 0.133.0" or similar
+    // Format: "codex-cli 0.133.0" or "opencode 0.135.0"
     let version_str = stdout.trim().split_whitespace().last()?;
     let parts: Vec<&str> = version_str.split('.').collect();
     if parts.len() >= 3 {
@@ -73,10 +78,7 @@ pub fn get_codex_version() -> Option<(u32, u32, u32)> {
 
 /// Check if Codex CLI version is >= 0.134.0 (new profile format)
 pub fn is_new_profile_format() -> bool {
-    match get_codex_version() {
-        Some((major, minor, _)) => major > 0 || minor >= 134,
-        None => true, // Default to new format if can't detect
-    }
+    true // Always use new format, fix issue: legacy `profile = "codex"` config is no longer supported
 }
 // Shell RC managed block
 // ---------------------------------------------------------------------------
@@ -341,9 +343,12 @@ pub fn save_route_to_config(
 ) -> Result<String, AppError> {
     let new_format = is_new_profile_format();
 
-    let provider_section = format!(
-        "[model_providers.{route_id}]\nname = \"{route_id}\"\nbase_url = \"{base_url}\"\nenv_key = \"{env_key}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+    let mut provider_section = format!(
+        "[model_providers.{route_id}]\nname = \"{route_id}\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
     );
+    if !env_key.trim().is_empty() {
+        provider_section.push_str(&format!("env_key = \"{env_key}\"\n"));
+    }
 
     let mut lines: Vec<String> = existing_config.lines().map(|l| l.to_string()).collect();
 
@@ -773,7 +778,7 @@ pub fn extract_codex_experimental_bearer_token(config_text: &str) -> Option<Stri
         .map(str::to_string)
 }
 
-fn set_codex_experimental_bearer_token(config_text: &str, token: &str) -> Result<String, AppError> {
+pub fn set_codex_experimental_bearer_token(config_text: &str, token: &str) -> Result<String, AppError> {
     if config_text.trim().is_empty() {
         return Err(AppError::localized(
             "provider.codex.config.missing",
