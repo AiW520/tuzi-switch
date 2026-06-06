@@ -241,13 +241,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
       if (!displayVersion) {
         await settingsApi.openExternal(
-          "https://github.com/lkj020626-lgtm/tu-zi-switch/releases",
+          "https://github.com/tuziapi/tuzi-switch/releases",
         );
         return;
       }
 
       await settingsApi.openExternal(
-        `https://github.com/lkj020626-lgtm/tu-zi-switch/releases/tag/${displayVersion}`,
+        `https://github.com/tuziapi/tuzi-switch/releases/tag/${displayVersion}`,
       );
     } catch (error) {
       console.error("[AboutSection] Failed to open release notes", error);

@@ -464,7 +464,29 @@ export function ProviderCard({
                 claude: claudeLinks,
                 gemini: geminiLinks,
               };
-              const links = linkMap[appId]?.[provider.id];
+              let links = linkMap[appId]?.[provider.id];
+              
+              if (displayUrl && displayUrl !== fallbackUrlText) {
+                try {
+                  const urlStr = displayUrl.startsWith('http') ? displayUrl : `https://${displayUrl}`;
+                  const urlObj = new URL(urlStr);
+                  const normalizedUrl = `${urlObj.origin}${urlObj.pathname}`.replace(/\/$/, "");
+                  
+                  if (normalizedUrl === "https://api.tu-zi.com" || normalizedUrl === "https://api.tu-zi.com/v1") {
+                    links = {
+                      recharge: "https://api.tu-zi.com/console/topup",
+                      query: "https://check.sydney-ai.com/",
+                    };
+                  } else if (normalizedUrl === "https://coding.tu-zi.com" || normalizedUrl === "https://api.tu-zi.com/coding") {
+                    links = {
+                      recharge: "https://store.tu-zi.com/cat/11",
+                      query: "https://api.tu-zi.com/reseller/",
+                    };
+                  }
+                } catch (e) {
+                  // ignore invalid url
+                }
+              }
               const cfg = provider.settingsConfig as Record<string, any>;
               const rawKey =
                 appId === "codex"
@@ -502,10 +524,8 @@ export function ProviderCard({
                               ? rawKey.trim()
                               : "";
                           const useWebview =
-                            provider.id === "tuzi-route" ||
-                            (appId === "codex" &&
-                              provider.id === "coding" &&
-                              key !== "");
+                            links.query === "https://check.sydney-ai.com/" ||
+                            (links.query === "https://api.tu-zi.com/reseller/" && key !== "");
                           if (useWebview) {
                             void invoke("open_webview_with_key", {
                               url: links.query,
