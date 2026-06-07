@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.15] - 2026-06-08
+
+### Fixes
+
+- 在 Tauri updater 清单缺失时降级读取 GitHub latest release，避免启动和手动检查完全发现不了新版本。
+- 对无签名清单场景使用手动下载更新流程，避免误触发不可用的自动安装重启。
+
 ## [1.1.14] - 2026-06-07
 
 ### Fixes
