@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.10] - 2026-06-07
+
+### Fixes
+
+- Replaced the GitHub Release publish API call with `gh release edit --latest`.
+
 ## [1.1.9] - 2026-06-07
 
 ### Fixes

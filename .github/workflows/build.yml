@@ -342,17 +342,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.create-release.outputs.tag }}
-          REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          RELEASE_ID="$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq .id)"
-          gh api \
-            --method PATCH \
-            "repos/${REPO}/releases/${RELEASE_ID}" \
-            -F draft=false \
-            -F prerelease=false \
-            -f make_latest=true
+          gh release edit "$TAG" \
+            --draft=false \
+            --prerelease=false \
+            --latest
       - name: Publish manifest branch
         if: hashFiles('latest.json') != ''
         env:
