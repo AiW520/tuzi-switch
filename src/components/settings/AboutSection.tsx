@@ -22,6 +22,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
+import type { WebHotUpdateStatus } from "@/lib/api/settings";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { relaunchApp } from "@/lib/updater";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +96,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [version, setVersion] = useState<string | null>(null);
   const [isLoadingVersion, setIsLoadingVersion] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [webUpdateStatus, setWebUpdateStatus] =
+    useState<WebHotUpdateStatus | null>(null);
+  const [isCheckingWebUpdate, setIsCheckingWebUpdate] = useState(false);
   const [toolVersions, setToolVersions] = useState<ToolVersion[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(true);
 
@@ -111,6 +115,37 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     Record<string, WslShellPreference>
   >({});
   const [loadingTools, setLoadingTools] = useState<Record<string, boolean>>({});
+
+  const refreshWebUpdateStatus = useCallback(async () => {
+    try {
+      setWebUpdateStatus(await settingsApi.getWebHotUpdateStatus());
+    } catch (error) {
+      console.error("[AboutSection] Failed to load web update status", error);
+    }
+  }, []);
+
+  const handleCheckWebUpdate = useCallback(
+    async (silent = false) => {
+      setIsCheckingWebUpdate(true);
+      try {
+        const result = await settingsApi.checkWebHotUpdate();
+        await refreshWebUpdateStatus();
+        if (result.updated) {
+          toast.success(t("settings.webUpdateReady"), { closeButton: true });
+        } else if (!silent) {
+          toast.success(result.message || t("settings.webUpToDate"), {
+            closeButton: true,
+          });
+        }
+      } catch (error) {
+        console.error("[AboutSection] Web hot update check failed", error);
+        if (!silent) toast.error(t("settings.webUpdateFailed"));
+      } finally {
+        setIsCheckingWebUpdate(false);
+      }
+    },
+    [refreshWebUpdateStatus, t],
+  );
 
   const refreshToolVersions = useCallback(
     async (
@@ -227,6 +262,14 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     // refreshes are handled by refreshToolVersions in the shell/flag handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void refreshWebUpdateStatus();
+    const timer = window.setTimeout(() => {
+      void handleCheckWebUpdate(true);
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [handleCheckWebUpdate, refreshWebUpdateStatus]);
 
   // ... (handlers like handleOpenReleaseNotes, handleCheckUpdate) ...
 
@@ -356,10 +399,35 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                   {t("settings.portableMode")}
                 </Badge>
               )}
+              {webUpdateStatus?.activeVersion && (
+                <Badge variant="outline" className="gap-1.5 bg-background/80">
+                  <span className="text-muted-foreground">
+                    {t("settings.webVersion")}
+                  </span>
+                  <span className="font-medium">
+                    {webUpdateStatus.activeVersion}
+                  </span>
+                </Badge>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCheckWebUpdate(false)}
+              disabled={isCheckingWebUpdate}
+              className="h-8 gap-1.5 text-xs"
+            >
+              {isCheckingWebUpdate ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {t("settings.checkWebUpdate")}
+            </Button>
             <Button
               type="button"
               variant="outline"

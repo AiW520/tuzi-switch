@@ -67,6 +67,7 @@ pub fn exit_lightweight_mode(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("加载主窗口配置失败: {e}"))?
         .build()
         .map_err(|e| format!("创建主窗口失败: {e}"))?;
+    crate::web_hot_update::navigate_main_window_if_available(app);
 
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();

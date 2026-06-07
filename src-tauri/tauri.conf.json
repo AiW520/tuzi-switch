@@ -36,7 +36,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -56,13 +56,15 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["tuziswitch"]
+        "schemes": [
+          "tuziswitch"
+        ]
       }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0REY1Nzg5OTc1ODNGMgpSV1R5ZzNXWmVQVk5EdEhGWlg0UkdSVFArcXpQUUNWWitSTTB1K25CMkNUU09yc2xRZUNqQTJKMwo=",
       "endpoints": [
-        "https://github.com/tuziapi/tuzi-switch/releases/latest/download/latest.json"
+        "https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@release-manifest/latest.json"
       ]
     }
   }

@@ -17,14 +17,14 @@ case "$OS" in
   Darwin)
     case "$ARCH" in
       arm64|aarch64) FILE="tuzi-switch-macos-aarch64.dmg" ;;
-      x86_64)        FILE="tuzi-switch-macos-x86_64.dmg" ;;
+      x86_64)        echo "macOS x86_64 installer is not published yet." >&2; exit 1 ;;
       *)             echo "Unsupported macOS arch: $ARCH" >&2; exit 1 ;;
     esac
     ;;
   Linux)
     case "$ARCH" in
       x86_64|amd64)  FILE="tuzi-switch-linux-x86_64.AppImage" ;;
-      aarch64|arm64) FILE="tuzi-switch-linux-aarch64.AppImage" ;;
+      aarch64|arm64) echo "Linux aarch64 installer is not published yet." >&2; exit 1 ;;
       *)             echo "Unsupported Linux arch: $ARCH" >&2; exit 1 ;;
     esac
     ;;
@@ -41,7 +41,11 @@ else
 fi
 
 echo "Downloading $FILE ..."
-curl -fL "$DOWNLOAD_URL" -o "$TMP_DIR/$FILE"
+if ! curl -fL "$DOWNLOAD_URL" -o "$TMP_DIR/$FILE"; then
+  MIRROR_URL="https://mirror.ghproxy.com/${DOWNLOAD_URL}"
+  echo "Primary download failed, retrying via mirror ..."
+  curl -fL "$MIRROR_URL" -o "$TMP_DIR/$FILE"
+fi
 
 case "$(echo "$FILE" | tr '[:upper:]' '[:lower:]')" in
   *.dmg)

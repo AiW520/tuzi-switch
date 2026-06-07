@@ -1,6 +1,7 @@
 mod app_config;
 mod app_store;
 mod auto_launch;
+mod capabilities;
 mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
@@ -33,6 +34,7 @@ mod store;
 
 mod tray;
 mod usage_script;
+mod web_hot_update;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
@@ -246,7 +248,7 @@ pub fn run() {
         }));
     }
 
-    let builder = builder
+    let builder = web_hot_update::register_protocol(builder)
         // 注册 deep-link 插件（处理 macOS AppleEvent 和其他平台的深链接）
         .plugin(tauri_plugin_deep_link::init())
         // 拦截窗口关闭：根据设置决定是否最小化到托盘
@@ -291,6 +293,7 @@ pub fn run() {
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
             app_store::refresh_app_config_dir_override(app.handle());
             panic_hook::init_app_config_dir(crate::config::get_app_config_dir());
+            web_hot_update::navigate_main_window_if_available(app.handle());
 
             // 注册 Updater 插件（桌面端）
             #[cfg(desktop)]
@@ -1098,6 +1101,10 @@ pub fn run() {
             commands::set_log_config,
             commands::restart_app,
             commands::check_for_updates,
+            capabilities::get_capability_manifest,
+            capabilities::invoke_capability,
+            web_hot_update::get_web_hot_update_status,
+            web_hot_update::check_web_hot_update,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
             commands::get_claude_plugin_status,

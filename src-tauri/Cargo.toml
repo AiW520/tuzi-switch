@@ -42,6 +42,7 @@ toml_edit = "0.22"
 reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream", "socks"] }
 arboard = "3.6"
 flate2 = "1"
+tar = "0.4"
 brotli = "7"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
 futures = "0.3"
@@ -77,6 +78,7 @@ indexmap = { version = "2", features = ["serde"] }
 rust_decimal = "1.33"
 uuid = { version = "1.11", features = ["v4"] }
 sha2 = "0.10"
+minisign-verify = "0.2"
 json5 = "0.4"
 json-five = "0.3.1"
 

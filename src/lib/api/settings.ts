@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings, WebDavSyncSettings, RemoteSnapshotInfo } from "@/types";
 import type { AppId } from "./types";
+import { invokeCapability } from "@/lib/capabilities/client";
 
 export interface ConfigTransferResult {
   success: boolean;
@@ -18,6 +19,20 @@ export interface WebDavSyncResult {
   status: string;
 }
 
+export interface WebHotUpdateStatus {
+  bundledVersion: string;
+  activeVersion: string | null;
+  pendingVersion: string | null;
+  manifestUrl: string;
+  usingHotAssets: boolean;
+}
+
+export interface WebHotUpdateResult {
+  updated: boolean;
+  version: string | null;
+  message: string;
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -32,7 +47,17 @@ export const settingsApi = {
   },
 
   async checkUpdates(): Promise<void> {
-    await invoke("check_for_updates");
+    await invokeCapability<boolean>({ id: "update.checkNative" });
+  },
+
+  async getWebHotUpdateStatus(): Promise<WebHotUpdateStatus> {
+    return await invokeCapability<WebHotUpdateStatus>({
+      id: "update.getWebStatus",
+    });
+  },
+
+  async checkWebHotUpdate(): Promise<WebHotUpdateResult> {
+    return await invokeCapability<WebHotUpdateResult>({ id: "update.checkWeb" });
   },
 
   async isPortable(): Promise<boolean> {
@@ -60,7 +85,10 @@ export const settingsApi = {
   },
 
   async getAppConfigPath(): Promise<string> {
-    return await invoke("get_app_config_path");
+    const info = await invokeCapability<{ appConfigDir: string }>({
+      id: "config.getAppConfigInfo",
+    });
+    return info.appConfigDir;
   },
 
   async openAppConfigFolder(): Promise<void> {

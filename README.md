@@ -21,32 +21,31 @@
 
 - Windows：下载 Windows 安装包
 - Linux：根据发行版选择 `.AppImage`、`.deb` 或 `.rpm`
-- macOS：下载 `macOS-unsigned.dmg` 或 `macOS-unsigned.zip`
+- macOS：下载 macOS arm64 `.dmg`
 
 目前公开 Release 已支持 Windows、macOS 和 Linux 用户下载使用。
 
 ### macOS / Linux 一键安装
 
-直接安装当前推荐版本：
+直接安装最新版本：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@main/scripts/install_tuzi_switch.sh | bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "/Applications/CC Switch For TuZi.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.1.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@v1.1.4/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.1.4 bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "/Applications/CC Switch For TuZi.app"
 ```
 补充说明：
 
-- 当前 Release 已按正式版本发布，GitHub `releases/latest` 会优先命中当前推荐版本
-- 当前 README 默认固定到 `v1.1.2`，这样可以确保安装到我们当前推荐版本
+- App 内自动升级不执行安装脚本，安装脚本只作为手动安装兜底
 - 需要安装其它版本时，可以改用 `env TUZI_SWITCH_TAG=vX.Y.Z bash`
-- 这个脚本会自动按系统选择对应安装包，macOS 装 `.zip`，Linux 装 `.AppImage`
+- 这个脚本会自动按系统选择对应安装包，macOS 装 `.dmg`，Linux 装 `.AppImage`
 
 ### macOS 未签名包打开方式
 
@@ -56,8 +55,8 @@ open "/Applications/tuzi switch.app"
 2. 或在终端执行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/tuzi-switch.app"
-open "/Applications/tuzi-switch.app"
+xattr -dr com.apple.quarantine "/Applications/CC Switch For TuZi.app"
+open "/Applications/CC Switch For TuZi.app"
 ```
 
 如果你不是把应用放在 `/Applications`，把命令里的路径改成你自己的实际路径即可。
@@ -77,7 +76,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.1.2`，这一轮更新重点包括：
+当前公开版本为 `v1.1.4`，这一轮更新重点包括：
 
 ### Codex 新配置适配
 
@@ -100,6 +99,8 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ### 其他改进
 
+- **自动升级链路**：原生能力走 Tauri 官方 updater，前端界面资源支持签名校验后的热更新
+- **能力层接口**：新增 Capability Facade v1，热更新前端可按 manifest 调用稳定后端能力
 - **Windows 环境变量支持**：Windows 平台通过 `setx` 写入用户环境变量（注册表），macOS/Linux 通过 shell rc managed block，平台自动检测
 - API Key 输入框提示文案更新为”填入 API Key，将自动写入环境变量”
 - 编辑页面补充”获取 API Key”链接
@@ -168,9 +169,25 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 - `~/.tuzi-switch/tuzi-switch.db`
 - `~/.tuzi-switch/settings.json`
 - `~/.tuzi-switch/backups/`
+- `~/.tuzi-switch/web-hot-update/`（签名校验后的前端热更新资源）
 - `~/.codex/config.toml`（Codex 配置）
 - `~/.codex/auth.json`（Codex 认证）
 - `~/.zshrc` 或 `~/.bashrc`（环境变量 managed block）
+
+## 更新机制
+
+tuzi-switch 当前有两条升级链路：
+
+- 原生升级：Rust、Tauri 插件、权限、安装器等变化走 Tauri 官方 updater。更新清单通过 jsDelivr 分发，安装包仍来自 GitHub Release Assets，并由 Tauri 签名校验。
+- 界面热更新：只更新 Vite/React 前端资源。资源包放在 `release-web` 分支，经 jsDelivr 分发；客户端下载后校验 sha256 和 minisign 签名，通过后下次重启生效。
+
+安全边界：
+
+- App 内不会执行 `curl | bash`。
+- 不直接加载远程 JS。
+- 热更新前端只能调用 `Capability Facade v1` 中声明且版本兼容的 native 能力。
+
+维护细节见 [docs/自动升级与能力层设计.md](./docs/自动升级与能力层设计.md)。
 
 ## 开发计划 / TODO List
 
