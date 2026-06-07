@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.16] - 2026-06-08
+
+### Fixes
+
+- 发布验证版本，用于确认 GitHub release fallback 更新检测链路可发现后续新版本。
+
 ## [1.1.15] - 2026-06-08
 
 ### Fixes
