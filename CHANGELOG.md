@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.8] - 2026-06-07
+
+### Fixes
+
+- Treated the Tauri signing key password as optional in release secret validation.
+
 ## [1.1.7] - 2026-06-07
 
 ### Fixes
