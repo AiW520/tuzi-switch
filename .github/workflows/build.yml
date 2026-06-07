@@ -53,50 +53,6 @@ jobs:
           else
             echo "TAURI_SIGNING_PRIVATE_KEY is configured; updater artifacts will be generated."
           fi
-      - name: Create or reuse draft release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release-tag.outputs.tag }}
-        shell: bash
-        run: |
-          NOTES_FILE="$(mktemp)"
-          cat > "$NOTES_FILE" <<EOF
-          ## 安装方式
-
-          ### macOS / Linux 一键安装
-
-          \`\`\`bash
-          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | bash
-          \`\`\`
-
-          或指定版本：
-
-          \`\`\`bash
-          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=${TAG} bash
-          \`\`\`
-
-          ### Windows
-
-          下载下方 Assets 中的 \`.msi\` 安装包，双击安装即可。
-          EOF
-          sed -i 's/^          //' "$NOTES_FILE"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            IS_DRAFT="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .draft)"
-            gh release edit "$TAG" \
-              --title "兔子switch $TAG" \
-              --notes-file "$NOTES_FILE"
-            if [[ "$IS_DRAFT" == "true" ]]; then
-              gh release edit "$TAG" --draft
-            fi
-          else
-            gh release create "$TAG" \
-              --title "兔子switch $TAG" \
-              --notes-file "$NOTES_FILE" \
-              --draft \
-              --latest=false
-          fi
-
   build-macos-arm:
     needs: create-release
     runs-on: macos-latest
@@ -284,6 +240,47 @@ jobs:
           for file in "${required[@]}"; do
             test -f "dist/$file" || { echo "Missing release asset: $file" >&2; exit 1; }
           done
+      - name: Create or update draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<EOF
+          ## 安装方式
+
+          ### macOS / Linux 一键安装
+
+          \`\`\`bash
+          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | bash
+          \`\`\`
+
+          或指定版本：
+
+          \`\`\`bash
+          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=${TAG} bash
+          \`\`\`
+
+          ### Windows
+
+          下载下方 Assets 中的 \`.msi\` 安装包，双击安装即可。
+          EOF
+          sed -i 's/^          //' "$NOTES_FILE"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "兔子switch $TAG" \
+              --notes-file "$NOTES_FILE" \
+              --draft
+          else
+            gh release create "$TAG" \
+              --title "兔子switch $TAG" \
+              --notes-file "$NOTES_FILE" \
+              --draft \
+              --latest=false
+          fi
       - name: Upload release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
