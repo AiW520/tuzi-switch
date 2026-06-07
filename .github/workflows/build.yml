@@ -393,15 +393,15 @@ jobs:
         run: |
           set -euo pipefail
           WORKTREE="$(mktemp -d)"
+          git clone --branch release-manifest --single-branch \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORKTREE"
           cp latest.json "$WORKTREE/latest.json"
           cd "$WORKTREE"
-          git init
-          git checkout --orphan release-manifest
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add latest.json
           git commit -m "发布更新清单 ${{ needs.create-release.outputs.tag }}"
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:release-manifest --force
+          git push origin release-manifest
       - name: Purge jsDelivr cache
         if: hashFiles('latest.json') != ''
         shell: bash
