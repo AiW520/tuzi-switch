@@ -286,7 +286,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       try {
         resetDismiss();
         await updateHandle.downloadAndInstall();
-        await relaunchApp();
+        if (updateHandle.manual) {
+          toast.success(t("settings.updatePageOpened"), {
+            closeButton: true,
+          });
+        } else {
+          await relaunchApp();
+        }
       } catch (error) {
         console.error("[AboutSection] Update failed", error);
         toast.error(t("settings.updateFailed"));

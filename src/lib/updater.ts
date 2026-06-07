@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 
 // 可选导入：在未注册插件或非 Tauri 环境下，调用时会抛错，外层需做兜底
 // 我们按需加载并在运行时捕获错误，避免构建期类型问题
@@ -34,6 +35,7 @@ export interface UpdateHandle {
   version: string;
   notes?: string;
   date?: string;
+  manual?: boolean;
   downloadAndInstall: (
     onProgress?: (e: UpdateProgressEvent) => void,
   ) => Promise<void>;
@@ -45,6 +47,18 @@ export interface CheckOptions {
   timeout?: number;
   channel?: UpdateChannel;
 }
+
+interface GitHubRelease {
+  tag_name?: string;
+  name?: string;
+  body?: string;
+  published_at?: string;
+  html_url?: string;
+}
+
+const RELEASES_URL = "https://github.com/tuziapi/tuzi-switch/releases";
+const GITHUB_LATEST_RELEASE_API =
+  "https://api.github.com/repos/tuziapi/tuzi-switch/releases/latest";
 
 function mapUpdateHandle(raw: Update): UpdateHandle {
   return {
@@ -75,6 +89,89 @@ function mapUpdateHandle(raw: Update): UpdateHandle {
   };
 }
 
+function parseVersionParts(version: string): [number, number, number] {
+  const core = version.replace(/^v/i, "").split("-")[0] ?? "";
+  const [major, minor, patch] = core.split(".");
+  return [
+    Number.parseInt(major ?? "0", 10) || 0,
+    Number.parseInt(minor ?? "0", 10) || 0,
+    Number.parseInt(patch ?? "0", 10) || 0,
+  ];
+}
+
+function compareVersions(a: string, b: string): number {
+  const left = parseVersionParts(a);
+  const right = parseVersionParts(b);
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+async function openReleasePage(version?: string): Promise<void> {
+  const tag = version
+    ? version.startsWith("v")
+      ? version
+      : `v${version}`
+    : "";
+  const url = tag ? `${RELEASES_URL}/tag/${tag}` : RELEASES_URL;
+  await invoke("open_external", { url });
+}
+
+async function checkGitHubReleaseFallback(
+  currentVersion: string,
+  timeout: number,
+): Promise<
+  | { status: "up-to-date" }
+  | { status: "available"; info: UpdateInfo; update: UpdateHandle }
+> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/vnd.github+json",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub release metadata unavailable: ${response.status}`);
+    }
+
+    const release = (await response.json()) as GitHubRelease;
+    const availableVersion = release.tag_name?.replace(/^v/i, "") ?? "";
+    if (!availableVersion || compareVersions(availableVersion, currentVersion) <= 0) {
+      return { status: "up-to-date" };
+    }
+
+    const info: UpdateInfo = {
+      currentVersion,
+      availableVersion,
+      notes: release.body ?? release.name,
+      pubDate: release.published_at,
+    };
+    const update: UpdateHandle = {
+      version: availableVersion,
+      notes: info.notes,
+      date: info.pubDate,
+      manual: true,
+      async downloadAndInstall() {
+        await openReleasePage(availableVersion);
+      },
+      download: async () => {
+        await openReleasePage(availableVersion);
+      },
+      install: async () => {
+        await openReleasePage(availableVersion);
+      },
+    };
+
+    return { status: "available", info, update };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export async function getCurrentVersion(): Promise<string> {
   try {
     return await getVersion();
@@ -92,7 +189,14 @@ export async function checkForUpdate(
   const { check } = await import("@tauri-apps/plugin-updater");
   const currentVersion = await getCurrentVersion();
 
-  const update = await check({ timeout: opts.timeout ?? 30000 } as any);
+  const timeout = opts.timeout ?? 30000;
+  let update: Update | null;
+  try {
+    update = await check({ timeout } as any);
+  } catch (error) {
+    console.warn("Tauri updater check failed, falling back to GitHub release", error);
+    return await checkGitHubReleaseFallback(currentVersion, timeout);
+  }
   if (!update) {
     return { status: "up-to-date" };
   }
