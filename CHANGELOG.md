@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.5] - 2026-06-07
+
+### Features
+
+- Added Tauri official updater release flow with signed updater artifacts.
+- Added signed frontend hot update flow for Vite/React assets.
+- Added Capability Facade v1 for stable native capability discovery and invocation.
+
+### Security
+
+- Removed App-side remote install script execution from the automatic update path.
+- Added sha256 and minisign verification before enabling frontend hot update assets.
+- Restricted hot-updated frontend terminal command capability to declared safe commands.
+
+### Documentation
+
+- Documented the automatic update, frontend hot update, and capability-layer design.
+- Updated README installation and update mechanism notes.
+
 ## [1.1.4] - 2025-xx-xx
 
 ### Bug Fixes
