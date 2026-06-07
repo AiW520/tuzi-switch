@@ -178,9 +178,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${TAURI_PRIVATE_KEY:-}" ]]; then
-            pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+            pnpm tauri build --config '{"productName":"tuzi switch","bundle":{"createUpdaterArtifacts":false}}'
           else
-            pnpm tauri build
+            pnpm tauri build --config '{"productName":"tuzi switch"}'
           fi
       - name: Collect assets
         shell: pwsh
