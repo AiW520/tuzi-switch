@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.6] - 2026-06-07
+
+### Fixes
+
+- Fixed release workflow signing environment variables for Tauri updater artifacts.
+- Added early release secret validation so failed releases report missing signing secrets clearly.
+- Made frontend hot update publishing optional when the minisign private key is not configured.
+
 ## [1.1.5] - 2026-06-07
 
 ### Features
