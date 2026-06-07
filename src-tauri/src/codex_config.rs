@@ -808,6 +808,8 @@ pub fn set_codex_experimental_bearer_token(config_text: &str, token: &str) -> Re
         .and_then(|item| item.as_table_mut())
     {
         provider_table["experimental_bearer_token"] = toml_edit::value(token);
+        // Remove env_key so Codex doesn't crash trying to read a missing environment variable
+        provider_table.remove("env_key");
         return Ok(doc.to_string());
     }
 

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.11] - 2026-06-07
+
+### Features
+
+- Integrated Codex endpoint management and speed testing directly into the provider add/edit form.
+- Added dual URL candidates for the Codex subscription provider and automatic fastest endpoint selection.
+- Displayed the active API URL on provider cards with a compact key and API badge layout.
+
+### Fixes
+
+- Preserved Codex subscription endpoint candidates when editing existing providers.
+- Removed duplicate API URL inputs and redundant inline endpoint save action.
+- Removed Codex `env_key` when writing experimental bearer token config to avoid missing environment variable crashes.
+
+### Documentation
+
+- Documented Codex endpoint management UI design lessons and verification points.
+
 ## [1.1.10] - 2026-06-07
 
 ### Fixes

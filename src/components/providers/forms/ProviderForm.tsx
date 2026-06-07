@@ -1705,6 +1705,7 @@ function ProviderFormFull({
       let envKey = preset.envKey ?? "";
       let displayName = preset.nameKey ? t(preset.nameKey) : preset.name;
 
+      let defaultApiKey = "";
       // Compute suffix: only count providers that actually have a key in shell rc
       if (existingCodexProviders) {
         const baseName = preset.nameKey ? t(preset.nameKey) : preset.name;
@@ -1743,6 +1744,10 @@ function ProviderFormFull({
           const baseEnvKey = preset.envKey || "CUSTOM_CODEX_API_KEY";
           envKey = `${baseEnvKey}_${suffix}`;
 
+          if (shellEnvKeys?.[baseEnvKey]) {
+            defaultApiKey = shellEnvKeys[baseEnvKey];
+          }
+
           // Regenerate config with suffixed route_id and env_key
           config = generateThirdPartyConfig(
             newRouteId,
@@ -1753,7 +1758,7 @@ function ProviderFormFull({
         }
       }
 
-      resetCodexConfig({}, config, envKey);
+      resetCodexConfig({}, config, envKey, defaultApiKey);
       setCodexChatReasoning({});
       setLocalCodexApiFormat(
         codexApiFormatFromWireApi(extractCodexWireApi(config)) ??

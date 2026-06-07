@@ -271,7 +271,24 @@ export function CodexFormFields({
           showFullUrlToggle
           isFullUrl={isFullUrl}
           onFullUrlChange={onFullUrlChange}
-          onManageClick={() => onEndpointModalToggle(true)}
+          showManageButton={false}
+          hideInput
+        />
+      )}
+
+      {shouldShowSpeedTest && (
+        <EndpointSpeedTest
+          appId="codex"
+          providerId={providerId}
+          value={codexBaseUrl}
+          onChange={onBaseUrlChange}
+          initialEndpoints={speedTestEndpoints}
+          variant="inline"
+          visible
+          onClose={() => onEndpointModalToggle(false)}
+          autoSelect={autoSelect}
+          onAutoSelectChange={onAutoSelectChange}
+          onCustomEndpointsChange={onCustomEndpointsChange}
         />
       )}
 
@@ -525,7 +542,7 @@ export function CodexFormFields({
         </div>
       )}
 
-      {/* 端点测速弹窗 - Codex */}
+      {/* 端点测速弹窗 - Codex（兼容旧入口；当前表单默认内嵌） */}
       {shouldShowSpeedTest && isEndpointModalOpen && (
         <EndpointSpeedTest
           appId="codex"

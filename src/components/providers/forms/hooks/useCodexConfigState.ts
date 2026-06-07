@@ -305,7 +305,12 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
   // 重置配置（用于预设切换时，新建模式下不预填充 key）
   const resetCodexConfig = useCallback(
-    (_auth: Record<string, unknown>, config: string, envKey?: string) => {
+    (
+      _auth: Record<string, unknown>,
+      config: string,
+      envKey?: string,
+      defaultApiKey?: string,
+    ) => {
       setCodexAuth("{}");
       setCodexConfig(config);
 
@@ -324,8 +329,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       });
       setCodexEnvKey(resolvedEnvKey);
 
-      // Don't pre-fill key on preset switch (new mode) — user should enter their own key
-      setCodexApiKey("");
+      setCodexApiKey(defaultApiKey || "");
     },
     [setCodexAuth, setCodexConfig],
   );

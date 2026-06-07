@@ -97,14 +97,6 @@ function isOfficialProvider(provider: Provider, appId: AppId): boolean {
 }
 
 const extractApiUrl = (provider: Provider, fallbackText: string) => {
-  if (provider.notes?.trim()) {
-    return provider.notes.trim();
-  }
-
-  if (provider.websiteUrl) {
-    return provider.websiteUrl;
-  }
-
   const config = provider.settingsConfig;
 
   if (config && typeof config === "object") {
@@ -123,6 +115,14 @@ const extractApiUrl = (provider: Provider, fallbackText: string) => {
         return extractedBaseUrl;
       }
     }
+  }
+
+  if (provider.notes?.trim()) {
+    return provider.notes.trim();
+  }
+
+  if (provider.websiteUrl) {
+    return provider.websiteUrl;
   }
 
   return fallbackText;
@@ -465,19 +465,28 @@ export function ProviderCard({
                 gemini: geminiLinks,
               };
               let links = linkMap[appId]?.[provider.id];
-              
+
               if (displayUrl && displayUrl !== fallbackUrlText) {
                 try {
-                  const urlStr = displayUrl.startsWith('http') ? displayUrl : `https://${displayUrl}`;
+                  const urlStr = displayUrl.startsWith("http")
+                    ? displayUrl
+                    : `https://${displayUrl}`;
                   const urlObj = new URL(urlStr);
-                  const normalizedUrl = `${urlObj.origin}${urlObj.pathname}`.replace(/\/$/, "");
-                  
-                  if (normalizedUrl === "https://api.tu-zi.com" || normalizedUrl === "https://api.tu-zi.com/v1") {
+                  const normalizedUrl =
+                    `${urlObj.origin}${urlObj.pathname}`.replace(/\/$/, "");
+
+                  if (
+                    normalizedUrl === "https://api.tu-zi.com" ||
+                    normalizedUrl === "https://api.tu-zi.com/v1"
+                  ) {
                     links = {
                       recharge: "https://api.tu-zi.com/console/topup",
                       query: "https://check.sydney-ai.com/",
                     };
-                  } else if (normalizedUrl === "https://coding.tu-zi.com" || normalizedUrl === "https://api.tu-zi.com/coding") {
+                  } else if (
+                    normalizedUrl === "https://coding.tu-zi.com" ||
+                    normalizedUrl === "https://api.tu-zi.com/coding"
+                  ) {
                     links = {
                       recharge: "https://store.tu-zi.com/cat/11",
                       query: "https://api.tu-zi.com/reseller/",
@@ -499,10 +508,10 @@ export function ProviderCard({
                       : "";
               const maskedKey =
                 typeof rawKey === "string" && rawKey.trim().length > 12
-                  ? `${rawKey.slice(0, 8)}${"*".repeat(8)}${rawKey.slice(-4)}`
+                  ? `${rawKey.slice(0, 8)}***${rawKey.slice(-4)}`
                   : null;
               return (
-                <div className="flex flex-wrap items-center gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                   {links && (
                     <>
                       <button
@@ -525,7 +534,9 @@ export function ProviderCard({
                               : "";
                           const useWebview =
                             links.query === "https://check.sydney-ai.com/" ||
-                            (links.query === "https://api.tu-zi.com/reseller/" && key !== "");
+                            (links.query ===
+                              "https://api.tu-zi.com/reseller/" &&
+                              key !== "");
                           if (useWebview) {
                             void invoke("open_webview_with_key", {
                               url: links.query,
@@ -542,22 +553,29 @@ export function ProviderCard({
                     </>
                   )}
                   {maskedKey ? (
-                    <span className="text-muted-foreground font-mono text-xs">
+                    <span
+                      className="inline-flex max-w-[220px] items-center rounded-full border border-border/70 bg-muted/35 px-2.5 py-1 font-mono text-xs leading-none text-muted-foreground"
+                      title={maskedKey}
+                    >
                       {maskedKey}
                     </span>
-                  ) : displayUrl ? (
+                  ) : null}
+                  {displayUrl && displayUrl !== fallbackUrlText ? (
                     <button
                       type="button"
                       onClick={handleOpenWebsite}
                       className={cn(
-                        "inline-flex items-center text-sm max-w-[280px]",
+                        "inline-flex min-w-0 max-w-[340px] items-center gap-1.5 rounded-full border border-border/70 bg-muted/35 px-2.5 py-1 text-xs leading-none",
                         isClickableUrl
-                          ? "text-blue-500 transition-colors hover:underline dark:text-blue-400 cursor-pointer"
+                          ? "text-muted-foreground transition-colors hover:border-blue-400/60 hover:bg-blue-50/70 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 cursor-pointer"
                           : "text-muted-foreground cursor-default",
                       )}
                       title={displayUrl}
                       disabled={!isClickableUrl}
                     >
+                      <span className="font-semibold tracking-wide text-foreground/60">
+                        API
+                      </span>
                       <span className="truncate">{displayUrl}</span>
                     </button>
                   ) : null}

@@ -95,7 +95,10 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     ),
     envKey: "CODING_CODEX_API_KEY",
     category: "aggregator",
-    endpointCandidates: ["https://api.tu-zi.com/coding"],
+    endpointCandidates: [
+      "https://api.tu-zi.com/coding",
+      "https://coding.tu-zi.com",
+    ],
     icon: "codex-sub",
     theme: { icon: "codex-sub" },
   },

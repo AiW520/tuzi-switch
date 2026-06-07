@@ -150,6 +150,30 @@ export function useSpeedTestEndpoints({
           preset.endpointCandidates.forEach((url) => add(url));
         }
       }
+    } else {
+      const knownUrls = [codexBaseUrl, extractedBaseUrl]
+        .map((url) => (url ? url.trim().replace(/\/+$/, "") : ""))
+        .filter(Boolean);
+      const matchingEntry = presetEntries.find((item) => {
+        const preset = item.preset as CodexProviderPreset;
+        const presetConfig = preset.config || "";
+        const presetBaseUrl = extractCodexBaseUrl(presetConfig);
+        const candidates = [
+          presetBaseUrl,
+          ...(preset.endpointCandidates ?? []),
+        ].map((url) => (url ? url.trim().replace(/\/+$/, "") : ""));
+        return candidates.some((url) => url && knownUrls.includes(url));
+      });
+
+      if (matchingEntry) {
+        const preset = matchingEntry.preset as CodexProviderPreset;
+        const presetConfig = preset.config || "";
+        const presetBaseUrl = extractCodexBaseUrl(presetConfig);
+        if (presetBaseUrl) {
+          add(presetBaseUrl);
+        }
+        preset.endpointCandidates?.forEach((url) => add(url));
+      }
     }
 
     return Array.from(map.values());
