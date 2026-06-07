@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.7] - 2026-06-07
+
+### Fixes
+
+- Fixed GitHub Actions workflow validation by avoiding job-level `secrets` expressions.
+- Kept Web hot update publishing optional without blocking the native release workflow.
+
 ## [1.1.6] - 2026-06-07
 
 ### Fixes

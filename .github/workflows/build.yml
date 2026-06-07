@@ -351,7 +351,6 @@ jobs:
 
   publish-web:
     needs: [create-release]
-    if: ${{ secrets.WEB_UPDATE_MINISIGN_PRIVATE_KEY != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -372,6 +371,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y minisign
       - name: Build web assets
+        id: build-web-assets
         env:
           TAG: ${{ needs.create-release.outputs.tag }}
           WEB_UPDATE_MINISIGN_PRIVATE_KEY: ${{ secrets.WEB_UPDATE_MINISIGN_PRIVATE_KEY }}
@@ -379,9 +379,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${WEB_UPDATE_MINISIGN_PRIVATE_KEY}" ]; then
-            echo "WEB_UPDATE_MINISIGN_PRIVATE_KEY is required" >&2
-            exit 1
+            echo "WEB_UPDATE_MINISIGN_PRIVATE_KEY is not configured; skipping web hot update publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           pnpm run build:renderer
           mkdir -p web-release
           ARCHIVE="web-release/web.tar.gz"
@@ -422,6 +424,7 @@ jobs:
           fs.writeFileSync("web-release/latest.json", `${JSON.stringify(manifest, null, 2)}\n`);
           NODE
       - name: Publish web assets branch
+        if: steps.build-web-assets.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.create-release.outputs.tag }}
@@ -443,6 +446,7 @@ jobs:
           git commit -m "发布前端资源 ${TAG}"
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:release-web --force
       - name: Purge web jsDelivr cache
+        if: steps.build-web-assets.outputs.skip != 'true'
         shell: bash
         run: |
           curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/latest.json" || true
