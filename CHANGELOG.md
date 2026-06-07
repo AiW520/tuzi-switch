@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.14] - 2026-06-07
+
+### Fixes
+
+- 修复发布流程在缺少可选签名密钥时阻断安装包构建的问题。
+- 修复 Windows 打包时中文产品名可能导致安装器构建失败的问题。
+- 将 Release 创建延后到安装包构建完成后，避免前置 Release 状态异常阻断多平台构建。
+
 ## [1.1.13] - 2026-06-07
 
 ### Fixes
