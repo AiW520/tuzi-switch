@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.9] - 2026-06-07
+
+### Fixes
+
+- Allowed GitHub Releases to publish installer assets even when updater signing secrets are not configured.
+- Skipped updater manifest generation when signed updater artifacts are unavailable.
+
 ## [1.1.8] - 2026-06-07
 
 ### Fixes
