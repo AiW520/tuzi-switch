@@ -44,11 +44,11 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Check release signing mode
         env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${TAURI_PRIVATE_KEY}" ]]; then
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
             echo "TAURI_SIGNING_PRIVATE_KEY is not configured; publishing installers without updater artifacts."
           else
             echo "TAURI_SIGNING_PRIVATE_KEY is configured; updater artifacts will be generated."
@@ -76,12 +76,12 @@ jobs:
       - name: Build
         env:
           APPLE_SIGNING_IDENTITY: "-"
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${TAURI_PRIVATE_KEY:-}" ]]; then
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
             pnpm tauri build --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
           else
             pnpm tauri build --target aarch64-apple-darwin
@@ -128,12 +128,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build
         env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${TAURI_PRIVATE_KEY:-}" ]]; then
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
             pnpm tauri build --config '{"productName":"tuzi switch","bundle":{"createUpdaterArtifacts":false}}'
           else
             pnpm tauri build --config '{"productName":"tuzi switch"}'
@@ -183,12 +183,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build
         env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${TAURI_PRIVATE_KEY:-}" ]]; then
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
             pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
           else
             pnpm tauri build
