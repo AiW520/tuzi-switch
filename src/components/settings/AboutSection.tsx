@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
 import type { WebHotUpdateStatus } from "@/lib/api/settings";
 import { useUpdate } from "@/contexts/UpdateContext";
@@ -93,12 +92,10 @@ curl -fsSL https://opencode.ai/install | bash`;
 export function AboutSection({ isPortable }: AboutSectionProps) {
   // ... (use hooks as before) ...
   const { t } = useTranslation();
-  const [version, setVersion] = useState<string | null>(null);
-  const [isLoadingVersion, setIsLoadingVersion] = useState(true);
+  const version = __APP_VERSION__;
   const [isDownloading, setIsDownloading] = useState(false);
   const [webUpdateStatus, setWebUpdateStatus] =
     useState<WebHotUpdateStatus | null>(null);
-  const [isCheckingWebUpdate, setIsCheckingWebUpdate] = useState(false);
   const [toolVersions, setToolVersions] = useState<ToolVersion[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(true);
 
@@ -125,24 +122,18 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   }, []);
 
   const handleCheckWebUpdate = useCallback(
-    async (silent = false) => {
-      setIsCheckingWebUpdate(true);
+    async () => {
       try {
         const result = await settingsApi.checkWebHotUpdate();
         await refreshWebUpdateStatus();
         if (result.updated) {
           toast.success(t("settings.webUpdateReady"), { closeButton: true });
-        } else if (!silent) {
-          toast.success(result.message || t("settings.webUpToDate"), {
-            closeButton: true,
-          });
+          return true;
         }
       } catch (error) {
         console.error("[AboutSection] Web hot update check failed", error);
-        if (!silent) toast.error(t("settings.webUpdateFailed"));
-      } finally {
-        setIsCheckingWebUpdate(false);
       }
+      return false;
     },
     [refreshWebUpdateStatus, t],
   );
@@ -230,33 +221,15 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   };
 
   useEffect(() => {
-    let active = true;
     const load = async () => {
       try {
-        const [appVersion] = await Promise.all([
-          getVersion(),
-          ...(isWindows() ? [] : [loadAllToolVersions()]),
-        ]);
-
-        if (active) {
-          setVersion(appVersion);
-        }
+        await Promise.all(isWindows() ? [] : [loadAllToolVersions()]);
       } catch (error) {
         console.error("[AboutSection] Failed to load info", error);
-        if (active) {
-          setVersion(null);
-        }
-      } finally {
-        if (active) {
-          setIsLoadingVersion(false);
-        }
       }
     };
 
     void load();
-    return () => {
-      active = false;
-    };
     // Mount-only: loadAllToolVersions is intentionally excluded to avoid
     // re-fetching all tools whenever wslShellByTool changes. Single-tool
     // refreshes are handled by refreshToolVersions in the shell/flag handlers.
@@ -266,7 +239,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   useEffect(() => {
     void refreshWebUpdateStatus();
     const timer = window.setTimeout(() => {
-      void handleCheckWebUpdate(true);
+      void handleCheckWebUpdate();
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [handleCheckWebUpdate, refreshWebUpdateStatus]);
@@ -334,13 +307,29 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     try {
       const available = await checkUpdate();
       if (!available) {
-        toast.success(t("settings.upToDate"), { closeButton: true });
+        const webUpdated = await handleCheckWebUpdate();
+        if (!webUpdated) {
+          toast.success(t("settings.upToDate"), { closeButton: true });
+        }
       }
     } catch (error) {
       console.error("[AboutSection] Check update failed", error);
-      toast.error(t("settings.checkUpdateFailed"));
+      const detail = error instanceof Error ? error.message : "";
+      toast.error(
+        detail
+          ? `${t("settings.checkUpdateFailed")} ${detail}`
+          : t("settings.checkUpdateFailed"),
+      );
     }
-  }, [checkUpdate, hasUpdate, isPortable, resetDismiss, t, updateHandle]);
+  }, [
+    checkUpdate,
+    handleCheckWebUpdate,
+    hasUpdate,
+    isPortable,
+    resetDismiss,
+    t,
+    updateHandle,
+  ]);
 
   const handleCopyInstallCommands = useCallback(async () => {
     try {
@@ -351,8 +340,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       toast.error(t("settings.installCommandsCopyFailed"));
     }
   }, [t]);
-
-  const displayVersion = version ?? t("common.unknown");
 
   return (
     <motion.section
@@ -387,11 +374,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                 <span className="text-muted-foreground">
                   {t("common.version")}
                 </span>
-                {isLoadingVersion ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <span className="font-medium">{`v${displayVersion}`}</span>
-                )}
+                <span className="font-medium">{`v${version}`}</span>
               </Badge>
               {isPortable && (
                 <Badge variant="secondary" className="gap-1.5">
@@ -413,21 +396,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleCheckWebUpdate(false)}
-              disabled={isCheckingWebUpdate}
-              className="h-8 gap-1.5 text-xs"
-            >
-              {isCheckingWebUpdate ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              {t("settings.checkWebUpdate")}
-            </Button>
             <Button
               type="button"
               variant="outline"

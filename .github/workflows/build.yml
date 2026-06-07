@@ -345,6 +345,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -f latest.json ]; then
+            gh release upload "$TAG" latest.json --clobber
+          fi
           gh release edit "$TAG" \
             --draft=false \
             --prerelease=false \

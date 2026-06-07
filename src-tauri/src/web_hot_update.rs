@@ -15,8 +15,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{http, AppHandle, Manager};
 
-const WEB_UPDATE_MANIFEST_URL: &str =
-    "https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/latest.json";
+const WEB_UPDATE_MANIFEST_URLS: &[&str] = &[
+    "https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/latest.json",
+    "https://raw.githubusercontent.com/tuziapi/tuzi-switch/release-web/latest.json",
+];
+const WEB_UPDATE_PRIMARY_MANIFEST_URL: &str = WEB_UPDATE_MANIFEST_URLS[0];
 const WEB_UPDATE_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0REY1Nzg5OTc1ODNGMgpSV1R5ZzNXWmVQVk5EdEhGWlg0UkdSVFArcXpQUUNWWitSTTB1K25CMkNUU09yc2xRZUNqQTJKMwo=";
 const ACTIVE_VERSION_FILE: &str = "active-web-version";
 const MAX_ARCHIVE_BYTES: u64 = 30 * 1024 * 1024;
@@ -94,16 +97,7 @@ pub async fn check_web_hot_update() -> Result<WebHotUpdateResult, String> {
         .build()
         .map_err(|e| format!("初始化更新客户端失败: {e}"))?;
 
-    let manifest: WebManifest = client
-        .get(WEB_UPDATE_MANIFEST_URL)
-        .send()
-        .await
-        .map_err(|e| format!("检查界面更新失败: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("界面更新清单不可用: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("解析界面更新清单失败: {e}"))?;
+    let manifest = fetch_web_manifest(&client).await?;
 
     validate_manifest(&manifest)?;
 
@@ -150,8 +144,42 @@ fn build_status() -> WebHotUpdateStatus {
         pending_version: active.clone(),
         using_hot_assets: active_web_root().is_some(),
         active_version: active,
-        manifest_url: WEB_UPDATE_MANIFEST_URL.to_string(),
+        manifest_url: WEB_UPDATE_PRIMARY_MANIFEST_URL.to_string(),
     }
+}
+
+async fn fetch_web_manifest(client: &reqwest::Client) -> Result<WebManifest, String> {
+    let mut last_error = String::new();
+    for url in WEB_UPDATE_MANIFEST_URLS {
+        let result = async {
+            let response = client
+                .get(*url)
+                .send()
+                .await
+                .map_err(|e| format!("检查界面更新失败: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("界面更新清单不可用: {e}"))?;
+            response
+                .json()
+                .await
+                .map_err(|e| format!("解析界面更新清单失败: {e}"))
+        }
+        .await;
+
+        match result {
+            Ok(manifest) => return Ok(manifest),
+            Err(error) => {
+                last_error = format!("{url}: {error}");
+                log::warn!("界面更新清单拉取失败，尝试下一个地址: {last_error}");
+            }
+        }
+    }
+
+    Err(if last_error.is_empty() {
+        "界面更新清单不可用".to_string()
+    } else {
+        last_error
+    })
 }
 
 fn validate_manifest(manifest: &WebManifest) -> Result<(), String> {
