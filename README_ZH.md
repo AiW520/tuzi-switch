@@ -32,14 +32,14 @@
 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "/Applications/兔子switch.app"
 ```
 安装指定版本：
 ```
 TUZI_SWITCH_TAG=v1.1.2 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.1.2/scripts/install_tuzi_switch.sh | bash
 ```
 ```
-open "/Applications/tuzi switch.app"
+open "/Applications/兔子switch.app"
 ```
 补充说明：
 

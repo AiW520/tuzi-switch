@@ -49,10 +49,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${TAURI_PRIVATE_KEY}" ]]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is not configured; publishing installers without updater artifacts."
-          else
-            echo "TAURI_SIGNING_PRIVATE_KEY is configured; updater artifacts will be generated."
+            echo "TAURI_SIGNING_PRIVATE_KEY is not configured; updater artifacts cannot be generated." >&2
+            exit 1
           fi
+          echo "TAURI_SIGNING_PRIVATE_KEY is configured; updater artifacts will be generated."
       - name: Create or reuse draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,14 +84,14 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             IS_DRAFT="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .draft)"
             gh release edit "$TAG" \
-              --title "tuzi switch $TAG" \
+              --title "兔子switch $TAG" \
               --notes-file "$NOTES_FILE"
             if [[ "$IS_DRAFT" == "true" ]]; then
               gh release edit "$TAG" --draft
             fi
           else
             gh release create "$TAG" \
-              --title "tuzi switch $TAG" \
+              --title "兔子switch $TAG" \
               --notes-file "$NOTES_FILE" \
               --draft \
               --latest=false
@@ -284,6 +284,14 @@ jobs:
           for file in "${required[@]}"; do
             test -f "dist/$file" || { echo "Missing release asset: $file" >&2; exit 1; }
           done
+          required_signatures=(
+            "tuzi-switch-macos-aarch64.app.tar.gz.sig"
+            "tuzi-switch-windows-x86_64.msi.sig"
+            "tuzi-switch-linux-x86_64.AppImage.sig"
+          )
+          for file in "${required_signatures[@]}"; do
+            test -f "dist/$file" || { echo "Missing updater signature: $file" >&2; exit 1; }
+          done
       - name: Upload release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -331,7 +339,7 @@ jobs:
 
           const manifest = {
             version,
-            notes: `tuzi switch ${tag}`,
+            notes: `兔子switch ${tag}`,
             pub_date: new Date().toISOString(),
             platforms,
           };
@@ -406,9 +414,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${WEB_UPDATE_MINISIGN_PRIVATE_KEY}" ]; then
-            echo "WEB_UPDATE_MINISIGN_PRIVATE_KEY is not configured; skipping web hot update publish."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "WEB_UPDATE_MINISIGN_PRIVATE_KEY is not configured; web hot update manifest cannot be generated." >&2
+            exit 1
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           pnpm run build:renderer

@@ -304,23 +304,30 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       return;
     }
 
+    let nativeUpdateError: unknown = null;
     try {
       const available = await checkUpdate();
-      if (!available) {
-        const webUpdated = await handleCheckWebUpdate();
-        if (!webUpdated) {
-          toast.success(t("settings.upToDate"), { closeButton: true });
-        }
-      }
+      if (available) return;
     } catch (error) {
+      nativeUpdateError = error;
       console.error("[AboutSection] Check update failed", error);
-      const detail = error instanceof Error ? error.message : "";
+    }
+
+    const webUpdated = await handleCheckWebUpdate();
+    if (webUpdated) return;
+
+    if (nativeUpdateError) {
+      const detail =
+        nativeUpdateError instanceof Error ? nativeUpdateError.message : "";
       toast.error(
         detail
           ? `${t("settings.checkUpdateFailed")} ${detail}`
           : t("settings.checkUpdateFailed"),
       );
+      return;
     }
+
+    toast.success(t("settings.upToDate"), { closeButton: true });
   }, [
     checkUpdate,
     handleCheckWebUpdate,
@@ -364,9 +371,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <img src={appIcon} alt="CC Switch For TuZi" className="h-5 w-5" />
+              <img src={appIcon} alt="兔子switch" className="h-5 w-5" />
               <h4 className="text-lg font-semibold text-foreground">
-                CC Switch For TuZi
+                兔子switch
               </h4>
             </div>
             <div className="flex items-center gap-2">

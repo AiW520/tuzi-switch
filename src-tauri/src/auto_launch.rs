@@ -2,7 +2,7 @@ use crate::error::AppError;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
 /// 获取 macOS 上的 .app bundle 路径
-/// 将 `/path/to/tuzi switch.app/Contents/MacOS/tuzi switch` 转换为 `/path/to/tuzi switch.app`
+/// 将 `/path/to/兔子switch.app/Contents/MacOS/兔子switch` 转换为 `/path/to/兔子switch.app`
 #[cfg(target_os = "macos")]
 fn get_macos_app_bundle_path(exe_path: &std::path::Path) -> Option<std::path::PathBuf> {
     let path_str = exe_path.to_string_lossy();
@@ -17,7 +17,7 @@ fn get_macos_app_bundle_path(exe_path: &std::path::Path) -> Option<std::path::Pa
 
 /// 初始化 AutoLaunch 实例
 fn get_auto_launch() -> Result<AutoLaunch, AppError> {
-    let app_name = "tuzi switch";
+    let app_name = "兔子switch";
     let exe_path =
         std::env::current_exe().map_err(|e| AppError::Message(format!("无法获取应用路径: {e}")))?;
 
@@ -77,11 +77,11 @@ mod tests {
     #[test]
     fn test_get_macos_app_bundle_path_valid() {
         let exe_path =
-            std::path::Path::new("/Applications/tuzi switch.app/Contents/MacOS/tuzi switch");
+            std::path::Path::new("/Applications/兔子switch.app/Contents/MacOS/兔子switch");
         let result = get_macos_app_bundle_path(exe_path);
         assert_eq!(
             result,
-            Some(std::path::PathBuf::from("/Applications/tuzi switch.app"))
+            Some(std::path::PathBuf::from("/Applications/兔子switch.app"))
         );
     }
 
@@ -89,12 +89,12 @@ mod tests {
     #[test]
     fn test_get_macos_app_bundle_path_with_spaces() {
         let exe_path =
-            std::path::Path::new("/Users/test/My Apps/tuzi switch.app/Contents/MacOS/tuzi switch");
+            std::path::Path::new("/Users/test/My Apps/兔子switch.app/Contents/MacOS/兔子switch");
         let result = get_macos_app_bundle_path(exe_path);
         assert_eq!(
             result,
             Some(std::path::PathBuf::from(
-                "/Users/test/My Apps/tuzi switch.app"
+                "/Users/test/My Apps/兔子switch.app"
             ))
         );
     }
