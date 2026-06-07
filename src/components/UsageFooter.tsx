@@ -75,21 +75,17 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
 
   // 错误状态
   if (!usage.success) {
+    const errorTitle = usage.error || t("usage.queryFailed");
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-border-default bg-card px-3 py-2 shadow-sm">
-          <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
+        <div
+          className="inline-flex items-center gap-1.5 rounded-full border border-red-200/70 bg-red-50/40 px-2.5 py-1 text-xs text-red-500 shadow-none dark:border-red-900/50 dark:bg-red-950/15 dark:text-red-400"
+          title={errorTitle}
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
             <AlertCircle size={12} />
-            <span>{t("usage.queryFailed")}</span>
+            <span className="truncate">{t("usage.queryFailed")}</span>
           </div>
-          <button
-            onClick={() => refetch()}
-            disabled={loading}
-            className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0"
-            title={t("usage.refreshUsage")}
-          >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          </button>
         </div>
       );
     }

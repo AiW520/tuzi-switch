@@ -565,17 +565,14 @@ export function ProviderCard({
                       type="button"
                       onClick={handleOpenWebsite}
                       className={cn(
-                        "inline-flex min-w-0 max-w-[340px] items-center gap-1.5 rounded-full border border-border/70 bg-muted/35 px-2.5 py-1 text-xs leading-none",
+                        "inline-flex min-w-0 max-w-[340px] items-center rounded-full border border-border/50 bg-transparent px-2.5 py-0.5 text-xs leading-5 shadow-none",
                         isClickableUrl
-                          ? "text-muted-foreground transition-colors hover:border-blue-400/60 hover:bg-blue-50/70 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 cursor-pointer"
+                          ? "text-muted-foreground/80 transition-colors hover:border-blue-400/45 hover:bg-blue-50/40 hover:text-blue-600 dark:hover:bg-blue-950/20 dark:hover:text-blue-300 cursor-pointer"
                           : "text-muted-foreground cursor-default",
                       )}
                       title={displayUrl}
                       disabled={!isClickableUrl}
                     >
-                      <span className="font-semibold tracking-wide text-foreground/60">
-                        API
-                      </span>
                       <span className="truncate">{displayUrl}</span>
                     </button>
                   ) : null}
