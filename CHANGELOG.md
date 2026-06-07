@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.13] - 2026-06-07
+
+### Fixes
+
+- 修复原生更新清单不可用时会阻断界面热更新检查的问题。
+- 强化发布流程校验，避免缺少签名密钥或 updater 签名产物时发布无法自动更新的版本。
+
+### Improvements
+
+- 将用户可见应用名称更新为「兔子switch」，覆盖安装包名称、窗口标题、关于页、提示文案与发布说明。
+
 ## [1.1.11] - 2026-06-07
 
 ### Features
