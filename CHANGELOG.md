@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.25] - 2026-06-09
+
+### Fixes
+
+- 修复 Codex 供应商卡片已显示 API Key，但进入编辑页后 API Key 输入框为空的问题。
+
+### Documentation
+
+- 补充 Codex env-first 凭据来源与编辑表单初始化的复盘经验。
+
 ## [1.1.16] - 2026-06-08
 
 ### Fixes

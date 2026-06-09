@@ -70,10 +70,12 @@ export function EditProviderDialog({
         return;
       }
 
+      // Codex API Key is stored in managed env vars referenced by provider.settingsConfig.
+      // Live config may not carry the same env_key, so use DB config as edit source.
       // OpenCode uses additive mode - each provider's config is stored independently in DB
       // Reading live config would return the full opencode.json (with $schema, provider, mcp etc.)
       // instead of just the provider fragment, causing incorrect nested structure on save
-      if (appId === "opencode") {
+      if (appId === "codex" || appId === "opencode") {
         if (!cancelled) {
           setLiveSettings(null);
           setHasLoadedLive(true);
