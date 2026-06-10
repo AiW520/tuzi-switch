@@ -98,6 +98,8 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     endpointCandidates: [
       "https://api.tu-zi.com/coding",
       "https://coding.tu-zi.com",
+      "https://coding.opentu.ai",
+      "https://coding.sydney-ai.com",
     ],
     icon: "codex-sub",
     theme: { icon: "codex-sub" },

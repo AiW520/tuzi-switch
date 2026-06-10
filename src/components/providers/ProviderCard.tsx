@@ -485,7 +485,9 @@ export function ProviderCard({
                     };
                   } else if (
                     normalizedUrl === "https://coding.tu-zi.com" ||
-                    normalizedUrl === "https://api.tu-zi.com/coding"
+                    normalizedUrl === "https://api.tu-zi.com/coding" ||
+                    normalizedUrl === "https://coding.opentu.ai" ||
+                    normalizedUrl === "https://coding.sydney-ai.com"
                   ) {
                     links = {
                       recharge: "https://store.tu-zi.com/cat/11",

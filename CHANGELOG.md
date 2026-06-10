@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.26] - 2026-06-10
+
+### Improvements
+
+- 为 Codex 订阅供应商新增 `https://coding.opentu.ai` 和 `https://coding.sydney-ai.com` 两个 API 请求地址候选，并复用同组充值与查询入口。
+
+### Documentation
+
+- 更新 Codex 供应商端点管理经验文档，补充新增候选端点的验证要点。
+
 ## [1.1.25] - 2026-06-09
 
 ### Fixes

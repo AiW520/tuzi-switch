@@ -6,6 +6,8 @@ Codex 订阅供应商存在多个可用 API URL，例如：
 
 - `https://api.tu-zi.com/coding`
 - `https://coding.tu-zi.com`
+- `https://coding.opentu.ai`
+- `https://coding.sydney-ai.com`
 
 旧交互把 API 请求地址输入框、端点管理、测速放在不同层级里。用户在添加或编辑供应商时需要打开额外界面，测速后再回到表单确认，路径偏长，也容易让“当前选中的 URL”和“候选端点列表”看起来像两个独立配置。
 
@@ -41,7 +43,7 @@ Codex 订阅供应商存在多个可用 API URL，例如：
 ## 验证要点
 
 - 选择 `codex订阅` 后默认选中 `https://api.tu-zi.com/coding`。
-- 端点列表同时展示 `https://api.tu-zi.com/coding` 和 `https://coding.tu-zi.com`。
+- 端点列表同时展示 `https://api.tu-zi.com/coding`、`https://coding.tu-zi.com`、`https://coding.opentu.ai` 和 `https://coding.sydney-ai.com`。
 - 点击测速后，在自动选择开启时选中延迟最低的 URL。
-- 编辑已有 `codex订阅` 供应商时，也能显示同组两个候选 URL。
+- 编辑已有 `codex订阅` 供应商时，也能显示同组候选 URL。
 - 供应商卡片能展示 masked key 和当前 API URL。
