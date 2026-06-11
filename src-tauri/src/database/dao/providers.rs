@@ -957,11 +957,19 @@ fn seed_settings_config_update_for_existing(
             serde_json::from_str(&existing_settings_config).unwrap_or_else(|_| json!({}));
         let mut next = provider.settings_config.clone();
 
-        if let Some(api_key) = existing
+        let api_key_opt = existing
             .get("auth")
             .and_then(|auth| auth.get("OPENAI_API_KEY"))
             .and_then(|value| value.as_str())
-        {
+            .or_else(|| {
+                // 仅作为旧数据迁移来源；目标配置仍使用每个官方供应商自己的 env_key。
+                existing
+                    .get("env")
+                    .and_then(|env| env.get("CODEX_API_KEY"))
+                    .and_then(|value| value.as_str())
+            });
+
+        if let Some(api_key) = api_key_opt {
             if let Some(auth) = next.get_mut("auth").and_then(|value| value.as_object_mut()) {
                 auth.insert("OPENAI_API_KEY".to_string(), json!(api_key));
             }

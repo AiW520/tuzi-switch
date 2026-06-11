@@ -56,12 +56,14 @@ fn validate_env_key_name(env_key: &str) -> Result<(), AppError> {
 /// Detect Codex CLI version. Returns (major, minor, patch) or None if not found.
 pub fn get_codex_version() -> Option<(u32, u32, u32)> {
     use std::process::Command;
-    
+
     // Check both codex and opencode commands
-    let output = Command::new("codex").arg("--version").output()
+    let output = Command::new("codex")
+        .arg("--version")
+        .output()
         .or_else(|_| Command::new("opencode").arg("--version").output())
         .ok()?;
-        
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Format: "codex-cli 0.133.0" or "opencode 0.135.0"
     let version_str = stdout.trim().split_whitespace().last()?;
@@ -778,7 +780,10 @@ pub fn extract_codex_experimental_bearer_token(config_text: &str) -> Option<Stri
         .map(str::to_string)
 }
 
-pub fn set_codex_experimental_bearer_token(config_text: &str, token: &str) -> Result<String, AppError> {
+pub fn set_codex_experimental_bearer_token(
+    config_text: &str,
+    token: &str,
+) -> Result<String, AppError> {
     if config_text.trim().is_empty() {
         return Err(AppError::localized(
             "provider.codex.config.missing",
@@ -982,6 +987,35 @@ fn rewrite_codex_profile_model_provider_refs(
     }
 }
 
+fn merge_missing_codex_profiles_from_template(
+    doc: &mut DocumentMut,
+    template_doc: &DocumentMut,
+) -> Result<(), AppError> {
+    let Some(template_profiles) = template_doc
+        .get("profiles")
+        .and_then(|item| item.as_table())
+    else {
+        return Ok(());
+    };
+
+    if doc.get("profiles").is_none() {
+        doc["profiles"] = toml_edit::table();
+    }
+
+    let profiles = doc
+        .get_mut("profiles")
+        .and_then(|item| item.as_table_mut())
+        .ok_or_else(|| AppError::Message("Invalid Codex profiles table".to_string()))?;
+
+    for (profile_name, profile_item) in template_profiles.iter() {
+        if !profiles.contains_key(profile_name) {
+            profiles[profile_name] = profile_item.clone();
+        }
+    }
+
+    Ok(())
+}
+
 /// Keep Codex's active `model_provider` stable across tuzi switch provider changes.
 ///
 /// Codex stores and filters resume history by `model_provider`, so switching between
@@ -1028,6 +1062,9 @@ fn restore_codex_backfill_model_provider_id(
         return Ok(config_text.to_string());
     }
 
+    let template_doc = template_config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
     let mut doc = config_text
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
@@ -1036,7 +1073,8 @@ fn restore_codex_backfill_model_provider_id(
     };
 
     if live_provider_id == template_provider_id {
-        return Ok(config_text.to_string());
+        merge_missing_codex_profiles_from_template(&mut doc, &template_doc)?;
+        return Ok(doc.to_string());
     }
 
     if let Some(model_providers) = doc
@@ -1044,14 +1082,17 @@ fn restore_codex_backfill_model_provider_id(
         .and_then(|item| item.as_table_mut())
     {
         let Some(provider_table) = model_providers.remove(live_provider_id.as_str()) else {
-            return Ok(config_text.to_string());
+            merge_missing_codex_profiles_from_template(&mut doc, &template_doc)?;
+            return Ok(doc.to_string());
         };
         model_providers[template_provider_id.as_str()] = provider_table;
     } else {
-        return Ok(config_text.to_string());
+        merge_missing_codex_profiles_from_template(&mut doc, &template_doc)?;
+        return Ok(doc.to_string());
     }
 
     rewrite_codex_profile_model_provider_refs(&mut doc, &live_provider_id, &template_provider_id);
+    merge_missing_codex_profiles_from_template(&mut doc, &template_doc)?;
     doc["model_provider"] = toml_edit::value(template_provider_id.as_str());
 
     Ok(doc.to_string())

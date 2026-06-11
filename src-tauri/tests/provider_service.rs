@@ -1,8 +1,9 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    get_claude_settings_path, read_json_file, write_codex_live_atomic, AppError, AppType, McpApps,
-    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
+    extract_codex_experimental_bearer_token, get_claude_settings_path, read_json_file,
+    write_codex_live_atomic, AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider,
+    ProviderMeta, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -177,16 +178,13 @@ command = "say"
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
 
-    let auth_value: serde_json::Value =
-        read_json_file(&tuzi_switch_lib::get_codex_auth_path()).expect("read auth.json");
-    assert_eq!(
-        auth_value.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
-        Some("fresh-key"),
-        "live auth.json should reflect new provider"
-    );
-
     let config_text = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
         .expect("read config.toml");
+    assert_eq!(
+        extract_codex_experimental_bearer_token(&config_text).as_deref(),
+        Some("fresh-key"),
+        "live Codex config should carry the new provider token"
+    );
     assert!(
         config_text.contains("mcp_servers.echo-server"),
         "config.toml should contain synced MCP servers"

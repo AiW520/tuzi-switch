@@ -1,9 +1,10 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    get_codex_auth_path, get_codex_config_path, import_default_config_test_hook, read_json_file,
-    switch_provider_test_hook, write_codex_live_atomic, AppError, AppType, McpApps, McpServer,
-    MultiAppConfig, Provider, ProviderService,
+    extract_codex_experimental_bearer_token, get_codex_config_path,
+    import_default_config_test_hook, read_json_file, switch_provider_test_hook,
+    write_codex_live_atomic, AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider,
+    ProviderService,
 };
 
 #[path = "support.rs"]
@@ -215,14 +216,46 @@ fn provider_seed_does_not_overwrite_existing_api_keys() {
         .expect("codex tuzi provider exists");
     codex_tuzi.settings_config = json!({
         "auth": {
-            "OPENAI_API_KEY": "codex-user-key"
+            "OPENAI_API_KEY": "codex-tuzi-user-key"
         },
-        "config": "model_provider = \"tuzi-route\"\nmodel = \"gpt-5.3-codex\"\n\n[model_providers.tuzi-route]\nbase_url = \"\"\n"
+        "config": "model_provider = \"tuzi\"\nmodel = \"gpt-5.3-codex\"\n\n[model_providers.tuzi]\nbase_url = \"\"\n"
     });
     state
         .db
         .save_provider(AppType::Codex.as_str(), &codex_tuzi)
         .expect("save codex user key and stale config");
+
+    let mut codex_coding = state
+        .db
+        .get_provider_by_id("coding", AppType::Codex.as_str())
+        .expect("query codex coding")
+        .expect("codex coding provider exists");
+    codex_coding.settings_config = json!({
+        "auth": {
+            "OPENAI_API_KEY": "codex-coding-user-key"
+        },
+        "config": "model_provider = \"codex\"\nmodel = \"gpt-5.3-codex\"\n\n[model_providers.codex]\nbase_url = \"\"\n"
+    });
+    state
+        .db
+        .save_provider(AppType::Codex.as_str(), &codex_coding)
+        .expect("save codex coding user key and stale config");
+
+    let mut codex_gac = state
+        .db
+        .get_provider_by_id("gaccode", AppType::Codex.as_str())
+        .expect("query codex gaccode")
+        .expect("codex gaccode provider exists");
+    codex_gac.settings_config = json!({
+        "env": {
+            "CODEX_API_KEY": "codex-gac-legacy-env-key"
+        },
+        "config": "model_provider = \"gac\"\nmodel = \"gpt-5.3-codex\"\n\n[model_providers.gac]\nbase_url = \"\"\n"
+    });
+    state
+        .db
+        .save_provider(AppType::Codex.as_str(), &codex_gac)
+        .expect("save codex gac legacy env key and stale config");
 
     let mut claude_tuzi = state
         .db
@@ -255,14 +288,75 @@ fn provider_seed_does_not_overwrite_existing_api_keys() {
         .get_provider_by_id("tuzi-route", AppType::Codex.as_str())
         .expect("query codex tuzi after seed")
         .expect("codex tuzi provider exists after seed");
+    let codex_coding_after = state
+        .db
+        .get_provider_by_id("coding", AppType::Codex.as_str())
+        .expect("query codex coding after seed")
+        .expect("codex coding provider exists after seed");
+    let codex_gac_after = state
+        .db
+        .get_provider_by_id("gaccode", AppType::Codex.as_str())
+        .expect("query codex gaccode after seed")
+        .expect("codex gaccode provider exists after seed");
     assert_eq!(
         codex_after
             .settings_config
             .get("auth")
             .and_then(|auth| auth.get("OPENAI_API_KEY"))
             .and_then(|value| value.as_str()),
-        Some("codex-user-key"),
+        Some("codex-tuzi-user-key"),
         "seed rerun must not erase Codex user-entered API keys"
+    );
+    assert_eq!(
+        codex_coding_after
+            .settings_config
+            .get("auth")
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+            .and_then(|value| value.as_str()),
+        Some("codex-coding-user-key"),
+        "seed rerun must keep each Codex provider key independent"
+    );
+    assert_eq!(
+        codex_gac_after
+            .settings_config
+            .get("auth")
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+            .and_then(|value| value.as_str()),
+        Some("codex-gac-legacy-env-key"),
+        "seed rerun should migrate legacy env.CODEX_API_KEY into provider auth"
+    );
+    assert_eq!(
+        codex_after
+            .settings_config
+            .pointer("/env/envKey")
+            .and_then(|value| value.as_str()),
+        Some("TUZI_CODEX_API_KEY"),
+        "seed rerun should restore the tuzi dedicated env key"
+    );
+    assert_eq!(
+        codex_coding_after
+            .settings_config
+            .pointer("/env/envKey")
+            .and_then(|value| value.as_str()),
+        Some("CODING_CODEX_API_KEY"),
+        "seed rerun should restore the coding dedicated env key"
+    );
+    assert_eq!(
+        codex_gac_after
+            .settings_config
+            .pointer("/env/envKey")
+            .and_then(|value| value.as_str()),
+        Some("GAC_CODEX_API_KEY"),
+        "seed rerun should restore the gac dedicated env key"
+    );
+    assert!(
+        codex_after
+            .settings_config
+            .get("config")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .contains("env_key = \"TUZI_CODEX_API_KEY\""),
+        "seed rerun should restore Codex preset env_key"
     );
     assert!(
         codex_after
@@ -483,18 +577,12 @@ command = "say"
     switch_provider_test_hook(&app_state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
 
-    let auth_value: serde_json::Value =
-        read_json_file(&get_codex_auth_path()).expect("read auth.json");
-    assert_eq!(
-        auth_value
-            .get("OPENAI_API_KEY")
-            .and_then(|v| v.as_str())
-            .unwrap_or(""),
-        "fresh-key",
-        "live auth.json should reflect new provider"
-    );
-
     let config_text = std::fs::read_to_string(get_codex_config_path()).expect("read config.toml");
+    assert_eq!(
+        extract_codex_experimental_bearer_token(&config_text).as_deref(),
+        Some("fresh-key"),
+        "live Codex config should carry the new provider token"
+    );
     assert!(
         config_text.contains("mcp_servers.echo-server"),
         "config.toml should contain synced MCP servers"
@@ -521,12 +609,6 @@ command = "say"
         .get("config")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    // 供应商配置应该包含在 live 文件中
-    // 注意：live 文件还会包含 MCP 同步后的内容
-    assert!(
-        config_text.contains("mcp_servers.latest"),
-        "live file should contain provider's original config"
-    );
     assert!(
         new_config_text.contains("mcp_servers.latest"),
         "provider snapshot should contain provider's original config"

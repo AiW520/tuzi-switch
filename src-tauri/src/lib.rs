@@ -37,7 +37,10 @@ mod usage_script;
 mod web_hot_update;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
-pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
+pub use codex_config::{
+    extract_codex_experimental_bearer_token, get_codex_auth_path, get_codex_config_path,
+    write_codex_live_atomic,
+};
 pub use commands::open_provider_terminal;
 pub use commands::*;
 pub use config::{get_claude_mcp_path, get_claude_settings_path, read_json_file};

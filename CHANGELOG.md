@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.27] - 2026-06-11
+
+### Fixes
+
+- 修复编辑单个 Codex 官方供应商 API Key 后，多个供应商可能共享同一个 API Key 的严重串号问题。
+- 修复 Codex provider backfill 时可能丢失 `[profiles.*]` override，导致供应商历史配置恢复不完整的问题。
+
+### Documentation
+
+- 新增 Codex 供应商 API Key 串号事故复盘，明确 env-first 凭据隔离原则与多 Key 能力边界。
+
 ## [1.1.26] - 2026-06-10
 
 ### Improvements
