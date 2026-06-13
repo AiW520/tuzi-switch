@@ -307,8 +307,8 @@ requires_openai_auth = true
 
     assert_eq!(
         parsed.get("model_provider").and_then(|v| v.as_str()),
-        Some("rightcode"),
-        "live Codex model_provider should stay stable so resume history remains visible"
+        Some("aihubmix"),
+        "live Codex model_provider should point at the selected provider"
     );
 
     let model_providers = parsed
@@ -316,16 +316,16 @@ requires_openai_auth = true
         .and_then(|v| v.as_table())
         .expect("model_providers table exists");
     assert!(
-        model_providers.get("aihubmix").is_none(),
-        "target provider-specific id should be rewritten in live config"
+        model_providers.get("rightcode").is_some(),
+        "existing provider entry should be preserved in main config"
     );
     assert_eq!(
         model_providers
-            .get("rightcode")
+            .get("aihubmix")
             .and_then(|v| v.get("base_url"))
             .and_then(|v| v.as_str()),
         Some("https://aihubmix.example/v1"),
-        "stable provider id should point at the newly selected supplier endpoint"
+        "target provider id should point at the newly selected supplier endpoint"
     );
 
     let providers = state
@@ -342,6 +342,179 @@ requires_openai_auth = true
     assert!(
         new_config_text.contains("[model_providers.aihubmix]"),
         "stored provider template should remain provider-specific"
+    );
+}
+
+#[test]
+fn provider_service_add_codex_registers_provider_without_switching_current() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let existing_config = r#"model_provider = "rightcode"
+model = "gpt-5.4"
+
+[model_providers.rightcode]
+name = "RightCode"
+base_url = "https://rightcode.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[mcp_servers.keep]
+type = "stdio"
+command = "echo"
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
+
+    let mut initial_config = MultiAppConfig::default();
+    {
+        let manager = initial_config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "current-provider".to_string();
+        manager.providers.insert(
+            "current-provider".to_string(),
+            Provider::with_id(
+                "current-provider".to_string(),
+                "RightCode".to_string(),
+                json!({
+                    "auth": {},
+                    "config": existing_config
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&initial_config).expect("create test state");
+    let provider = Provider::with_id(
+        "new-provider".to_string(),
+        "codex订阅-我的线路".to_string(),
+        json!({
+            "auth": {},
+            "config": r#"model_provider = "codex_sub"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+disable_response_storage = true
+
+[model_providers.codex_sub]
+name = "codex_sub"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODEX_SUB_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+"#
+        }),
+        Some("aggregator".to_string()),
+    );
+
+    ProviderService::add(&state, AppType::Codex, provider, false).expect("add codex provider");
+
+    let config_text = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+        .expect("read codex config");
+    let parsed: toml::Value = toml::from_str(&config_text).expect("parse config");
+    assert_eq!(
+        parsed.get("model_provider").and_then(|v| v.as_str()),
+        Some("rightcode"),
+        "adding a non-current Codex provider must not switch the active provider"
+    );
+    assert!(
+        parsed
+            .get("model_providers")
+            .and_then(|v| v.get("codex_sub"))
+            .is_some(),
+        "main config.toml should include the newly added provider"
+    );
+    assert!(
+        config_text.contains("[mcp_servers.keep]"),
+        "existing Codex config sections should be preserved"
+    );
+
+    let profile_path = home.join(".codex").join("codex订阅-我的线路.config.toml");
+    let profile_text = std::fs::read_to_string(profile_path).expect("read codex profile");
+    assert!(
+        profile_text.contains("[model_providers.codex_sub]"),
+        "Codex profile config should be created for the provider"
+    );
+}
+
+#[test]
+fn provider_service_add_codex_tuzi_route_uses_numbered_provider_without_overwriting_existing_tuzi()
+{
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let existing_config = r#"model_provider = "custom"
+model = "gpt-5.4"
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://api.tu-zi.com/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.custom]
+name = "custom"
+base_url = "https://api.tu-zi.com/coding"
+wire_api = "responses"
+requires_openai_auth = true
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
+
+    let state = create_test_state().expect("create test state");
+    let provider = Provider::with_id(
+        "new-tuzi".to_string(),
+        "兔子线路-我的配置".to_string(),
+        json!({
+            "auth": {},
+            "config": r#"model_provider = "tuzi"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+disable_response_storage = true
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://api.tu-zi.com/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+"#
+        }),
+        Some("https://api.tu-zi.com".to_string()),
+    );
+
+    ProviderService::add(&state, AppType::Codex, provider, false).expect("add tuzi provider");
+
+    let saved_provider = state
+        .db
+        .get_provider_by_id("new-tuzi", AppType::Codex.as_str())
+        .expect("query new tuzi provider")
+        .expect("new tuzi provider exists");
+    let saved_config = saved_provider
+        .settings_config
+        .get("config")
+        .and_then(|value| value.as_str())
+        .expect("saved codex config");
+    assert!(
+        saved_config.contains("model_provider = \"provider-tuzi02\""),
+        "new tuzi provider should avoid seeded provider-tuzi01 and legacy tuzi"
+    );
+    assert!(
+        saved_config.contains("env_key = \"TUZI02_CODEX_API_KEY\""),
+        "new tuzi provider should receive the matching numbered env key"
+    );
+
+    let live_config = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+        .expect("read codex live config");
+    assert!(
+        live_config.contains("[model_providers.tuzi]\nname = \"tuzi\"\nbase_url = \"https://api.tu-zi.com/v1\"\nenv_key = \"TUZI_CODEX_API_KEY\""),
+        "existing user-owned tuzi provider must be preserved"
+    );
+    assert!(
+        live_config.contains("[model_providers.provider-tuzi02]"),
+        "numbered tuzi switch provider should be registered separately"
     );
 }
 
@@ -916,6 +1089,80 @@ fn provider_service_switch_claude_updates_live_and_state() {
 }
 
 #[test]
+fn provider_service_switch_claude_writes_settings_json_even_when_legacy_file_exists() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let claude_dir = home.join(".claude");
+    std::fs::create_dir_all(&claude_dir).expect("create claude dir");
+    std::fs::write(
+        claude_dir.join("claude.json"),
+        serde_json::to_string_pretty(&json!({
+            "env": { "ANTHROPIC_API_KEY": "legacy-file-key" }
+        }))
+        .expect("serialize legacy claude json"),
+    )
+    .expect("seed legacy claude json");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.current = "old-provider".to_string();
+        manager.providers.insert(
+            "old-provider".to_string(),
+            Provider::with_id(
+                "old-provider".to_string(),
+                "Legacy Claude".to_string(),
+                json!({
+                    "env": { "ANTHROPIC_API_KEY": "old-key" }
+                }),
+                None,
+            ),
+        );
+        manager.providers.insert(
+            "new-provider".to_string(),
+            Provider::with_id(
+                "new-provider".to_string(),
+                "Fresh Claude".to_string(),
+                json!({
+                    "env": { "ANTHROPIC_API_KEY": "fresh-key" }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+    ProviderService::switch(&state, AppType::Claude, "new-provider")
+        .expect("switch provider should succeed");
+
+    let settings_path = home.join(".claude").join("settings.json");
+    let live_after: serde_json::Value =
+        read_json_file(&settings_path).expect("read claude settings.json");
+    assert_eq!(
+        live_after
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_API_KEY"))
+            .and_then(|key| key.as_str()),
+        Some("fresh-key"),
+        "new Claude live config should be written to settings.json"
+    );
+    let legacy_after: serde_json::Value =
+        read_json_file(&claude_dir.join("claude.json")).expect("read legacy claude json");
+    assert_eq!(
+        legacy_after
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_API_KEY"))
+            .and_then(|key| key.as_str()),
+        Some("legacy-file-key"),
+        "legacy claude.json should not be used as the live write target"
+    );
+}
+
+#[test]
 fn provider_service_switch_missing_provider_returns_error() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -969,12 +1216,16 @@ fn provider_service_switch_codex_missing_auth_returns_error() {
             msg.contains("auth"),
             "expected auth related message, got {msg}"
         ),
+        AppError::Localized { zh, en, .. } => assert!(
+            zh.contains("auth") || en.contains("auth"),
+            "expected auth related message, got zh={zh}, en={en}"
+        ),
         other => panic!("expected config error, got {other:?}"),
     }
 }
 
 #[test]
-fn provider_service_delete_codex_removes_provider_and_files() {
+fn provider_service_delete_codex_removes_provider_but_keeps_live_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
@@ -992,7 +1243,8 @@ fn provider_service_delete_codex_removes_provider_and_files() {
                 "Keep".to_string(),
                 json!({
                     "auth": {"OPENAI_API_KEY": "keep-key"},
-                    "config": ""
+                    "env": {"envKey": "KEEP_CODEX_API_KEY"},
+                    "config": "model_provider = \"provider-keep\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-keep]\nname = \"provider-keep\"\nbase_url = \"https://keep.example/v1\"\nenv_key = \"KEEP_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
                 }),
                 None,
             ),
@@ -1004,7 +1256,8 @@ fn provider_service_delete_codex_removes_provider_and_files() {
                 "DeleteCodex".to_string(),
                 json!({
                     "auth": {"OPENAI_API_KEY": "delete-key"},
-                    "config": ""
+                    "env": {"envKey": "DELETE_CODEX_API_KEY"},
+                    "config": "model_provider = \"provider-delete\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-delete]\nname = \"provider-delete\"\nbase_url = \"https://delete.example/v1\"\nenv_key = \"DELETE_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
                 }),
                 None,
             ),
@@ -1018,6 +1271,34 @@ fn provider_service_delete_codex_removes_provider_and_files() {
     let cfg_path = codex_dir.join(format!("config-{sanitized}.toml"));
     std::fs::write(&auth_path, "{}").expect("seed auth file");
     std::fs::write(&cfg_path, "base_url = \"https://example\"").expect("seed config file");
+    let profile_path = codex_dir.join(format!("{sanitized}.config.toml"));
+    std::fs::write(&profile_path, "model_provider = \"provider-delete\"\n")
+        .expect("seed codex profile file");
+    let live_config = r#"model_provider = "provider-keep"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+disable_response_storage = true
+
+[model_providers.provider-keep]
+name = "provider-keep"
+base_url = "https://keep.example/v1"
+env_key = "KEEP_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.provider-delete]
+name = "provider-delete"
+base_url = "https://delete.example/v1"
+env_key = "DELETE_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+"#;
+    std::fs::write(codex_dir.join("config.toml"), live_config).expect("seed codex live config");
+    std::fs::write(
+        home.join(".zshrc"),
+        "# >>> tuzi-switch codex env >>>\nexport KEEP_CODEX_API_KEY=\"keep-key\"\nexport DELETE_CODEX_API_KEY=\"delete-key\"\n# <<< tuzi-switch codex env <<<\n",
+    )
+    .expect("seed managed codex env");
 
     let app_state = create_test_state_with_config(&config).expect("create test state");
 
@@ -1032,8 +1313,29 @@ fn provider_service_delete_codex_removes_provider_and_files() {
         !providers.contains_key("to-delete"),
         "provider entry should be removed"
     );
-    // v3.7.0+ 不再使用供应商特定文件（如 auth-*.json, config-*.toml）
-    // 删除供应商只影响数据库记录，不清理这些旧格式文件
+    let live_after =
+        std::fs::read_to_string(codex_dir.join("config.toml")).expect("read codex live config");
+    assert!(
+        live_after.contains("[model_providers.provider-delete]"),
+        "deleting from tuzi-switch should not remove the user's Codex live route"
+    );
+    assert!(
+        live_after.contains("[model_providers.provider-keep]"),
+        "unrelated Codex route should be preserved"
+    );
+    assert!(
+        profile_path.exists(),
+        "deleting from tuzi-switch should not remove the user's Codex profile config"
+    );
+    let zshrc_after = std::fs::read_to_string(home.join(".zshrc")).expect("read managed env rc");
+    assert!(
+        zshrc_after.contains("DELETE_CODEX_API_KEY"),
+        "deleting from tuzi-switch should not remove the user's managed env key"
+    );
+    assert!(
+        zshrc_after.contains("KEEP_CODEX_API_KEY"),
+        "unrelated managed env key should be preserved"
+    );
 }
 
 #[test]
@@ -1094,6 +1396,83 @@ fn provider_service_delete_claude_removes_provider_files() {
     );
     // v3.7.0+ 不再使用供应商特定文件（如 settings-*.json）
     // 删除供应商只影响数据库记录，不清理这些旧格式文件
+}
+
+#[test]
+fn provider_service_delete_additive_provider_keeps_live_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::OpenCode)
+            .expect("opencode manager");
+        manager.providers.insert(
+            "delete".to_string(),
+            Provider::with_id(
+                "delete".to_string(),
+                "DeleteOpenCode".to_string(),
+                json!({
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "DeleteOpenCode",
+                    "options": {
+                        "baseURL": "https://delete.example/v1",
+                        "apiKey": "delete-key"
+                    },
+                    "models": {
+                        "gpt-5.5": {}
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+    std::fs::write(
+        opencode_dir.join("opencode.json"),
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+                "delete": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "DeleteOpenCode",
+                    "options": {
+                        "baseURL": "https://delete.example/v1",
+                        "apiKey": "delete-key"
+                    },
+                    "models": {
+                        "gpt-5.5": {}
+                    }
+                }
+            }
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("seed opencode config");
+
+    let app_state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::delete(&app_state, AppType::OpenCode, "delete")
+        .expect("delete opencode provider");
+
+    let providers = app_state
+        .db
+        .get_all_providers(AppType::OpenCode.as_str())
+        .expect("get all providers");
+    assert!(
+        !providers.contains_key("delete"),
+        "opencode provider should be removed from tuzi-switch DB"
+    );
+    let live_after: serde_json::Value =
+        read_json_file(&opencode_dir.join("opencode.json")).expect("read opencode live config");
+    assert!(
+        live_after.pointer("/provider/delete").is_some(),
+        "deleting from tuzi-switch should not remove additive app live config"
+    );
 }
 
 #[test]

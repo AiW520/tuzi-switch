@@ -213,6 +213,13 @@ export function ProviderActions({
   const readOnlyHint = t("provider.managedByHermesHint", {
     defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
   });
+  const deleteTitle = isReadOnly
+    ? readOnlyHint
+    : canDelete
+      ? t("common.delete")
+      : t("provider.deleteCurrentHint", {
+          defaultValue: "当前使用中的供应商不能删除，请先启用其他供应商。",
+        });
 
   return (
     <div className="flex items-center gap-1.5">
@@ -334,7 +341,8 @@ export function ProviderActions({
           size="icon"
           variant="ghost"
           onClick={canDelete ? onDelete : undefined}
-          title={isReadOnly ? readOnlyHint : t("common.delete")}
+          aria-disabled={!canDelete}
+          title={deleteTitle}
           className={cn(
             iconButtonClass,
             canDelete && "hover:text-red-500 dark:hover:text-red-400",

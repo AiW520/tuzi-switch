@@ -2,9 +2,9 @@ use serde_json::json;
 
 use tuzi_switch_lib::{
     extract_codex_experimental_bearer_token, get_codex_config_path,
-    import_default_config_test_hook, read_json_file, switch_provider_test_hook,
-    write_codex_live_atomic, AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider,
-    ProviderService,
+    import_default_config_test_hook, read_json_file, save_codex_route_test_hook,
+    switch_provider_test_hook, write_codex_live_atomic, AppError, AppType, McpApps, McpServer,
+    MultiAppConfig, Provider, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -15,26 +15,34 @@ use support::{
 };
 
 #[test]
-fn codex_fresh_install_seeds_three_presets_and_skips_default_import() {
+fn codex_fresh_install_seeds_presets_and_imports_live_config_once() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
 
     let auth = json!({"OPENAI_API_KEY": "fresh-key"});
-    let config = r#"model = "gpt-5"
+    let config = r#"model_provider = "tuzi"
+model = "gpt-5"
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://api.tu-zi.com/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
 "#;
     write_codex_live_atomic(&auth, Some(config)).expect("seed codex live config");
 
     let state = create_test_state().expect("create test state");
 
     assert!(
-        !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
+        ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
             .expect("check startup import eligibility"),
-        "seeded Codex providers should block startup default import"
+        "Codex live config should be imported even after official presets are seeded"
     );
 
     assert!(
-        !import_default_config_test_hook(&state, AppType::Codex).expect("import codex default"),
-        "Codex default import should be disabled"
+        import_default_config_test_hook(&state, AppType::Codex).expect("import codex default"),
+        "Codex default import should persist the current live config"
     );
 
     let providers = state
@@ -43,8 +51,8 @@ fn codex_fresh_install_seeds_three_presets_and_skips_default_import() {
         .expect("get codex providers after import");
     assert_eq!(
         providers.len(),
-        3,
-        "fresh install should seed exactly three Codex providers"
+        4,
+        "fresh install should seed three Codex presets and one imported live provider"
     );
     assert!(providers.contains_key("tuzi-route"));
     assert_eq!(
@@ -55,6 +63,7 @@ fn codex_fresh_install_seeds_three_presets_and_skips_default_import() {
     );
     assert!(providers.contains_key("coding"));
     assert!(providers.contains_key("gaccode"));
+    assert!(providers.contains_key("codex-live-config"));
     assert!(!providers.contains_key("default"));
     assert!(!providers.contains_key("codex-official"));
     for provider_id in ["tuzi-route", "coding", "gaccode"] {
@@ -68,17 +77,30 @@ fn codex_fresh_install_seeds_three_presets_and_skips_default_import() {
             "{provider_id} should default to gpt-5.5"
         );
     }
+    let imported_config = providers["codex-live-config"]
+        .settings_config
+        .get("config")
+        .and_then(|value| value.as_str())
+        .expect("imported codex config");
+    assert!(
+        imported_config.contains("model_provider = \"provider-tuzi02\""),
+        "imported user tuzi config should use a tuzi-switch numbered provider"
+    );
+    assert!(
+        imported_config.contains("env_key = \"TUZI02_CODEX_API_KEY\""),
+        "imported user tuzi config should receive a matching numbered env key"
+    );
 
     let current_id = state
         .db
         .get_current_provider(AppType::Codex.as_str())
         .expect("get codex current provider");
-    assert_eq!(current_id.as_deref(), Some("tuzi-route"));
+    assert_eq!(current_id.as_deref(), Some("codex-live-config"));
 
     assert!(
         !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
             .expect("re-check startup import eligibility"),
-        "subsequent startup should skip once Codex already has providers"
+        "subsequent startup should skip once Codex live config has been imported"
     );
 }
 
@@ -499,6 +521,69 @@ fn codex_seed_and_legacy_tuzi_purge_keep_tuzi_route() {
 }
 
 #[test]
+fn save_codex_route_numbers_tuzi_route_without_overwriting_existing_tuzi() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let existing_config = r#"model_provider = "custom"
+model = "gpt-5.4"
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://api.tu-zi.com/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.custom]
+name = "custom"
+base_url = "https://api.tu-zi.com/coding"
+wire_api = "responses"
+requires_openai_auth = true
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
+
+    let state = create_test_state().expect("create test state");
+
+    let saved_route = save_codex_route_test_hook(
+        &state,
+        "tuzi".to_string(),
+        "https://api.tu-zi.com/v1".to_string(),
+        "TUZI_CODEX_API_KEY".to_string(),
+        "sk-test".to_string(),
+        "gpt-5.5".to_string(),
+        "high".to_string(),
+        Some("兔子线路-我的配置".to_string()),
+        None,
+    )
+    .expect("save codex route");
+    assert_eq!(saved_route.route_id, "provider-tuzi02");
+    assert_eq!(saved_route.env_key, "TUZI02_CODEX_API_KEY");
+    assert!(
+        saved_route
+            .config
+            .contains("model_provider = \"provider-tuzi02\""),
+        "returned config should match the normalized route so provider storage does not jump again"
+    );
+
+    let config_text = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+        .expect("read codex config");
+    assert!(
+        config_text.contains("[model_providers.tuzi]\nname = \"tuzi\"\nbase_url = \"https://api.tu-zi.com/v1\"\nenv_key = \"TUZI_CODEX_API_KEY\""),
+        "existing user-owned tuzi provider must be preserved"
+    );
+    assert!(
+        config_text.contains("[model_providers.provider-tuzi02]"),
+        "save_codex_route should register the next tuzi-switch route"
+    );
+    assert!(
+        config_text.contains("env_key = \"TUZI02_CODEX_API_KEY\""),
+        "save_codex_route should write the numbered env key"
+    );
+}
+
+#[test]
 fn switch_provider_updates_codex_live_and_state() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -819,7 +904,11 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
             msg.contains("auth"),
             "expected auth missing error message, got {msg}"
         ),
-        other => panic!("expected config error, got {other:?}"),
+        AppError::Localized { zh, en, .. } => assert!(
+            zh.contains("auth") || en.contains("auth"),
+            "expected auth missing error message, got zh={zh}, en={en}"
+        ),
+        other => panic!("expected config/auth error, got {other:?}"),
     }
 
     let current_id = app_state

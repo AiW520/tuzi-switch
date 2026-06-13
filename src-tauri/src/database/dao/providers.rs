@@ -28,7 +28,7 @@ fn build_codex_official_provider(
     let route_id = match id {
         "coding" => "codex",
         "gaccode" => "gac",
-        "tuzi-route" => "tuzi",
+        "tuzi-route" => "provider-tuzi01",
         _ => id,
     };
     let config = format!(
