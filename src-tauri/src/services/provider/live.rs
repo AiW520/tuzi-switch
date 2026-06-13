@@ -62,6 +62,228 @@ fn codex_active_provider_string_field(config_text: &str, field: &str) -> Option<
         .map(ToString::to_string)
 }
 
+fn codex_tuzi_index(route_id: &str, env_key: &str) -> Option<u8> {
+    if let Some(suffix) = route_id.strip_prefix("provider-tuzi") {
+        if suffix.len() == 2 && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            return suffix.parse::<u8>().ok().filter(|index| *index > 0);
+        }
+    }
+
+    if env_key.starts_with("TUZI")
+        && env_key.ends_with("_CODEX_API_KEY")
+        && env_key.len() >= "TUZI01_CODEX_API_KEY".len()
+    {
+        let index_part = &env_key["TUZI".len()..env_key.len() - "_CODEX_API_KEY".len()];
+        if index_part.len() == 2 && index_part.chars().all(|ch| ch.is_ascii_digit()) {
+            return index_part.parse::<u8>().ok().filter(|index| *index > 0);
+        }
+    }
+
+    None
+}
+
+fn is_codex_tuzi_route(route_id: &str, env_key: &str, base_url: &str) -> bool {
+    route_id == "tuzi"
+        || route_id.starts_with("provider-tuzi")
+        || env_key == "TUZI_CODEX_API_KEY"
+        || codex_tuzi_index(route_id, env_key).is_some()
+        || base_url.trim_end_matches('/') == "https://api.tu-zi.com/v1"
+}
+
+fn collect_codex_tuzi_indexes_from_config(config_text: &str, indexes: &mut Vec<u8>) {
+    let Some(doc) = codex_config_doc(config_text) else {
+        return;
+    };
+    let Some(model_providers) = doc.get("model_providers").and_then(|item| item.as_table()) else {
+        return;
+    };
+
+    for (route_id, item) in model_providers.iter() {
+        let Some(table) = item.as_table() else {
+            continue;
+        };
+        let env_key = table
+            .get("env_key")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        if let Some(index) = codex_tuzi_index(route_id, env_key) {
+            indexes.push(index);
+        }
+    }
+}
+
+fn codex_tuzi_index_used_by_other_provider(
+    db: &Database,
+    index: u8,
+    exclude_provider_id: Option<&str>,
+) -> Result<bool, AppError> {
+    for (provider_id, provider) in db.get_all_providers(AppType::Codex.as_str())? {
+        if exclude_provider_id == Some(provider_id.as_str()) {
+            continue;
+        }
+        let config = provider
+            .settings_config
+            .get("config")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let route_id = codex_active_route_id(config).unwrap_or_default();
+        let env_key = codex_active_provider_string_field(config, "env_key").unwrap_or_default();
+        if codex_tuzi_index(&route_id, &env_key) == Some(index) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn next_codex_tuzi_index(db: &Database, exclude_provider_id: Option<&str>) -> Result<u8, AppError> {
+    let mut indexes = Vec::new();
+
+    if let Ok(live_config) = crate::codex_config::read_codex_config_text() {
+        collect_codex_tuzi_indexes_from_config(&live_config, &mut indexes);
+    }
+
+    for (provider_id, provider) in db.get_all_providers(AppType::Codex.as_str())? {
+        if exclude_provider_id == Some(provider_id.as_str()) {
+            continue;
+        }
+        let config = provider
+            .settings_config
+            .get("config")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        collect_codex_tuzi_indexes_from_config(config, &mut indexes);
+    }
+
+    for index in 1u8..=99 {
+        if !indexes.contains(&index) {
+            return Ok(index);
+        }
+    }
+
+    Err(AppError::Config(
+        "Codex 兔子线路供应商编号已用尽".to_string(),
+    ))
+}
+
+fn rewrite_codex_active_provider(
+    config_text: &str,
+    route_id: &str,
+    env_key: &str,
+) -> Result<String, AppError> {
+    let source_route = codex_active_route_id(config_text).unwrap_or_else(|| "tuzi".to_string());
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+
+    doc["model_provider"] = toml_edit::value(route_id);
+
+    if let Some(profiles) = doc.get_mut("profiles").and_then(|item| item.as_table_mut()) {
+        if let Some(profile) = profiles
+            .get_mut(source_route.as_str())
+            .and_then(|item| item.as_table_mut())
+        {
+            profile["model_provider"] = toml_edit::value(route_id);
+        }
+    }
+
+    if let Some(model_providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        if source_route != route_id {
+            if let Some(provider_table) = model_providers.remove(source_route.as_str()) {
+                model_providers[route_id] = provider_table;
+            }
+        }
+        if let Some(provider_table) = model_providers
+            .get_mut(route_id)
+            .and_then(|item| item.as_table_mut())
+        {
+            provider_table["name"] = toml_edit::value(route_id);
+            provider_table["env_key"] = toml_edit::value(env_key);
+        }
+    }
+
+    Ok(doc.to_string())
+}
+
+pub(crate) fn normalize_codex_tuzi_provider_for_storage(
+    db: &Database,
+    provider: &mut Provider,
+    exclude_provider_id: Option<&str>,
+) -> Result<(), AppError> {
+    let Some(obj) = provider.settings_config.as_object_mut() else {
+        return Ok(());
+    };
+    let config_str = obj
+        .get("config")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if config_str.trim().is_empty() {
+        return Ok(());
+    }
+
+    let route_id = codex_active_route_id(config_str).unwrap_or_default();
+    let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
+    let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
+    if !is_codex_tuzi_route(&route_id, &env_key, &base_url) {
+        return Ok(());
+    }
+
+    let Some(index) = codex_tuzi_index(&route_id, &env_key) else {
+        let index = next_codex_tuzi_index(db, exclude_provider_id)?;
+        let next_route_id = format!("provider-tuzi{index:02}");
+        let next_env_key = format!("TUZI{index:02}_CODEX_API_KEY");
+        let rewritten = rewrite_codex_active_provider(config_str, &next_route_id, &next_env_key)?;
+        obj.insert("config".to_string(), Value::String(rewritten));
+        obj.insert("env".to_string(), json!({ "envKey": next_env_key }));
+        return Ok(());
+    };
+
+    let mut normalized_index = index;
+    if codex_tuzi_index_used_by_other_provider(db, index, exclude_provider_id)? {
+        normalized_index = next_codex_tuzi_index(db, exclude_provider_id)?;
+    }
+
+    let expected_route_id = format!("provider-tuzi{normalized_index:02}");
+    let expected_env_key = format!("TUZI{normalized_index:02}_CODEX_API_KEY");
+    if normalized_index != index || route_id != expected_route_id || env_key != expected_env_key {
+        let rewritten =
+            rewrite_codex_active_provider(config_str, &expected_route_id, &expected_env_key)?;
+        obj.insert("config".to_string(), Value::String(rewritten));
+        obj.insert("env".to_string(), json!({ "envKey": expected_env_key }));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<(), AppError> {
+    let obj = provider
+        .settings_config
+        .as_object()
+        .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
+    let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
+    if config_str.trim().is_empty() {
+        return Ok(());
+    }
+
+    let route_id = codex_active_route_id(config_str).unwrap_or_else(|| "tuziswitch".to_string());
+    let existing = crate::codex_config::read_codex_config_text().unwrap_or_default();
+    let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
+    let model =
+        codex_top_level_string_field(config_str, "model").unwrap_or_else(|| "gpt-5.5".to_string());
+    let effort = codex_top_level_string_field(config_str, "model_reasoning_effort")
+        .unwrap_or_else(|| "high".to_string());
+    let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
+
+    let updated = crate::codex_config::save_route_to_config(
+        &existing, &route_id, &base_url, &env_key, &model, &effort,
+    )?;
+    crate::codex_config::write_codex_live_config_atomic(Some(&updated))?;
+    crate::codex_config::write_codex_profile_config(&provider.name, config_str)?;
+    Ok(())
+}
+
 pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
     let mut v = settings.clone();
     if let Some(obj) = v.as_object_mut() {
@@ -775,7 +997,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
 
             use crate::codex_config::{
                 read_codex_config_text, save_route_to_config, switch_codex_profile,
-                write_codex_provider_live_with_catalog,
+                write_codex_profile_config, write_codex_provider_live_with_catalog,
             };
 
             if config_str.trim().is_empty() {
@@ -790,6 +1012,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
 
             let route_id =
                 codex_active_route_id(config_str).unwrap_or_else(|| "tuziswitch".to_string());
+            write_codex_profile_config(&provider.name, config_str)?;
             let existing = read_codex_config_text().unwrap_or_default();
 
             // Extract fields from provider's config
@@ -814,8 +1037,12 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 switch_codex_profile(&config_with_route, &route_id, Some(&model), Some(&effort))?;
 
             // Restore experimental_bearer_token if it exists in the provider's config
-            if let Some(token) = crate::codex_config::extract_codex_experimental_bearer_token(config_str) {
-                if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(&final_config, &token) {
+            if let Some(token) =
+                crate::codex_config::extract_codex_experimental_bearer_token(config_str)
+            {
+                if let Ok(updated) =
+                    crate::codex_config::set_codex_experimental_bearer_token(&final_config, &token)
+                {
                     final_config = updated;
                 }
             }
@@ -1160,11 +1387,49 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         return Ok(false);
     }
 
-    if state.db.has_any_provider_for_app(app_type.as_str())? {
-        return Ok(false);
+    if matches!(app_type, AppType::Codex) {
+        if state
+            .db
+            .get_provider_by_id("codex-live-config", AppType::Codex.as_str())?
+            .is_some()
+        {
+            return Ok(false);
+        }
+
+        let auth_path = get_codex_auth_path();
+        let auth: Value = if auth_path.exists() {
+            read_json_file(&auth_path)?
+        } else {
+            json!({})
+        };
+        let config_str = crate::codex_config::read_and_validate_codex_config_text()?;
+        if config_str.trim().is_empty() {
+            return Ok(false);
+        }
+
+        let mut provider = Provider::with_id(
+            "codex-live-config".to_string(),
+            "当前 Codex 配置".to_string(),
+            json!({ "auth": auth, "config": config_str }),
+            None,
+        );
+        provider.category = Some("custom".to_string());
+        normalize_codex_tuzi_provider_for_storage(
+            state.db.as_ref(),
+            &mut provider,
+            Some("codex-live-config"),
+        )?;
+
+        state.db.save_provider(app_type.as_str(), &provider)?;
+        state
+            .db
+            .set_current_provider(app_type.as_str(), &provider.id)?;
+        crate::settings::set_current_provider(&app_type, Some(provider.id.as_str()))?;
+
+        return Ok(true);
     }
 
-    if matches!(app_type, AppType::Codex) {
+    if state.db.has_any_provider_for_app(app_type.as_str())? {
         return Ok(false);
     }
 
@@ -1272,7 +1537,11 @@ pub fn should_import_default_config_on_startup(
     }
 
     if matches!(app_type, AppType::Codex) {
-        return Ok(false);
+        return Ok(state
+            .db
+            .get_provider_by_id("codex-live-config", AppType::Codex.as_str())?
+            .is_none()
+            && get_codex_config_path().exists());
     }
 
     Ok(!state.db.has_any_provider_for_app(app_type.as_str())?)

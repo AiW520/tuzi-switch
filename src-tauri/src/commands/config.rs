@@ -423,25 +423,58 @@ pub fn read_all_codex_env_keys() -> Result<std::collections::HashMap<String, Str
     Ok(codex_config::read_managed_env_block())
 }
 
-#[tauri::command]
+fn codex_route_id_from_config(config_text: &str) -> Option<String> {
+    config_text
+        .parse::<toml_edit::DocumentMut>()
+        .ok()?
+        .get("model_provider")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn codex_active_provider_field(config_text: &str, field: &str) -> Option<String> {
+    let doc = config_text.parse::<toml_edit::DocumentMut>().ok()?;
+    let route_id = doc
+        .get("model_provider")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    doc.get("model_providers")
+        .and_then(|item| item.as_table())
+        .and_then(|table| table.get(route_id))
+        .and_then(|item| item.as_table())
+        .and_then(|table| table.get(field))
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveCodexRouteResult {
+    pub route_id: String,
+    pub env_key: String,
+    pub config: String,
+}
+
 #[allow(non_snake_case)]
-pub fn save_codex_route(
+fn save_codex_route_inner(
+    state: &AppState,
     routeId: String,
     baseUrl: String,
     envKey: String,
     apiKey: String,
     model: String,
     modelReasoningEffort: String,
-) -> Result<(), String> {
-    // Write API key to shell rc
-    if !apiKey.is_empty() {
-        codex_config::write_managed_env_key(&envKey, &apiKey).map_err(|e| e.to_string())?;
-    }
-
-    // Write route section to config.toml
-    let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
-    let updated = codex_config::save_route_to_config(
-        &existing,
+    profileName: Option<String>,
+    providerId: Option<String>,
+) -> Result<SaveCodexRouteResult, String> {
+    let route_draft = codex_config::save_route_to_config(
+        "",
         &routeId,
         &baseUrl,
         &envKey,
@@ -449,17 +482,138 @@ pub fn save_codex_route(
         &modelReasoningEffort,
     )
     .map_err(|e| e.to_string())?;
-
-    // Switch to this profile (with model/effort at top level)
-    let final_config = codex_config::switch_codex_profile(
-        &updated,
+    let route_draft = codex_config::switch_codex_profile(
+        &route_draft,
         &routeId,
         Some(&model),
         Some(&modelReasoningEffort),
     )
     .map_err(|e| e.to_string())?;
+    let mut provider = crate::provider::Provider::with_id(
+        providerId
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or("__codex_route_draft")
+            .to_string(),
+        profileName
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(&routeId)
+            .to_string(),
+        serde_json::json!({ "auth": {}, "config": route_draft }),
+        None,
+    );
+    crate::services::provider::normalize_codex_tuzi_provider_for_storage(
+        state.db.as_ref(),
+        &mut provider,
+        providerId.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
 
-    let auth = serde_json::json!({});
-    codex_config::write_codex_live_for_provider(None, &auth, Some(&final_config))
-        .map_err(|e| e.to_string())
+    let normalized_config = provider
+        .settings_config
+        .get("config")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let normalized_route_id =
+        codex_route_id_from_config(normalized_config).unwrap_or_else(|| routeId.clone());
+    let normalized_env_key =
+        codex_active_provider_field(normalized_config, "env_key").unwrap_or_else(|| envKey.clone());
+    let normalized_base_url = codex_active_provider_field(normalized_config, "base_url")
+        .unwrap_or_else(|| baseUrl.clone());
+
+    // Write API key to shell rc
+    if !apiKey.is_empty() {
+        codex_config::write_managed_env_key(&normalized_env_key, &apiKey)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Write route section to config.toml
+    let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
+    let updated = codex_config::save_route_to_config(
+        &existing,
+        &normalized_route_id,
+        &normalized_base_url,
+        &normalized_env_key,
+        &model,
+        &modelReasoningEffort,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let profile_config = codex_config::switch_codex_profile(
+        &updated,
+        &normalized_route_id,
+        Some(&model),
+        Some(&modelReasoningEffort),
+    )
+    .map_err(|e| e.to_string())?;
+
+    let profile_name = profileName
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&normalized_route_id);
+    codex_config::write_codex_profile_config(profile_name, &profile_config)
+        .map_err(|e| e.to_string())?;
+    codex_config::write_codex_live_config_atomic(Some(&updated)).map_err(|e| e.to_string())?;
+
+    Ok(SaveCodexRouteResult {
+        route_id: normalized_route_id,
+        env_key: normalized_env_key,
+        config: normalized_config.to_string(),
+    })
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn save_codex_route(
+    state: State<'_, AppState>,
+    routeId: String,
+    baseUrl: String,
+    envKey: String,
+    apiKey: String,
+    model: String,
+    modelReasoningEffort: String,
+    profileName: Option<String>,
+    providerId: Option<String>,
+) -> Result<SaveCodexRouteResult, String> {
+    save_codex_route_inner(
+        state.inner(),
+        routeId,
+        baseUrl,
+        envKey,
+        apiKey,
+        model,
+        modelReasoningEffort,
+        profileName,
+        providerId,
+    )
+}
+
+#[cfg(any(test, debug_assertions))]
+#[allow(non_snake_case)]
+pub fn save_codex_route_test_hook(
+    state: &AppState,
+    routeId: String,
+    baseUrl: String,
+    envKey: String,
+    apiKey: String,
+    model: String,
+    modelReasoningEffort: String,
+    profileName: Option<String>,
+    providerId: Option<String>,
+) -> Result<SaveCodexRouteResult, String> {
+    save_codex_route_inner(
+        state,
+        routeId,
+        baseUrl,
+        envKey,
+        apiKey,
+        model,
+        modelReasoningEffort,
+        profileName,
+        providerId,
+    )
 }

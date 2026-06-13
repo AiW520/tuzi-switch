@@ -48,7 +48,7 @@ export function generateThirdPartyConfig(
   const cleanProviderName =
     providerName
       .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/[^a-z0-9_-]/g, "_")
       .replace(/^_+|_+$/g, "") || "custom";
 
   return `model_provider = "${cleanProviderName}"
@@ -71,12 +71,12 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     apiKeyUrl: "https://api.tu-zi.com",
     auth: {},
     config: generateThirdPartyConfig(
-      "tuzi",
+      "provider-tuzi01",
       "https://api.tu-zi.com/v1",
-      "TUZI_CODEX_API_KEY",
+      "TUZI01_CODEX_API_KEY",
       "gpt-5.5",
     ),
-    envKey: "TUZI_CODEX_API_KEY",
+    envKey: "TUZI01_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: ["https://api.tu-zi.com/v1"],
     icon: "tuzi",

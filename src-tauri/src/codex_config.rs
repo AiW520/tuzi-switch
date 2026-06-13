@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::{
     atomic_write, delete_file, get_home_dir, read_json_file, sanitize_provider_name,
@@ -8,7 +8,6 @@ use crate::config::{
 use crate::error::AppError;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
 use std::process::Command;
 use toml_edit::DocumentMut;
 
@@ -500,6 +499,17 @@ pub fn get_codex_model_catalog_path() -> PathBuf {
     get_codex_config_dir().join(TUZI_SWITCH_CODEX_MODEL_CATALOG_FILENAME)
 }
 
+/// Codex 0.134+ 的 profile 文件：`~/.codex/<profile>.config.toml`。
+pub fn get_codex_profile_config_path(profile_name: &str) -> PathBuf {
+    let base_name = sanitize_provider_name(profile_name);
+    let base_name = if base_name.trim().is_empty() {
+        sanitize_provider_name(CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
+    } else {
+        base_name
+    };
+    get_codex_config_dir().join(format!("{base_name}.config.toml"))
+}
+
 /// 获取 Codex 供应商配置文件路径
 #[allow(dead_code)]
 pub fn get_codex_provider_paths(
@@ -514,6 +524,11 @@ pub fn get_codex_provider_paths(
     let config_path = get_codex_config_dir().join(format!("config-{base_name}.toml"));
 
     (auth_path, config_path)
+}
+
+pub fn write_codex_profile_config(profile_name: &str, config_text: &str) -> Result<(), AppError> {
+    validate_config_toml(config_text)?;
+    write_text_file(&get_codex_profile_config_path(profile_name), config_text)
 }
 
 /// 删除 Codex 供应商配置文件
@@ -1234,22 +1249,14 @@ pub fn write_codex_live_for_provider(
     config_text_opt: Option<&str>,
 ) -> Result<(), AppError> {
     if category == Some("official") && codex_auth_has_login_material(auth) {
-        return write_codex_live_atomic_with_stable_provider(auth, config_text_opt);
+        return write_codex_live_atomic(auth, config_text_opt);
     }
 
     let Some(config_text) = config_text_opt else {
         return write_codex_live_config_atomic(None);
     };
 
-    let mut settings = serde_json::Map::new();
-    settings.insert("config".to_string(), Value::String(config_text.to_string()));
-    let mut settings = Value::Object(settings);
-    normalize_codex_settings_config_model_provider(&mut settings, None)?;
-    let normalized_config = settings
-        .get("config")
-        .and_then(Value::as_str)
-        .unwrap_or(config_text);
-    let live_config = prepare_codex_provider_live_config(auth, normalized_config)?;
+    let live_config = prepare_codex_provider_live_config(auth, config_text)?;
     write_codex_live_config_atomic(Some(&live_config))
 }
 

@@ -27,6 +27,7 @@ import { relaunchApp } from "@/lib/updater";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import { isWindows } from "@/lib/platform";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import appIcon from "../../../src-tauri/icons/icon.png";
 
 interface AboutSectionProps {
@@ -98,6 +99,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     useState<WebHotUpdateStatus | null>(null);
   const [toolVersions, setToolVersions] = useState<ToolVersion[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(true);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
 
   const {
     hasUpdate,
@@ -121,22 +123,19 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     }
   }, []);
 
-  const handleCheckWebUpdate = useCallback(
-    async () => {
-      try {
-        const result = await settingsApi.checkWebHotUpdate();
-        await refreshWebUpdateStatus();
-        if (result.updated) {
-          toast.success(t("settings.webUpdateReady"), { closeButton: true });
-          return true;
-        }
-      } catch (error) {
-        console.error("[AboutSection] Web hot update check failed", error);
+  const handleCheckWebUpdate = useCallback(async () => {
+    try {
+      const result = await settingsApi.checkWebHotUpdate();
+      await refreshWebUpdateStatus();
+      if (result.updated) {
+        toast.success(t("settings.webUpdateReady"), { closeButton: true });
+        return true;
       }
-      return false;
-    },
-    [refreshWebUpdateStatus, t],
-  );
+    } catch (error) {
+      console.error("[AboutSection] Web hot update check failed", error);
+    }
+    return false;
+  }, [refreshWebUpdateStatus, t]);
 
   const refreshToolVersions = useCallback(
     async (
@@ -295,7 +294,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           toast.success(t("settings.updateInstalledRestarting"), {
             closeButton: true,
           });
-          await relaunchApp();
+          setRestartConfirmOpen(true);
         }
       } catch (error) {
         console.error("[AboutSection] Update failed", error);
@@ -355,6 +354,16 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     } catch (error) {
       console.error("[AboutSection] Failed to copy install commands", error);
       toast.error(t("settings.installCommandsCopyFailed"));
+    }
+  }, [t]);
+
+  const handleConfirmRestart = useCallback(async () => {
+    setRestartConfirmOpen(false);
+    try {
+      await relaunchApp();
+    } catch (error) {
+      console.error("[AboutSection] Failed to relaunch app", error);
+      toast.error(t("settings.restartFailed"));
     }
   }, [t]);
 
@@ -644,6 +653,16 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           </div>
         </motion.div>
       )}
+      <ConfirmDialog
+        isOpen={restartConfirmOpen}
+        title={t("settings.updateRestartTitle")}
+        message={t("settings.updateRestartMessage")}
+        confirmText={t("settings.restartNow")}
+        cancelText={t("settings.restartLater")}
+        variant="info"
+        onConfirm={handleConfirmRestart}
+        onCancel={() => setRestartConfirmOpen(false)}
+      />
     </motion.section>
   );
 }

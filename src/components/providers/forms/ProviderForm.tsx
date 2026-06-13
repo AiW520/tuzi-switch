@@ -234,6 +234,100 @@ const normalizeCodexChatReasoningForSave = (
   };
 };
 
+const CODEX_CUSTOM_NAME_DEFAULT = "我的配置";
+
+const buildPresetPrefixedName = (presetName: string, customName: string) => {
+  const prefix = presetName.trim();
+  const suffix = customName.trim();
+  if (!prefix) return suffix;
+  if (!suffix) return `${prefix}-`;
+  return suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
+};
+
+const splitPresetPrefixedName = (name: string) => {
+  const trimmed = name.trim();
+  const separatorIndex = trimmed.indexOf("-");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return null;
+  }
+  return {
+    prefix: trimmed.slice(0, separatorIndex).trim(),
+    customName: trimmed.slice(separatorIndex + 1).trim(),
+  };
+};
+
+const extractCodexRouteId = (config: string): string => {
+  const routeIdMatch = config.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
+  return routeIdMatch?.[1]?.trim() || "";
+};
+
+const CODEX_TUZI_ROUTE_PREFIX = "provider-tuzi";
+const CODEX_TUZI_ENV_PATTERN = /^TUZI(\d{2})_CODEX_API_KEY$/;
+
+const isCodexTuziPreset = (preset: CodexProviderPreset) =>
+  preset.icon === "tuzi" ||
+  preset.envKey === "TUZI01_CODEX_API_KEY" ||
+  extractCodexRouteId(preset.config ?? "").startsWith(CODEX_TUZI_ROUTE_PREFIX);
+
+const formatCodexTuziRouteId = (index: number) =>
+  `${CODEX_TUZI_ROUTE_PREFIX}${String(index).padStart(2, "0")}`;
+
+const formatCodexTuziEnvKey = (index: number) =>
+  `TUZI${String(index).padStart(2, "0")}_CODEX_API_KEY`;
+
+const extractCodexTuziIndex = (routeId: string, envKey: string): number => {
+  const routeMatch = routeId.match(/^provider-tuzi(\d{2})$/);
+  if (routeMatch) {
+    return Number.parseInt(routeMatch[1], 10);
+  }
+  const envMatch = envKey.match(CODEX_TUZI_ENV_PATTERN);
+  return envMatch ? Number.parseInt(envMatch[1], 10) : 0;
+};
+
+const resolveNextCodexTuziRoute = (
+  existingProviders: Record<string, { settingsConfig?: unknown }> | undefined,
+  shellEnvKeys: Record<string, string> | undefined,
+) => {
+  const usedIndexes = new Set<number>();
+  for (const provider of Object.values(existingProviders ?? {})) {
+    const settings = provider.settingsConfig;
+    const config =
+      settings && typeof settings === "object"
+        ? ((settings as Record<string, unknown>).config as string | undefined)
+        : "";
+    const routeId =
+      typeof config === "string" ? extractCodexRouteId(config) : "";
+    const envKey = getCodexProviderEnvKeyFromSettings(settings);
+    const index = extractCodexTuziIndex(routeId, envKey);
+    if (index > 0) {
+      usedIndexes.add(index);
+    }
+  }
+
+  for (const envKey of Object.keys(shellEnvKeys ?? {})) {
+    const index = extractCodexTuziIndex("", envKey);
+    if (index > 0) {
+      usedIndexes.add(index);
+    }
+  }
+
+  let index = 1;
+  while (usedIndexes.has(index)) {
+    index += 1;
+  }
+  return {
+    index,
+    routeId: formatCodexTuziRouteId(index),
+    envKey: formatCodexTuziEnvKey(index),
+  };
+};
+
+type SaveCodexRouteResult = {
+  routeId: string;
+  envKey: string;
+  config: string;
+};
+
 export interface ProviderFormProps {
   appId: AppId;
   providerId?: string;
@@ -544,6 +638,22 @@ function ProviderFormFull({
     queryFn: () => providersApi.getAll(appId),
     enabled: appId === "codex" && !initialData,
   });
+
+  const { data: existingProvidersForNameCheck } = useQuery({
+    queryKey: ["providerNames", appId],
+    queryFn: () => providersApi.getAll(appId),
+    enabled: !appId.startsWith("claude-desktop"),
+  });
+
+  const existingProviderNames = useMemo(() => {
+    const providers = existingProvidersForNameCheck ?? {};
+    return new Set(
+      Object.values(providers)
+        .filter((provider) => provider.id !== providerId)
+        .map((provider) => provider.name.trim())
+        .filter(Boolean),
+    );
+  }, [existingProvidersForNameCheck, providerId]);
 
   // Preload shell rc env keys for checking if a route is actually configured
   const { data: shellEnvKeys } = useQuery({
@@ -1058,6 +1168,36 @@ function ProviderFormFull({
           defaultValue: "请填写供应商名称",
         }),
       );
+    } else if (existingProviderNames.has(values.name.trim())) {
+      form.setError("name", {
+        type: "manual",
+        message: t("providerForm.providerNameDuplicate", {
+          defaultValue: "供应商名称已重复，请换一个名称",
+        }),
+      });
+      return;
+    } else if (appId === "codex") {
+      const parsedName = splitPresetPrefixedName(values.name);
+      if (parsedName) {
+        const hasDuplicateCustomName = Array.from(existingProviderNames).some(
+          (existingName) => {
+            const parsedExisting = splitPresetPrefixedName(existingName);
+            return (
+              parsedExisting?.prefix === parsedName.prefix &&
+              parsedExisting.customName === parsedName.customName
+            );
+          },
+        );
+        if (hasDuplicateCustomName) {
+          form.setError("name", {
+            type: "manual",
+            message: t("providerForm.providerNameDuplicate", {
+              defaultValue: "供应商名称已重复，请换一个名称",
+            }),
+          });
+          return;
+        }
+      }
     }
 
     // opencode / openclaw / hermes: providerKey 相关
@@ -1298,22 +1438,33 @@ function ProviderFormFull({
           /^\s*model_provider\s*=\s*"([^"]+)"/m,
         );
         const routeId = routeIdMatch?.[1] || "tuziswitch";
-        const resolvedCodexEnvKey =
+        let resolvedCodexEnvKey =
           getCodexProviderEnvKeyFromSettings({
             config: normalizedCodexConfig,
             env: { envKey: codexEnvKey },
           }) || codexEnvKey;
 
         if (resolvedCodexEnvKey && codexBaseUrl) {
-          await invoke("save_codex_route", {
-            routeId,
-            baseUrl: codexBaseUrl,
-            envKey: resolvedCodexEnvKey,
-            apiKey: codexApiKey || "",
-            model:
-              normalizedCatalogModels[0]?.model || codexModelName || "gpt-5.5",
-            modelReasoningEffort: "high",
-          });
+          const savedRoute = await invoke<SaveCodexRouteResult>(
+            "save_codex_route",
+            {
+              routeId,
+              baseUrl: codexBaseUrl,
+              envKey: resolvedCodexEnvKey,
+              apiKey: codexApiKey || "",
+              model:
+                normalizedCatalogModels[0]?.model ||
+                codexModelName ||
+                "gpt-5.5",
+              modelReasoningEffort: "high",
+              profileName: values.name.trim(),
+              providerId,
+            },
+          );
+          if (savedRoute?.config) {
+            normalizedCodexConfig = savedRoute.config;
+            resolvedCodexEnvKey = savedRoute.envKey || resolvedCodexEnvKey;
+          }
         }
 
         const configObj: {
@@ -1703,19 +1854,38 @@ function ProviderFormFull({
       const preset = entry.preset as CodexProviderPreset;
       let config = preset.config ?? "";
       let envKey = preset.envKey ?? "";
-      let displayName = preset.nameKey ? t(preset.nameKey) : preset.name;
+      const baseName = preset.nameKey ? t(preset.nameKey) : preset.name;
+      let displayName = buildPresetPrefixedName(
+        baseName,
+        CODEX_CUSTOM_NAME_DEFAULT,
+      );
 
       let defaultApiKey = "";
-      // Compute suffix: only count providers that actually have a key in shell rc
-      if (existingCodexProviders) {
-        const baseName = preset.nameKey ? t(preset.nameKey) : preset.name;
+      if (isCodexTuziPreset(preset)) {
+        const nextTuziRoute = resolveNextCodexTuziRoute(
+          existingCodexProviders,
+          shellEnvKeys,
+        );
+        envKey = nextTuziRoute.envKey;
+        config = generateThirdPartyConfig(
+          nextTuziRoute.routeId,
+          preset.endpointCandidates?.[0] || "https://api.tu-zi.com/v1",
+          envKey,
+          "gpt-5.5",
+        );
+        defaultApiKey = shellEnvKeys?.[envKey] ?? "";
+        if (nextTuziRoute.index > 1) {
+          displayName = `${displayName}_${nextTuziRoute.index}`;
+        }
+      } else if (existingCodexProviders) {
+        // Compute suffix: only count providers that actually have a key in shell rc
         const allMatching = Object.values(existingCodexProviders).filter(
           (p) => {
             const nameMatches =
-              p.name === baseName ||
+              p.name === displayName ||
               p.name.match(
                 new RegExp(
-                  `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`,
+                  `^${displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`,
                 ),
               );
             if (!nameMatches) return false;
@@ -1731,7 +1901,7 @@ function ProviderFormFull({
 
         if (count > 0) {
           const suffix = count + 1;
-          displayName = `${baseName}_${suffix}`;
+          displayName = `${displayName}_${suffix}`;
 
           // Extract base route_id from config
           const routeIdMatch = config.match(

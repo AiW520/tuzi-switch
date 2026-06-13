@@ -29,15 +29,16 @@ pub use live::{
 // Internal re-exports (pub(crate))
 pub(crate) use live::sanitize_claude_settings_for_live;
 pub(crate) use live::{
-    build_effective_settings_with_common_config, normalize_provider_common_config_for_storage,
-    provider_exists_in_live_config, strip_common_config_from_live_settings,
-    sync_current_provider_for_app_to_live, write_live_with_common_config,
+    build_effective_settings_with_common_config, normalize_codex_tuzi_provider_for_storage,
+    normalize_provider_common_config_for_storage, provider_exists_in_live_config,
+    strip_common_config_from_live_settings, sync_current_provider_for_app_to_live,
+    write_live_with_common_config,
 };
 
 // Internal re-exports
 use live::{
-    remove_hermes_provider_from_live, remove_openclaw_provider_from_live,
-    remove_opencode_provider_from_live, write_gemini_live,
+    ensure_codex_provider_registered, remove_hermes_provider_from_live,
+    remove_openclaw_provider_from_live, remove_opencode_provider_from_live, write_gemini_live,
 };
 use usage::validate_usage_script;
 
@@ -1003,6 +1004,9 @@ impl ProviderService {
         let mut provider = provider;
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
+        if matches!(app_type, AppType::Codex) {
+            normalize_codex_tuzi_provider_for_storage(state.db.as_ref(), &mut provider, None)?;
+        }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         if app_type.is_additive_mode() {
@@ -1011,6 +1015,10 @@ impl ProviderService {
 
         // Save to database
         state.db.save_provider(app_type.as_str(), &provider)?;
+
+        if matches!(app_type, AppType::Codex) {
+            ensure_codex_provider_registered(&provider)?;
+        }
 
         // Additive mode apps (OpenCode, OpenClaw): optionally write to live config.
         if app_type.is_additive_mode() {
@@ -1057,6 +1065,13 @@ impl ProviderService {
             .get_provider_by_id(&original_id, app_type.as_str())?;
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
+        if matches!(app_type, AppType::Codex) {
+            normalize_codex_tuzi_provider_for_storage(
+                state.db.as_ref(),
+                &mut provider,
+                Some(original_id.as_str()),
+            )?;
+        }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
 
@@ -1193,6 +1208,10 @@ impl ProviderService {
         // Save to database
         state.db.save_provider(app_type.as_str(), &provider)?;
 
+        if matches!(app_type, AppType::Codex) {
+            ensure_codex_provider_registered(&provider)?;
+        }
+
         // For other apps: Check if this is current provider (use effective current, not just DB)
         let effective_current =
             crate::settings::get_effective_current_provider(&state.db, &app_type)?;
@@ -1242,57 +1261,9 @@ impl ProviderService {
     /// Delete a provider
     ///
     /// 同时检查本地 settings 和数据库的当前供应商，防止删除任一端正在使用的供应商。
-    /// 对于累加模式应用（OpenCode, OpenClaw），可以随时删除任意供应商，同时从 live 配置中移除。
+    /// 删除只移除兔子switch 内部管理记录，不修改用户真实客户端配置文件。
     pub fn delete(state: &AppState, app_type: AppType, id: &str) -> Result<(), AppError> {
-        // Additive mode apps - no current provider concept
-        if app_type.is_additive_mode() {
-            // Single DB read shared across all additive-mode sub-paths below.
-            let existing = state.db.get_provider_by_id(id, app_type.as_str())?;
-
-            if matches!(app_type, AppType::OpenCode) {
-                let provider_category = existing.as_ref().and_then(|p| p.category.clone());
-                let omo_variant = match provider_category.as_deref() {
-                    Some("omo") => Some(&crate::services::omo::STANDARD),
-                    Some("omo-slim") => Some(&crate::services::omo::SLIM),
-                    _ => None,
-                };
-                if let Some(variant) = omo_variant {
-                    let was_current = state.db.is_omo_provider_current(
-                        app_type.as_str(),
-                        id,
-                        variant.category,
-                    )?;
-                    state.db.delete_provider(app_type.as_str(), id)?;
-                    if was_current {
-                        crate::services::OmoService::delete_config_file(variant)?;
-                    }
-                    return Ok(());
-                }
-            }
-
-            // Non-OMO path for both OpenCode and OpenClaw:
-            // remove from live first (atomicity), then DB.
-            //
-            // Use check_live_config_exists rather than trusting the flag alone: the flag
-            // can be stale (Some(false) for a provider that was written to live before the
-            // live_config_managed flip was introduced). check_live_config_exists reads the
-            // actual file when the flag is Some(false), so it handles historical data correctly.
-            let live_managed = existing
-                .as_ref()
-                .and_then(Self::provider_live_config_managed);
-            if Self::check_live_config_exists(&app_type, id, live_managed)? {
-                match app_type {
-                    AppType::OpenCode => remove_opencode_provider_from_live(id)?,
-                    AppType::OpenClaw => remove_openclaw_provider_from_live(id)?,
-                    AppType::Hermes => remove_hermes_provider_from_live(id)?,
-                    _ => {}
-                }
-            }
-            state.db.delete_provider(app_type.as_str(), id)?;
-            return Ok(());
-        }
-
-        // For other apps: Check both local settings and database
+        // Check both local settings and database for apps with a current-provider concept.
         let local_current = crate::settings::get_current_provider(&app_type);
         let db_current = state.db.get_current_provider(app_type.as_str())?;
 
@@ -1300,6 +1271,22 @@ impl ProviderService {
             return Err(AppError::Message(
                 "无法删除当前正在使用的供应商".to_string(),
             ));
+        }
+
+        if matches!(app_type, AppType::OpenCode) {
+            for variant in [
+                &crate::services::omo::STANDARD,
+                &crate::services::omo::SLIM,
+            ] {
+                if state
+                    .db
+                    .is_omo_provider_current(app_type.as_str(), id, variant.category)?
+                {
+                    return Err(AppError::Message(
+                        "无法删除当前正在使用的供应商".to_string(),
+                    ));
+                }
+            }
         }
 
         state.db.delete_provider(app_type.as_str(), id)
@@ -1461,6 +1448,7 @@ impl ProviderService {
         let provider = providers
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+        Self::validate_provider_settings(&app_type, provider)?;
 
         // OMO ↔ OMO Slim are mutually exclusive; activating one removes the other's config file.
         if matches!(app_type, AppType::OpenCode) {
