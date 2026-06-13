@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.28] - 2026-06-13
+
+### Fixes
+
+- 修复自动更新检查在 Tauri updater 卡住或返回空结果时无法提示新版本的问题。
+- 修复原生更新安装后重启流程可能被退出保护拦截，导致应用卡住的问题。
+- 修复 Windows 更新清单优先选择未压缩 MSI，可能导致签名更新包不可用的问题。
+
 ## [1.1.27] - 2026-06-11
 
 ### Fixes
