@@ -1274,10 +1274,7 @@ impl ProviderService {
         }
 
         if matches!(app_type, AppType::OpenCode) {
-            for variant in [
-                &crate::services::omo::STANDARD,
-                &crate::services::omo::SLIM,
-            ] {
+            for variant in [&crate::services::omo::STANDARD, &crate::services::omo::SLIM] {
                 if state
                     .db
                     .is_omo_provider_current(app_type.as_str(), id, variant.category)?

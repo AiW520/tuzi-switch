@@ -532,13 +532,14 @@ fn save_codex_route_inner(
 
     // Write route section to config.toml
     let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
-    let updated = codex_config::save_route_to_config(
+    let updated = codex_config::save_route_to_config_with_provider_config(
         &existing,
         &normalized_route_id,
         &normalized_base_url,
         &normalized_env_key,
         &model,
         &modelReasoningEffort,
+        Some(normalized_config),
     )
     .map_err(|e| e.to_string())?;
 

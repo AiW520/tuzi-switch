@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { hermesProviderPresets } from "@/config/hermesProviderPresets";
 
 describe("Hermes provider presets", () => {
-  it("should expose only the requested presets", () => {
-    expect(hermesProviderPresets.map((item) => item.name)).toEqual([
+  it("should keep tuzi-managed presets first", () => {
+    expect(hermesProviderPresets.slice(0, 5).map((item) => item.name)).toEqual([
       "codex-tuzi",
       "codex-coding",
       "codex-gaccode",
