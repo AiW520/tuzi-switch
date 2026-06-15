@@ -342,14 +342,32 @@ pub fn save_route_to_config(
     model: &str,
     model_reasoning_effort: &str,
 ) -> Result<String, AppError> {
+    save_route_to_config_with_provider_config(
+        existing_config,
+        route_id,
+        base_url,
+        env_key,
+        model,
+        model_reasoning_effort,
+        None,
+    )
+}
+
+/// Save a route while preserving any future/optional fields already present
+/// under the provider's own `[model_providers.<route>]` table.
+pub fn save_route_to_config_with_provider_config(
+    existing_config: &str,
+    route_id: &str,
+    base_url: &str,
+    env_key: &str,
+    model: &str,
+    model_reasoning_effort: &str,
+    provider_config: Option<&str>,
+) -> Result<String, AppError> {
     let new_format = is_new_profile_format();
 
-    let mut provider_section = format!(
-        "[model_providers.{route_id}]\nname = \"{route_id}\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
-    );
-    if !env_key.trim().is_empty() {
-        provider_section.push_str(&format!("env_key = \"{env_key}\"\n"));
-    }
+    let provider_section =
+        build_model_provider_section(route_id, base_url, env_key, provider_config)?;
 
     let mut lines: Vec<String> = existing_config.lines().map(|l| l.to_string()).collect();
 
@@ -414,6 +432,101 @@ pub fn save_route_to_config(
     Ok(result)
 }
 
+fn build_model_provider_section(
+    route_id: &str,
+    base_url: &str,
+    env_key: &str,
+    provider_config: Option<&str>,
+) -> Result<String, AppError> {
+    let mut doc = provider_config
+        .filter(|config| !config.trim().is_empty())
+        .map(|config| {
+            config
+                .parse::<DocumentMut>()
+                .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))
+        })
+        .transpose()?
+        .unwrap_or_default();
+
+    if !doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+        .is_some()
+    {
+        doc["model_providers"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+
+    if let Some(providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        if !providers.contains_key(route_id) {
+            providers.insert(route_id, toml_edit::Item::Table(toml_edit::Table::new()));
+        }
+    }
+
+    let Some(table) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+        .and_then(|providers| providers.get_mut(route_id))
+        .and_then(|item| item.as_table_mut())
+    else {
+        return Err(AppError::Message(format!(
+            "Failed to prepare Codex provider section for '{route_id}'"
+        )));
+    };
+
+    table["name"] = toml_edit::value(route_id);
+    table["base_url"] = toml_edit::value(base_url);
+    if !table.contains_key("wire_api") {
+        table["wire_api"] = toml_edit::value("responses");
+    }
+    if !table.contains_key("requires_openai_auth") {
+        table["requires_openai_auth"] = toml_edit::value(true);
+    }
+    if env_key.trim().is_empty() {
+        table.remove("env_key");
+    } else {
+        table["env_key"] = toml_edit::value(env_key);
+    }
+
+    extract_model_provider_section_text(&doc.to_string(), route_id).ok_or_else(|| {
+        AppError::Message(format!(
+            "Failed to render Codex provider section for '{route_id}'"
+        ))
+    })
+}
+
+fn extract_model_provider_section_text(config_text: &str, route_id: &str) -> Option<String> {
+    let header = format!("[model_providers.{route_id}]");
+    let nested_prefix = format!("[model_providers.{route_id}.");
+    let mut result = Vec::new();
+    let mut in_section = false;
+
+    for line in config_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            if trimmed == header || trimmed.starts_with(&nested_prefix) {
+                in_section = true;
+            } else if in_section {
+                break;
+            }
+        }
+
+        if in_section {
+            result.push(line);
+        }
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        let mut text = result.join("\n");
+        text.push('\n');
+        Some(text)
+    }
+}
+
 /// Remove a route's [profiles.xxx] and [model_providers.xxx] sections from config.toml.
 #[allow(dead_code)]
 pub fn remove_route_from_config(config_text: &str, route_id: &str) -> String {
@@ -436,12 +549,18 @@ pub fn remove_route_from_config(config_text: &str, route_id: &str) -> String {
 fn remove_section(lines: &[String], header: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut skipping = false;
+    let nested_header_prefix = header.strip_suffix(']').map(|prefix| format!("{prefix}."));
     for line in lines {
-        if line.trim() == header {
+        let trimmed = line.trim();
+        let is_target_header = trimmed == header
+            || nested_header_prefix
+                .as_deref()
+                .is_some_and(|prefix| trimmed.starts_with(prefix));
+        if is_target_header {
             skipping = true;
             continue;
         }
-        if skipping && line.trim().starts_with('[') {
+        if skipping && trimmed.starts_with('[') {
             skipping = false;
         }
         if !skipping {
@@ -2510,5 +2629,104 @@ base_url = "https://production.api/v1"
             .and_then(|v| v.get("base_url"))
             .and_then(|v| v.as_str());
         assert_eq!(base_url, Some("https://production.api/v1"));
+    }
+
+    #[test]
+    fn save_route_to_config_preserves_provider_extension_fields() {
+        let provider_config = r#"model_provider = "vendor"
+model = "gpt-5.5"
+
+[model_providers.vendor]
+name = "Vendor"
+base_url = "https://old.example/v1"
+env_key = "OLD_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+request_max_retries = 4
+stream_idle_timeout_ms = 300000
+
+[model_providers.vendor.headers]
+X-Custom-Trace = "keep-me"
+"#;
+
+        let result = save_route_to_config_with_provider_config(
+            "",
+            "vendor",
+            "https://new.example/v1",
+            "NEW_KEY",
+            "gpt-5.5",
+            "high",
+            Some(provider_config),
+        )
+        .expect("save route");
+        let parsed: toml::Value = toml::from_str(&result).expect("parse result");
+        let provider = parsed
+            .get("model_providers")
+            .and_then(|v| v.get("vendor"))
+            .expect("provider table");
+
+        assert_eq!(
+            provider.get("base_url").and_then(|v| v.as_str()),
+            Some("https://new.example/v1")
+        );
+        assert_eq!(
+            provider.get("env_key").and_then(|v| v.as_str()),
+            Some("NEW_KEY")
+        );
+        assert_eq!(
+            provider
+                .get("request_max_retries")
+                .and_then(|v| v.as_integer()),
+            Some(4)
+        );
+        assert_eq!(
+            provider
+                .get("stream_idle_timeout_ms")
+                .and_then(|v| v.as_integer()),
+            Some(300000)
+        );
+        assert_eq!(
+            provider
+                .get("headers")
+                .and_then(|v| v.get("X-Custom-Trace"))
+                .and_then(|v| v.as_str()),
+            Some("keep-me")
+        );
+    }
+
+    #[test]
+    fn save_route_to_config_creates_missing_provider_table_from_template() {
+        let provider_config = r#"model_provider = "template"
+model = "gpt-5.5"
+
+[model_providers.template]
+request_max_retries = 2
+stream_idle_timeout_ms = 180000
+"#;
+
+        let result = save_route_to_config_with_provider_config(
+            "",
+            "new_vendor",
+            "https://new.example/v1",
+            "NEW_VENDOR_CODEX_API_KEY",
+            "gpt-5.5",
+            "high",
+            Some(provider_config),
+        )
+        .expect("save route");
+        let parsed: toml::Value = toml::from_str(&result).expect("parse result");
+        let provider = parsed
+            .get("model_providers")
+            .and_then(|v| v.get("new_vendor"))
+            .expect("new provider table");
+
+        assert_eq!(
+            provider.get("base_url").and_then(|v| v.as_str()),
+            Some("https://new.example/v1")
+        );
+        assert_eq!(
+            provider.get("env_key").and_then(|v| v.as_str()),
+            Some("NEW_VENDOR_CODEX_API_KEY")
+        );
     }
 }

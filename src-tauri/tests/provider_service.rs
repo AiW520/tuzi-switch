@@ -439,6 +439,100 @@ requires_openai_auth = true
 }
 
 #[test]
+fn provider_service_add_codex_preserves_provider_extension_fields_in_live_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    write_codex_live_atomic(
+        &json!({}),
+        Some(
+            r#"model_provider = "rightcode"
+model = "gpt-5.4"
+
+[model_providers.rightcode]
+name = "RightCode"
+base_url = "https://rightcode.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#,
+        ),
+    )
+    .expect("seed codex config");
+
+    let state = create_test_state().expect("create test state");
+    let provider = Provider::with_id(
+        "new-provider".to_string(),
+        "New Provider".to_string(),
+        json!({
+            "auth": {},
+            "config": r#"model_provider = "codex_sub"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+
+[model_providers.codex_sub]
+name = "codex_sub"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODEX_SUB_CODEX_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+request_max_retries = 4
+stream_idle_timeout_ms = 300000
+
+[model_providers.codex_sub.headers]
+X-Custom-Trace = "keep-me"
+"#
+        }),
+        Some("aggregator".to_string()),
+    );
+
+    ProviderService::add(&state, AppType::Codex, provider, false).expect("add codex provider");
+
+    let config_text = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+        .expect("read codex config");
+    let parsed: toml::Value = toml::from_str(&config_text).expect("parse config");
+    let provider = parsed
+        .get("model_providers")
+        .and_then(|value| value.get("codex_sub"))
+        .expect("codex_sub provider should be registered");
+
+    assert_eq!(
+        provider
+            .get("request_max_retries")
+            .and_then(|value| value.as_integer()),
+        Some(4),
+        "Codex provider retry tuning should be preserved"
+    );
+    assert_eq!(
+        provider
+            .get("stream_idle_timeout_ms")
+            .and_then(|value| value.as_integer()),
+        Some(300000),
+        "Codex provider stream timeout should be preserved"
+    );
+    assert_eq!(
+        provider
+            .get("headers")
+            .and_then(|value| value.get("X-Custom-Trace"))
+            .and_then(|value| value.as_str()),
+        Some("keep-me"),
+        "Codex provider nested headers should be preserved"
+    );
+    assert_eq!(
+        provider.get("wire_api").and_then(|value| value.as_str()),
+        Some("chat"),
+        "Codex provider wire_api should respect provider-specific config"
+    );
+    assert_eq!(
+        provider
+            .get("requires_openai_auth")
+            .and_then(|value| value.as_bool()),
+        Some(false),
+        "Codex provider auth mode should respect provider-specific config"
+    );
+}
+
+#[test]
 fn provider_service_add_codex_tuzi_route_uses_numbered_provider_without_overwriting_existing_tuzi()
 {
     let _guard = test_mutex().lock().expect("acquire test mutex");

@@ -276,8 +276,14 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         .unwrap_or_else(|| "high".to_string());
     let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
 
-    let updated = crate::codex_config::save_route_to_config(
-        &existing, &route_id, &base_url, &env_key, &model, &effort,
+    let updated = crate::codex_config::save_route_to_config_with_provider_config(
+        &existing,
+        &route_id,
+        &base_url,
+        &env_key,
+        &model,
+        &effort,
+        Some(config_str),
     )?;
     crate::codex_config::write_codex_live_config_atomic(Some(&updated))?;
     crate::codex_config::write_codex_profile_config(&provider.name, config_str)?;
@@ -996,8 +1002,9 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
 
             use crate::codex_config::{
-                read_codex_config_text, save_route_to_config, switch_codex_profile,
-                write_codex_profile_config, write_codex_provider_live_with_catalog,
+                read_codex_config_text, save_route_to_config_with_provider_config,
+                switch_codex_profile, write_codex_profile_config,
+                write_codex_provider_live_with_catalog,
             };
 
             if config_str.trim().is_empty() {
@@ -1029,8 +1036,15 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             let base_url =
                 codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
 
-            let config_with_route =
-                save_route_to_config(&existing, &route_id, &base_url, &env_key, &model, &effort)?;
+            let config_with_route = save_route_to_config_with_provider_config(
+                &existing,
+                &route_id,
+                &base_url,
+                &env_key,
+                &model,
+                &effort,
+                Some(config_str),
+            )?;
 
             // Switch top-level fields (model_provider + model + effort)
             let mut final_config =
