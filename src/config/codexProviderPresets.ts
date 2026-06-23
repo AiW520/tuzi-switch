@@ -61,7 +61,7 @@ name = "${cleanProviderName}"
 base_url = "${baseUrl}"
 env_key = "${envKey}"
 wire_api = "responses"
-requires_openai_auth = true`;
+requires_openai_auth = false`;
 }
 
 export const codexProviderPresets: CodexProviderPreset[] = [
@@ -88,12 +88,12 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     apiKeyUrl: "https://store.tu-zi.com/cat/11",
     auth: {},
     config: generateThirdPartyConfig(
-      "codex",
+      "provider-coding01",
       "https://api.tu-zi.com/coding",
-      "CODING_CODEX_API_KEY",
+      "CODING01_CODEX_API_KEY",
       "gpt-5.5",
     ),
-    envKey: "CODING_CODEX_API_KEY",
+    envKey: "CODING01_CODEX_API_KEY",
     category: "aggregator",
     endpointCandidates: [
       "https://api.tu-zi.com/coding",

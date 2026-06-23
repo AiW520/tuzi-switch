@@ -29,7 +29,7 @@ pub use live::{
 // Internal re-exports (pub(crate))
 pub(crate) use live::sanitize_claude_settings_for_live;
 pub(crate) use live::{
-    build_effective_settings_with_common_config, normalize_codex_tuzi_provider_for_storage,
+    build_effective_settings_with_common_config, normalize_codex_managed_provider_for_storage,
     normalize_provider_common_config_for_storage, provider_exists_in_live_config,
     strip_common_config_from_live_settings, sync_current_provider_for_app_to_live,
     write_live_with_common_config,
@@ -1005,7 +1005,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         if matches!(app_type, AppType::Codex) {
-            normalize_codex_tuzi_provider_for_storage(state.db.as_ref(), &mut provider, None)?;
+            normalize_codex_managed_provider_for_storage(state.db.as_ref(), &mut provider, None)?;
         }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
@@ -1066,7 +1066,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         if matches!(app_type, AppType::Codex) {
-            normalize_codex_tuzi_provider_for_storage(
+            normalize_codex_managed_provider_for_storage(
                 state.db.as_ref(),
                 &mut provider,
                 Some(original_id.as_str()),

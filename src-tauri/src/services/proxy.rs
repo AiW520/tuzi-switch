@@ -1986,7 +1986,7 @@ disable_response_storage = true
 name = "any"
 base_url = "https://anyrouter.top/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
 
         let new_url = "http://127.0.0.1:5000/v1";
@@ -2705,7 +2705,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
             }),
             None,
@@ -2724,7 +2724,7 @@ model = "gpt-5.4"
 name = "AiHubMix"
 base_url = "https://aihubmix.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
             }),
             None,
@@ -2756,7 +2756,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "http://127.0.0.1:15721/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
             }))
             .expect("seed taken-over Codex live config");

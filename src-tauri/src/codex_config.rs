@@ -6,6 +6,7 @@ use crate::config::{
     write_json_file, write_text_file,
 };
 use crate::error::AppError;
+use crate::gemini_config::{parse_env_file, serialize_env_file};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::Command;
@@ -122,11 +123,58 @@ fn shell_rc_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-pub fn read_managed_env_block() -> HashMap<String, String> {
-    if cfg!(target_os = "windows") {
-        return read_windows_env_keys();
+fn get_codex_env_file_path() -> PathBuf {
+    get_codex_config_dir().join(".env")
+}
+
+fn read_codex_env_file() -> HashMap<String, String> {
+    let path = get_codex_env_file_path();
+    let Ok(content) = fs::read_to_string(&path) else {
+        return HashMap::new();
+    };
+    parse_env_file(&content)
+        .into_iter()
+        .filter(|(key, _)| is_valid_env_key_name(key))
+        .collect()
+}
+
+fn write_codex_env_file(env_map: &HashMap<String, String>) -> Result<(), AppError> {
+    let path = get_codex_env_file_path();
+    if env_map.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| AppError::io(&path, e))?;
+        }
+        return Ok(());
     }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
+    }
+
+    let mut content = serialize_env_file(env_map);
+    if !content.is_empty() {
+        content.push('\n');
+    }
+    atomic_write(&path, content.as_bytes())?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&path)
+            .map_err(|e| AppError::io(&path, e))?
+            .permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&path, perms).map_err(|e| AppError::io(&path, e))?;
+    }
+
+    Ok(())
+}
+
+pub fn read_managed_env_block() -> HashMap<String, String> {
     let mut result = HashMap::new();
+    if cfg!(target_os = "windows") {
+        result.extend(read_windows_env_keys());
+    }
     for rc_path in shell_rc_candidates() {
         let Ok(content) = fs::read_to_string(&rc_path) else {
             continue;
@@ -134,12 +182,18 @@ pub fn read_managed_env_block() -> HashMap<String, String> {
         result.extend(parse_managed_block(&content));
         result.extend(parse_codex_env_section(&content));
     }
+    // Codex desktop/IDE may not inherit shell startup files, so mirror keys into
+    // `~/.codex/.env` and prefer that copy when present.
+    result.extend(read_codex_env_file());
     result
 }
 
 pub fn read_managed_env_key(env_key: &str) -> Option<String> {
     if !is_valid_env_key_name(env_key) {
         return None;
+    }
+    if let Some(value) = read_codex_env_file().remove(env_key) {
+        return Some(value);
     }
     if cfg!(target_os = "windows") {
         return std::env::var(env_key).ok().filter(|v| !v.is_empty());
@@ -161,6 +215,9 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
 
 pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
     validate_env_key_name(env_key)?;
+    let mut codex_env = read_codex_env_file();
+    codex_env.insert(env_key.to_string(), value.to_string());
+    write_codex_env_file(&codex_env)?;
     if cfg!(target_os = "windows") {
         return write_windows_env_key(env_key, value);
     }
@@ -180,6 +237,10 @@ pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError>
 #[allow(dead_code)]
 pub fn remove_managed_env_key(env_key: &str) -> Result<(), AppError> {
     validate_env_key_name(env_key)?;
+    let mut codex_env = read_codex_env_file();
+    if codex_env.remove(env_key).is_some() || get_codex_env_file_path().exists() {
+        write_codex_env_file(&codex_env)?;
+    }
     if cfg!(target_os = "windows") {
         return remove_windows_env_key(env_key);
     }
@@ -623,6 +684,15 @@ fn build_model_provider_section(
     env_key: &str,
     provider_config: Option<&str>,
 ) -> Result<String, AppError> {
+    if CODEX_RESERVED_MODEL_PROVIDER_IDS
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(route_id))
+    {
+        return Err(AppError::Message(format!(
+            "model_providers contains reserved built-in provider IDs: `{route_id}`. Built-in providers cannot be overridden. Rename your custom provider (for example, `{route_id}-custom`)."
+        )));
+    }
+
     let mut doc = provider_config
         .filter(|config| !config.trim().is_empty())
         .map(|config| {
@@ -666,8 +736,10 @@ fn build_model_provider_section(
     if !table.contains_key("wire_api") {
         table["wire_api"] = toml_edit::value("responses");
     }
-    if !table.contains_key("requires_openai_auth") {
-        table["requires_openai_auth"] = toml_edit::value(true);
+    if !env_key.trim().is_empty() {
+        table["requires_openai_auth"] = toml_edit::value(false);
+    } else if !table.contains_key("requires_openai_auth") {
+        table["requires_openai_auth"] = toml_edit::value(false);
     }
     if env_key.trim().is_empty() {
         table.remove("env_key");
@@ -803,6 +875,185 @@ pub fn get_codex_model_catalog_path() -> PathBuf {
     get_codex_config_dir().join(TUZI_SWITCH_CODEX_MODEL_CATALOG_FILENAME)
 }
 
+fn table_looks_like_custom_reserved_provider(table: &toml_edit::Table) -> bool {
+    table.iter().any(|(key, item)| {
+        matches!(
+            key,
+            "name"
+                | "base_url"
+                | "env_key"
+                | "wire_api"
+                | "requires_openai_auth"
+                | "experimental_bearer_token"
+        ) || item.as_value().is_some()
+    })
+}
+
+fn unique_custom_provider_id(
+    model_providers: &toml_edit::Table,
+    reserved_id: &str,
+    pending_ids: &HashSet<String>,
+) -> String {
+    let base = sanitize_provider_name(&format!("{reserved_id}-custom"));
+    let base = if base.trim().is_empty() {
+        format!("{reserved_id}-custom")
+    } else {
+        base
+    };
+    if !model_providers.contains_key(base.as_str()) && !pending_ids.contains(&base) {
+        return base;
+    }
+
+    let mut counter = 2usize;
+    loop {
+        let candidate = format!("{base}_{counter}");
+        if !model_providers.contains_key(candidate.as_str()) && !pending_ids.contains(&candidate) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+fn migrate_reserved_custom_model_provider_ids(config_text: &str) -> Result<String, AppError> {
+    if config_text.trim().is_empty() || !config_text.contains("[model_providers.") {
+        return Ok(config_text.to_string());
+    }
+
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+
+    let Some(model_providers) = doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+    else {
+        return Ok(config_text.to_string());
+    };
+
+    let mut planned = Vec::new();
+    let mut pending_ids = HashSet::new();
+    for reserved_id in CODEX_RESERVED_MODEL_PROVIDER_IDS {
+        let Some(item) = model_providers.get(*reserved_id) else {
+            continue;
+        };
+        let Some(table) = item.as_table() else {
+            continue;
+        };
+        if !table_looks_like_custom_reserved_provider(table) {
+            continue;
+        }
+
+        let replacement = unique_custom_provider_id(model_providers, reserved_id, &pending_ids);
+        pending_ids.insert(replacement.clone());
+        planned.push(((*reserved_id).to_string(), replacement));
+    }
+
+    if planned.is_empty() {
+        return Ok(config_text.to_string());
+    }
+
+    let replacements: HashMap<String, String> = planned.into_iter().collect();
+    if let Some(model_providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        for (source_id, target_id) in &replacements {
+            let Some(provider_item) = model_providers.remove(source_id.as_str()) else {
+                continue;
+            };
+            model_providers[target_id.as_str()] = provider_item;
+            if let Some(table) = model_providers
+                .get_mut(target_id.as_str())
+                .and_then(|item| item.as_table_mut())
+            {
+                if table
+                    .get("name")
+                    .and_then(|item| item.as_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(source_id))
+                {
+                    table["name"] = toml_edit::value(target_id.as_str());
+                }
+            }
+        }
+    }
+
+    if let Some(active_provider) = doc.get("model_provider").and_then(|item| item.as_str()) {
+        if let Some(target_id) = replacements.get(active_provider) {
+            doc["model_provider"] = toml_edit::value(target_id.as_str());
+        }
+    }
+
+    if let Some(profiles) = doc
+        .get_mut("profiles")
+        .and_then(|item| item.as_table_like_mut())
+    {
+        let profile_keys: Vec<String> = profiles.iter().map(|(key, _)| key.to_string()).collect();
+        for profile_key in profile_keys {
+            let Some(profile_table) = profiles
+                .get_mut(&profile_key)
+                .and_then(|item| item.as_table_like_mut())
+            else {
+                continue;
+            };
+            let Some(model_provider) = profile_table
+                .get("model_provider")
+                .and_then(|item| item.as_str())
+            else {
+                continue;
+            };
+            if let Some(target_id) = replacements.get(model_provider) {
+                profile_table.insert("model_provider", toml_edit::value(target_id.as_str()));
+            }
+        }
+    }
+
+    Ok(doc.to_string())
+}
+
+fn migrate_env_backed_provider_auth_mode(config_text: &str) -> Result<String, AppError> {
+    if config_text.trim().is_empty() || !config_text.contains("[model_providers.") {
+        return Ok(config_text.to_string());
+    }
+
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+
+    let Some(model_providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    else {
+        return Ok(config_text.to_string());
+    };
+
+    for (_, provider_item) in model_providers.iter_mut() {
+        let Some(provider_table) = provider_item.as_table_mut() else {
+            continue;
+        };
+        let env_key = provider_table
+            .get("env_key")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if env_key.is_empty() {
+            continue;
+        }
+
+        let base_url = provider_table
+            .get("base_url")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if base_url.eq_ignore_ascii_case("https://chatgpt.com/backend-api/codex") {
+            continue;
+        }
+
+        provider_table["requires_openai_auth"] = toml_edit::value(false);
+    }
+
+    Ok(doc.to_string())
+}
+
 /// Codex 0.134+ 的 profile 文件：`~/.codex/<profile>.config.toml`。
 pub fn get_codex_profile_config_path(profile_name: &str) -> PathBuf {
     let base_name = sanitize_provider_name(profile_name);
@@ -831,8 +1082,10 @@ pub fn get_codex_provider_paths(
 }
 
 pub fn write_codex_profile_config(profile_name: &str, config_text: &str) -> Result<(), AppError> {
-    validate_config_toml(config_text)?;
-    write_text_file(&get_codex_profile_config_path(profile_name), config_text)
+    let config_text = migrate_reserved_custom_model_provider_ids(config_text)?;
+    let config_text = migrate_env_backed_provider_auth_mode(&config_text)?;
+    validate_config_toml(&config_text)?;
+    write_text_file(&get_codex_profile_config_path(profile_name), &config_text)
 }
 
 /// 删除 Codex 供应商配置文件
@@ -875,7 +1128,10 @@ pub fn write_codex_live_atomic(
 
     // 准备写入内容
     let cfg_text = match config_text_opt {
-        Some(s) => s.to_string(),
+        Some(s) => {
+            let migrated = migrate_reserved_custom_model_provider_ids(s)?;
+            migrate_env_backed_provider_auth_mode(&migrated)?
+        }
         None => String::new(),
     };
     if !cfg_text.trim().is_empty() {
@@ -902,7 +1158,13 @@ pub fn write_codex_live_atomic(
 /// 原子写 Codex 的 `config.toml`，不触碰 `auth.json`。
 pub fn write_codex_live_config_atomic(config_text_opt: Option<&str>) -> Result<(), AppError> {
     let config_path = get_codex_config_path();
-    let cfg_text = config_text_opt.unwrap_or("").to_string();
+    let cfg_text = match config_text_opt {
+        Some(text) => {
+            let migrated = migrate_reserved_custom_model_provider_ids(text)?;
+            migrate_env_backed_provider_auth_mode(&migrated)?
+        }
+        None => String::new(),
+    };
 
     if !cfg_text.trim().is_empty() {
         toml::from_str::<toml::Table>(&cfg_text).map_err(|e| AppError::toml(&config_path, e))?;
@@ -2028,6 +2290,9 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn codex_env_section_reads_and_upserts_custom_env_keys() {
@@ -2064,6 +2329,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn linux_write_managed_env_key_uses_current_shell_rc_file() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_shell = std::env::var_os("SHELL");
@@ -2096,18 +2362,27 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn macos_write_managed_env_key_uses_zshrc() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_shell = std::env::var_os("SHELL");
 
         std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
         std::env::set_var("SHELL", "/bin/bash");
+        fs::write(temp.path().join(".zshrc"), "").expect("seed zshrc");
 
         write_managed_env_key("NEW_CODEX_API_KEY", "sk-new").expect("write env key");
 
         let zshrc = fs::read_to_string(temp.path().join(".zshrc")).expect("read zshrc");
         assert!(zshrc.contains("export NEW_CODEX_API_KEY=sk-new"));
         assert!(!temp.path().join(".bashrc").exists());
+        assert_eq!(get_codex_env_file_path(), temp.path().join(".codex").join(".env"));
+        assert_eq!(
+            read_codex_env_file()
+                .get("NEW_CODEX_API_KEY")
+                .map(String::as_str),
+            Some("sk-new")
+        );
 
         match old_test_home {
             Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
@@ -2116,6 +2391,66 @@ mod tests {
         match old_shell {
             Some(value) => std::env::set_var("SHELL", value),
             None => std::env::remove_var("SHELL"),
+        }
+    }
+
+    #[test]
+    fn read_managed_env_key_prefers_codex_dotenv_copy() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create codex dir");
+        fs::write(
+            temp.path().join(".codex").join(".env"),
+            "TUZI_TEST_CODEX_API_KEY=sk-dotenv\n",
+        )
+        .expect("seed codex .env");
+        fs::write(
+            temp.path().join(".zshrc"),
+            "# Codex\nexport TUZI_TEST_CODEX_API_KEY=sk-shell\n",
+        )
+        .expect("seed zshrc");
+
+        assert_eq!(
+            read_managed_env_key("TUZI_TEST_CODEX_API_KEY").as_deref(),
+            Some("sk-dotenv")
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    fn remove_managed_env_key_clears_codex_dotenv_copy() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create codex dir");
+        fs::write(
+            temp.path().join(".codex").join(".env"),
+            "TUZI_TEST_CODEX_API_KEY=sk-dotenv\nKEEP_CODEX_API_KEY=sk-keep\n",
+        )
+        .expect("seed codex .env");
+
+        remove_managed_env_key("TUZI_TEST_CODEX_API_KEY").expect("remove env key");
+
+        assert_eq!(get_codex_env_file_path(), temp.path().join(".codex").join(".env"));
+        let codex_env = read_codex_env_file();
+        assert!(!codex_env.contains_key("TUZI_TEST_CODEX_API_KEY"));
+        assert_eq!(
+            codex_env.get("KEEP_CODEX_API_KEY").map(String::as_str),
+            Some("sk-keep")
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
         }
     }
 
@@ -2198,6 +2533,100 @@ wire_api = "responses"
                 .is_some(),
             "target provider id should be kept when there is no reusable live custom id"
         );
+    }
+
+    #[test]
+    fn migrate_reserved_custom_provider_tables_renames_openai_override() {
+        let input = r#"model_provider = "openai"
+
+[model_providers.openai]
+name = "openai"
+base_url = "https://api.example/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#;
+
+        let migrated = migrate_reserved_custom_model_provider_ids(input).expect("migrate");
+        let parsed: toml::Value = toml::from_str(&migrated).expect("parse migrated");
+
+        assert_eq!(
+            parsed.get("model_provider").and_then(|value| value.as_str()),
+            Some("openai-custom")
+        );
+        assert!(
+            parsed
+                .get("model_providers")
+                .and_then(|value| value.get("openai"))
+                .is_none()
+        );
+        assert_eq!(
+            parsed
+                .get("model_providers")
+                .and_then(|value| value.get("openai-custom"))
+                .and_then(|value| value.get("base_url"))
+                .and_then(|value| value.as_str()),
+            Some("https://api.example/v1")
+        );
+    }
+
+    #[test]
+    fn migrate_reserved_custom_provider_tables_keeps_builtin_nested_tables() {
+        let input = r#"model_provider = "amazon-bedrock"
+
+[model_providers.amazon-bedrock.aws]
+region = "us-west-2"
+"#;
+
+        let migrated = migrate_reserved_custom_model_provider_ids(input).expect("migrate");
+        assert_eq!(migrated, input);
+    }
+
+    #[test]
+    fn migrate_env_backed_provider_auth_mode_disables_oauth_for_custom_base_url() {
+        let input = r#"model_provider = "coding"
+
+[model_providers.coding]
+name = "coding"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODING_CODEX_API_KEY"
+requires_openai_auth = true
+"#;
+
+        let migrated = migrate_env_backed_provider_auth_mode(input).expect("migrate");
+        let parsed: toml::Value = toml::from_str(&migrated).expect("parse migrated");
+
+        assert_eq!(
+            parsed
+                .get("model_providers")
+                .and_then(|value| value.get("coding"))
+                .and_then(|value| value.get("requires_openai_auth"))
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn build_model_provider_section_forces_env_backed_provider_off_oauth() {
+        let section = build_model_provider_section(
+            "coding",
+            "https://api.tu-zi.com/coding",
+            "CODING_CODEX_API_KEY",
+            Some(
+                r#"model_provider = "coding"
+
+[model_providers.coding]
+name = "coding"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "OPENAI_API_KEY"
+requires_openai_auth = true
+"#,
+            ),
+        )
+        .expect("build section");
+
+        assert!(section.contains(r#"env_key = "CODING_CODEX_API_KEY""#));
+        assert!(section.contains("requires_openai_auth = false"));
     }
 
     #[test]
@@ -2501,9 +2930,8 @@ wire_api = "responses"
             parsed
                 .get("model_providers")
                 .and_then(|value| value.get("vendor_alpha"))
-                .and_then(|value| value.get("env_key"))
-                .and_then(|value| value.as_str()),
-            Some("TUZI_TEST_CODEX_API_KEY")
+                .and_then(|value| value.get("env_key")),
+            None
         );
     }
 
@@ -2525,6 +2953,45 @@ model = "gpt-5"
             Some("sk-test")
         );
         assert!(parsed.get("model_providers").is_none());
+    }
+
+    #[test]
+    fn third_party_live_write_keeps_existing_auth_cache() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create codex dir");
+        fs::write(
+            temp.path().join(".codex").join("auth.json"),
+            r#"{"refresh_token":"keep-me"}"#,
+        )
+        .expect("seed auth.json");
+
+        write_codex_live_for_provider(
+            Some("aggregator"),
+            &json!({}),
+            Some(
+                r#"model_provider = "vendor_alpha"
+
+[model_providers.vendor_alpha]
+name = "Vendor Alpha"
+base_url = "https://alpha.example/v1"
+wire_api = "responses"
+"#,
+            ),
+        )
+        .expect("write third-party live config");
+
+        let auth_text =
+            fs::read_to_string(temp.path().join(".codex").join("auth.json")).expect("read auth");
+        assert!(auth_text.contains(r#""refresh_token":"keep-me""#));
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
     }
 
     #[test]

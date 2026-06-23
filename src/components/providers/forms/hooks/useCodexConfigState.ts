@@ -100,7 +100,7 @@ function migrateLegacyConfig(configStr: string): string {
     output.push(`name = "${providerName}"`);
     output.push(`env_key = "OPENAI_API_KEY"`);
     output.push(`wire_api = "responses"`);
-    output.push(`requires_openai_auth = true`);
+    output.push(`requires_openai_auth = false`);
   }
 
   return output.join("\n");

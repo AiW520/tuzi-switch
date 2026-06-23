@@ -19,7 +19,7 @@ name = "tuziswitch"
 base_url = "https://your-api-endpoint.com/v1"
 env_key = "CUSTOM_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true`;
+requires_openai_auth = false`;
 
   return {
     auth: {},

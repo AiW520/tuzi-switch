@@ -40,6 +40,15 @@ fn import_default_config_claude_persists_provider() {
     config.ensure_app(&AppType::Claude);
     let state = create_test_state_with_config(&config).expect("create test state");
 
+    // Clear seeded providers so that import_default_config can proceed
+    for (id, _) in state
+        .db
+        .get_all_providers(AppType::Claude.as_str())
+        .unwrap_or_default()
+    {
+        state.db.delete_provider(AppType::Claude.as_str(), &id).ok();
+    }
+
     import_default_config_test_hook(&state, AppType::Claude)
         .expect("import default config succeeds");
 

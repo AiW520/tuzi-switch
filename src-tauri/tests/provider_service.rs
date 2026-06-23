@@ -251,7 +251,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     write_codex_live_atomic(&legacy_auth, Some(legacy_config))
         .expect("seed existing codex live config");
@@ -288,7 +288,7 @@ model = "gpt-5.4"
 name = "AiHubMix"
 base_url = "https://aihubmix.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
                 }),
                 None,
@@ -358,7 +358,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 
 [mcp_servers.keep]
 type = "stdio"
@@ -402,7 +402,7 @@ name = "codex_sub"
 base_url = "https://api.tu-zi.com/coding"
 env_key = "CODEX_SUB_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
         }),
         Some("aggregator".to_string()),
@@ -454,7 +454,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#,
         ),
     )
@@ -547,13 +547,13 @@ name = "tuzi"
 base_url = "https://api.tu-zi.com/v1"
 env_key = "TUZI_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 
 [model_providers.custom]
 name = "custom"
 base_url = "https://api.tu-zi.com/coding"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
 
@@ -573,7 +573,7 @@ name = "tuzi"
 base_url = "https://api.tu-zi.com/v1"
 env_key = "TUZI_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
         }),
         Some("https://api.tu-zi.com".to_string()),
@@ -626,7 +626,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     write_codex_live_atomic(&legacy_auth, Some(provider_a_config))
         .expect("seed existing codex live config");
@@ -664,7 +664,7 @@ profile = "work"
 name = "AiHubMix"
 base_url = "https://aihubmix.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 
 [profiles.work]
 model_provider = "aihubmix"
@@ -688,7 +688,7 @@ model = "gpt-5.4"
 name = "Vendor C"
 base_url = "https://vendor-c.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
                 }),
                 None,
@@ -1338,7 +1338,7 @@ fn provider_service_delete_codex_removes_provider_but_keeps_live_config() {
                 json!({
                     "auth": {"OPENAI_API_KEY": "keep-key"},
                     "env": {"envKey": "KEEP_CODEX_API_KEY"},
-                    "config": "model_provider = \"provider-keep\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-keep]\nname = \"provider-keep\"\nbase_url = \"https://keep.example/v1\"\nenv_key = \"KEEP_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+                    "config": "model_provider = \"provider-keep\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-keep]\nname = \"provider-keep\"\nbase_url = \"https://keep.example/v1\"\nenv_key = \"KEEP_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
                 }),
                 None,
             ),
@@ -1351,7 +1351,7 @@ fn provider_service_delete_codex_removes_provider_but_keeps_live_config() {
                 json!({
                     "auth": {"OPENAI_API_KEY": "delete-key"},
                     "env": {"envKey": "DELETE_CODEX_API_KEY"},
-                    "config": "model_provider = \"provider-delete\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-delete]\nname = \"provider-delete\"\nbase_url = \"https://delete.example/v1\"\nenv_key = \"DELETE_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+                    "config": "model_provider = \"provider-delete\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.provider-delete]\nname = \"provider-delete\"\nbase_url = \"https://delete.example/v1\"\nenv_key = \"DELETE_CODEX_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
                 }),
                 None,
             ),
@@ -1378,14 +1378,14 @@ name = "provider-keep"
 base_url = "https://keep.example/v1"
 env_key = "KEEP_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 
 [model_providers.provider-delete]
 name = "provider-delete"
 base_url = "https://delete.example/v1"
 env_key = "DELETE_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     std::fs::write(codex_dir.join("config.toml"), live_config).expect("seed codex live config");
     std::fs::write(

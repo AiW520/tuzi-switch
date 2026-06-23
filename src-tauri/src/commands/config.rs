@@ -505,7 +505,7 @@ fn save_codex_route_inner(
         serde_json::json!({ "auth": {}, "config": route_draft }),
         None,
     );
-    crate::services::provider::normalize_codex_tuzi_provider_for_storage(
+    crate::services::provider::normalize_codex_managed_provider_for_storage(
         state.db.as_ref(),
         &mut provider,
         providerId.as_deref(),

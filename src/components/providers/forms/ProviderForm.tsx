@@ -248,18 +248,6 @@ const buildPresetPrefixedName = (presetName: string, customName: string) => {
   return suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
 };
 
-const splitPresetPrefixedName = (name: string) => {
-  const trimmed = name.trim();
-  const separatorIndex = trimmed.indexOf("-");
-  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
-    return null;
-  }
-  return {
-    prefix: trimmed.slice(0, separatorIndex).trim(),
-    customName: trimmed.slice(separatorIndex + 1).trim(),
-  };
-};
-
 const extractCodexRouteId = (config: string): string => {
   const routeIdMatch = config.match(/^\s*model_provider\s*=\s*"([^"]+)"/m);
   return routeIdMatch?.[1]?.trim() || "";
@@ -267,6 +255,8 @@ const extractCodexRouteId = (config: string): string => {
 
 const CODEX_TUZI_ROUTE_PREFIX = "provider-tuzi";
 const CODEX_TUZI_ENV_PATTERN = /^TUZI(\d{2})_CODEX_API_KEY$/;
+const CODEX_CODING_ROUTE_PREFIX = "provider-coding";
+const CODEX_CODING_ENV_PATTERN = /^CODING(\d{2})_CODEX_API_KEY$/;
 const CODEX_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const isCodexTuziPreset = (preset: CodexProviderPreset) =>
@@ -274,11 +264,22 @@ const isCodexTuziPreset = (preset: CodexProviderPreset) =>
   preset.envKey === "TUZI01_CODEX_API_KEY" ||
   extractCodexRouteId(preset.config ?? "").startsWith(CODEX_TUZI_ROUTE_PREFIX);
 
+const isCodexCodingPreset = (preset: CodexProviderPreset) =>
+  preset.icon === "codex-sub" ||
+  preset.envKey === "CODING01_CODEX_API_KEY" ||
+  extractCodexRouteId(preset.config ?? "").startsWith(CODEX_CODING_ROUTE_PREFIX);
+
 const formatCodexTuziRouteId = (index: number) =>
   `${CODEX_TUZI_ROUTE_PREFIX}${String(index).padStart(2, "0")}`;
 
 const formatCodexTuziEnvKey = (index: number) =>
   `TUZI${String(index).padStart(2, "0")}_CODEX_API_KEY`;
+
+const formatCodexCodingRouteId = (index: number) =>
+  `${CODEX_CODING_ROUTE_PREFIX}${String(index).padStart(2, "0")}`;
+
+const formatCodexCodingEnvKey = (index: number) =>
+  `CODING${String(index).padStart(2, "0")}_CODEX_API_KEY`;
 
 const extractCodexTuziIndex = (routeId: string, envKey: string): number => {
   const trimmedEnvKey = envKey.trim();
@@ -287,6 +288,16 @@ const extractCodexTuziIndex = (routeId: string, envKey: string): number => {
     return Number.parseInt(envMatch[1], 10);
   }
   const routeMatch = routeId.match(/^provider-tuzi(\d{2})$/);
+  return routeMatch ? Number.parseInt(routeMatch[1], 10) : 0;
+};
+
+const extractCodexCodingIndex = (routeId: string, envKey: string): number => {
+  const trimmedEnvKey = envKey.trim();
+  const envMatch = trimmedEnvKey.match(CODEX_CODING_ENV_PATTERN);
+  if (envMatch) {
+    return Number.parseInt(envMatch[1], 10);
+  }
+  const routeMatch = routeId.match(/^provider-coding(\d{2})$/);
   return routeMatch ? Number.parseInt(routeMatch[1], 10) : 0;
 };
 
@@ -325,6 +336,44 @@ const resolveNextCodexTuziRoute = (
     index,
     routeId: formatCodexTuziRouteId(index),
     envKey: formatCodexTuziEnvKey(index),
+  };
+};
+
+const resolveNextCodexCodingRoute = (
+  existingProviders: Record<string, { settingsConfig?: unknown }> | undefined,
+  shellEnvKeys: Record<string, string> | undefined,
+) => {
+  const usedIndexes = new Set<number>();
+  for (const provider of Object.values(existingProviders ?? {})) {
+    const settings = provider.settingsConfig;
+    const config =
+      settings && typeof settings === "object"
+        ? ((settings as Record<string, unknown>).config as string | undefined)
+        : "";
+    const routeId =
+      typeof config === "string" ? extractCodexRouteId(config) : "";
+    const envKey = getCodexProviderEnvKeyFromSettings(settings);
+    const index = extractCodexCodingIndex(routeId, envKey);
+    if (index > 0) {
+      usedIndexes.add(index);
+    }
+  }
+
+  for (const envKey of Object.keys(shellEnvKeys ?? {})) {
+    const index = extractCodexCodingIndex("", envKey);
+    if (index > 0) {
+      usedIndexes.add(index);
+    }
+  }
+
+  let index = 1;
+  while (usedIndexes.has(index)) {
+    index += 1;
+  }
+  return {
+    index,
+    routeId: formatCodexCodingRouteId(index),
+    envKey: formatCodexCodingEnvKey(index),
   };
 };
 
@@ -543,6 +592,9 @@ function ProviderFormFull({
   const [softIssues, setSoftIssues] = useState<string[] | null>(null);
   const [pendingFormValues, setPendingFormValues] =
     useState<ProviderFormData | null>(null);
+  const [pendingCodexEnvKeyOverride, setPendingCodexEnvKeyOverride] = useState<
+    string | undefined
+  >(undefined);
   // 确认框走的提交路径绕过了 react-hook-form 的 isSubmitting，单独追踪
   const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
 
@@ -644,22 +696,6 @@ function ProviderFormFull({
     queryFn: () => providersApi.getAll(appId),
     enabled: appId === "codex",
   });
-
-  const { data: existingProvidersForNameCheck } = useQuery({
-    queryKey: ["providerNames", appId],
-    queryFn: () => providersApi.getAll(appId),
-    enabled: !appId.startsWith("claude-desktop"),
-  });
-
-  const existingProviderNames = useMemo(() => {
-    const providers = existingProvidersForNameCheck ?? {};
-    return new Set(
-      Object.values(providers)
-        .filter((provider) => provider.id !== providerId)
-        .map((provider) => provider.name.trim())
-        .filter(Boolean),
-    );
-  }, [existingProvidersForNameCheck, providerId]);
 
   // Preload shell rc env keys for checking if a route is actually configured
   const { data: shellEnvKeys } = useQuery({
@@ -1195,6 +1231,7 @@ function ProviderFormFull({
   const handleSubmit = async (values: ProviderFormData) => {
     // 软性问题（业务约束，用户可选择仍要保存）
     const issues: string[] = [];
+    let overriddenEnvKey = codexEnvKey;
 
     // 模板变量未填：A 类（空值）
     if (appId === "claude" && templateValueEntries.length > 0) {
@@ -1216,37 +1253,7 @@ function ProviderFormFull({
           defaultValue: "请填写供应商名称",
         }),
       );
-    } else if (existingProviderNames.has(values.name.trim())) {
-      form.setError("name", {
-        type: "manual",
-        message: t("providerForm.providerNameDuplicate", {
-          defaultValue: "供应商名称已重复，请换一个名称",
-        }),
-      });
-      return;
     } else if (appId === "codex") {
-      const parsedName = splitPresetPrefixedName(values.name);
-      if (parsedName) {
-        const hasDuplicateCustomName = Array.from(existingProviderNames).some(
-          (existingName) => {
-            const parsedExisting = splitPresetPrefixedName(existingName);
-            return (
-              parsedExisting?.prefix === parsedName.prefix &&
-              parsedExisting.customName === parsedName.customName
-            );
-          },
-        );
-        if (hasDuplicateCustomName) {
-          form.setError("name", {
-            type: "manual",
-            message: t("providerForm.providerNameDuplicate", {
-              defaultValue: "供应商名称已重复，请换一个名称",
-            }),
-          });
-          return;
-        }
-      }
-
       const submittedEnvKey = (
         getCodexProviderEnvKeyFromSettings({
           config: codexConfig,
@@ -1276,31 +1283,39 @@ function ProviderFormFull({
       const initialEnvKey = getCodexProviderEnvKeyFromSettings(
         initialData?.settingsConfig,
       );
-      const existingExactEnvValue =
-        submittedEnvKey && submittedEnvKey !== initialEnvKey
-          ? await invoke<string | null>("read_codex_env_key", {
-              envKey: submittedEnvKey,
-            }).catch(() => null)
-          : null;
+
+      let finalEnvKey = submittedEnvKey;
       if (
-        submittedEnvKey &&
-        (existingExactEnvValue ||
-          isCodexEnvKeyDuplicate(submittedEnvKey, {
+        finalEnvKey &&
+        isCodexEnvKeyDuplicate(finalEnvKey, {
+          currentEnvKey: initialEnvKey,
+          currentProviderId: providerId,
+          providers: existingCodexProviders,
+        })
+      ) {
+        let counter = 1;
+        while (
+          isCodexEnvKeyDuplicate(`${finalEnvKey}_${counter}`, {
             currentEnvKey: initialEnvKey,
             currentProviderId: providerId,
             providers: existingCodexProviders,
-            shellEnvKeys,
-          }))
-      ) {
-        const message = t("providerForm.envKeyDuplicate", {
-          envKey: submittedEnvKey,
-          defaultValue: `环境变量 ${submittedEnvKey} 已存在，请换一个环境变量名`,
-        });
-        setCodexEnvKeyError(message);
-        toast.error(message);
-        return;
+          })
+        ) {
+          counter++;
+        }
+        finalEnvKey = `${finalEnvKey}_${counter}`;
+
+        toast.success(t("providerForm.envKeyAutoRenamed", {
+          defaultValue: `环境变量名冲突，已自动调整为 ${finalEnvKey}`,
+        }));
       }
       setCodexEnvKeyError("");
+
+      if (finalEnvKey !== submittedEnvKey) {
+        setCodexEnvKey(finalEnvKey);
+        setCodexConfig((prev) => setCodexEnvKeyInConfig(prev, finalEnvKey));
+      }
+      overriddenEnvKey = finalEnvKey;
     }
 
     // opencode / openclaw / hermes: providerKey 相关
@@ -1501,13 +1516,16 @@ function ProviderFormFull({
       // 弹确认框让用户决定是否仍要保存
       setSoftIssues(issues);
       setPendingFormValues(values);
+      setPendingCodexEnvKeyOverride(
+        appId === "codex" ? overriddenEnvKey : undefined,
+      );
       return;
     }
 
-    await performSubmit(values);
+    await performSubmit(values, appId === "codex" ? overriddenEnvKey : undefined);
   };
 
-  const performSubmit = async (values: ProviderFormData) => {
+  const performSubmit = async (values: ProviderFormData, resolvedEnvKeyOverride?: string) => {
     // OAuth / 其它身份识别（与 handleSubmit 保持一致）
     const isCopilotProvider =
       templatePreset?.providerType === "github_copilot" ||
@@ -1525,6 +1543,20 @@ function ProviderFormFull({
           category !== "official" && (codexConfig ?? "").trim()
             ? setCodexWireApi(codexConfig ?? "", "responses")
             : (codexConfig ?? "");
+        const requestedCodexEnvKey = (
+          resolvedEnvKeyOverride ||
+          getCodexProviderEnvKeyFromSettings({
+            config: normalizedCodexConfig,
+            env: { envKey: codexEnvKey },
+          }) ||
+          codexEnvKey
+        ).trim();
+        if (requestedCodexEnvKey) {
+          normalizedCodexConfig = setCodexEnvKeyInConfig(
+            normalizedCodexConfig,
+            requestedCodexEnvKey,
+          );
+        }
         if (category !== "official") {
           normalizedCodexConfig = setCodexBaseUrlInConfig(
             normalizedCodexConfig,
@@ -1547,11 +1579,7 @@ function ProviderFormFull({
           /^\s*model_provider\s*=\s*"([^"]+)"/m,
         );
         const routeId = routeIdMatch?.[1] || "tuziswitch";
-        let resolvedCodexEnvKey =
-          getCodexProviderEnvKeyFromSettings({
-            config: normalizedCodexConfig,
-            env: { envKey: codexEnvKey },
-          }) || codexEnvKey;
+        let resolvedCodexEnvKey = requestedCodexEnvKey;
 
         if (resolvedCodexEnvKey && codexBaseUrl) {
           const savedRoute = await invoke<SaveCodexRouteResult>(
@@ -1591,18 +1619,25 @@ function ProviderFormFull({
         }
         settingsConfig = JSON.stringify(configObj);
       } catch (err) {
-        const fallbackConfig = (codexConfig ?? "").trim()
+        let fallbackConfig = (codexConfig ?? "").trim()
           ? setCodexWireApi(codexConfig ?? "", "responses")
           : (codexConfig ?? "");
+        const fallbackEnvKey = (
+          resolvedEnvKeyOverride ||
+          getCodexProviderEnvKeyFromSettings({
+            config: fallbackConfig,
+            env: { envKey: codexEnvKey },
+          }) ||
+          codexEnvKey
+        ).trim();
+        if (fallbackEnvKey) {
+          fallbackConfig = setCodexEnvKeyInConfig(fallbackConfig, fallbackEnvKey);
+        }
         settingsConfig = JSON.stringify({
           auth: {},
           config: fallbackConfig,
           env: {
-            envKey:
-              getCodexProviderEnvKeyFromSettings({
-                config: fallbackConfig,
-                env: { envKey: codexEnvKey },
-              }) || codexEnvKey,
+            envKey: fallbackEnvKey,
           },
         });
       }
@@ -1985,6 +2020,22 @@ function ProviderFormFull({
         defaultApiKey = shellEnvKeys?.[envKey] ?? "";
         if (nextTuziRoute.index > 1) {
           displayName = `${displayName}_${nextTuziRoute.index}`;
+        }
+      } else if (isCodexCodingPreset(preset)) {
+        const nextCodingRoute = resolveNextCodexCodingRoute(
+          existingCodexProviders,
+          shellEnvKeys,
+        );
+        envKey = nextCodingRoute.envKey;
+        config = generateThirdPartyConfig(
+          nextCodingRoute.routeId,
+          preset.endpointCandidates?.[0] || "https://api.tu-zi.com/coding",
+          envKey,
+          "gpt-5.5",
+        );
+        defaultApiKey = shellEnvKeys?.[envKey] ?? "";
+        if (nextCodingRoute.index > 1) {
+          displayName = `${displayName}_${nextCodingRoute.index}`;
         }
       } else if (existingCodexProviders) {
         // Compute suffix: only count providers that actually have a key in shell rc
@@ -3098,9 +3149,10 @@ function ProviderFormFull({
           }
           setIsConfirmSubmitting(true);
           try {
-            await performSubmit(values);
+            await performSubmit(values, pendingCodexEnvKeyOverride);
             setSoftIssues(null);
             setPendingFormValues(null);
+            setPendingCodexEnvKeyOverride(undefined);
           } catch (error) {
             console.error("[ProviderForm] soft-confirm submit failed:", error);
             // 保留确认框和 pending values，让用户可以重试或取消
@@ -3112,6 +3164,7 @@ function ProviderFormFull({
           if (isConfirmSubmitting) return;
           setSoftIssues(null);
           setPendingFormValues(null);
+          setPendingCodexEnvKeyOverride(undefined);
         }}
       />
     </>

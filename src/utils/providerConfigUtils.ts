@@ -1564,11 +1564,5 @@ export const isCodexEnvKeyDuplicate = (
     }
   }
 
-  return (
-    normalizedEnvKey !== currentEnvKey &&
-    Object.prototype.hasOwnProperty.call(
-      options.shellEnvKeys ?? {},
-      normalizedEnvKey,
-    )
-  );
+  return false;
 };

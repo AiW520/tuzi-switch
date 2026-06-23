@@ -62,19 +62,59 @@ fn codex_active_provider_string_field(config_text: &str, field: &str) -> Option<
         .map(ToString::to_string)
 }
 
-fn codex_tuzi_index(route_id: &str, env_key: &str) -> Option<u8> {
+#[derive(Clone, Copy)]
+struct CodexManagedRouteFamily<'a> {
+    route_prefix: &'a str,
+    env_prefix: &'a str,
+    legacy_route_ids: &'a [&'a str],
+    legacy_env_keys: &'a [&'a str],
+    base_urls: &'a [&'a str],
+    exhaustion_label: &'a str,
+}
+
+const CODEX_TUZI_FAMILY: CodexManagedRouteFamily<'static> = CodexManagedRouteFamily {
+    route_prefix: "provider-tuzi",
+    env_prefix: "TUZI",
+    legacy_route_ids: &["tuzi"],
+    legacy_env_keys: &["TUZI_CODEX_API_KEY"],
+    base_urls: &["https://api.tu-zi.com/v1"],
+    exhaustion_label: "Codex 兔子线路",
+};
+
+const CODEX_CODING_FAMILY: CodexManagedRouteFamily<'static> = CodexManagedRouteFamily {
+    route_prefix: "provider-coding",
+    env_prefix: "CODING",
+    legacy_route_ids: &["coding", "codex"],
+    legacy_env_keys: &["CODING_CODEX_API_KEY"],
+    base_urls: &[
+        "https://api.tu-zi.com/coding",
+        "https://coding.tu-zi.com",
+        "https://coding.opentu.ai",
+        "https://coding.sydney-ai.com",
+        "https://test-coding.tu-zi.com",
+        "https://sub2api-origin.sydney-ai.com",
+    ],
+    exhaustion_label: "Codex 订阅线路",
+};
+
+fn codex_managed_index(
+    route_id: &str,
+    env_key: &str,
+    family: &CodexManagedRouteFamily<'_>,
+) -> Option<u8> {
     let env_key = env_key.trim();
-    if env_key.starts_with("TUZI")
+    if env_key.starts_with(family.env_prefix)
         && env_key.ends_with("_CODEX_API_KEY")
-        && env_key.len() >= "TUZI01_CODEX_API_KEY".len()
+        && env_key.len() >= family.env_prefix.len() + 2 + "_CODEX_API_KEY".len()
     {
-        let index_part = &env_key["TUZI".len()..env_key.len() - "_CODEX_API_KEY".len()];
+        let index_part =
+            &env_key[family.env_prefix.len()..env_key.len() - "_CODEX_API_KEY".len()];
         if index_part.len() == 2 && index_part.chars().all(|ch| ch.is_ascii_digit()) {
             return index_part.parse::<u8>().ok().filter(|index| *index > 0);
         }
     }
 
-    if let Some(suffix) = route_id.strip_prefix("provider-tuzi") {
+    if let Some(suffix) = route_id.strip_prefix(family.route_prefix) {
         if suffix.len() == 2 && suffix.chars().all(|ch| ch.is_ascii_digit()) {
             return suffix.parse::<u8>().ok().filter(|index| *index > 0);
         }
@@ -83,15 +123,41 @@ fn codex_tuzi_index(route_id: &str, env_key: &str) -> Option<u8> {
     None
 }
 
-fn is_codex_tuzi_route(route_id: &str, env_key: &str, base_url: &str) -> bool {
-    route_id == "tuzi"
-        || route_id.starts_with("provider-tuzi")
-        || env_key == "TUZI_CODEX_API_KEY"
-        || codex_tuzi_index(route_id, env_key).is_some()
-        || base_url.trim_end_matches('/') == "https://api.tu-zi.com/v1"
+fn is_codex_managed_route(
+    route_id: &str,
+    env_key: &str,
+    base_url: &str,
+    family: &CodexManagedRouteFamily<'_>,
+) -> bool {
+    family.legacy_route_ids.contains(&route_id)
+        || route_id.starts_with(family.route_prefix)
+        || family.legacy_env_keys.contains(&env_key)
+        || codex_managed_index(route_id, env_key, family).is_some()
+        || family
+            .base_urls
+            .iter()
+            .any(|value| base_url.trim_end_matches('/') == *value)
 }
 
-fn collect_codex_tuzi_indexes_from_config(config_text: &str, indexes: &mut Vec<u8>) {
+fn detect_codex_managed_route_family(
+    route_id: &str,
+    env_key: &str,
+    base_url: &str,
+) -> Option<&'static CodexManagedRouteFamily<'static>> {
+    if is_codex_managed_route(route_id, env_key, base_url, &CODEX_TUZI_FAMILY) {
+        return Some(&CODEX_TUZI_FAMILY);
+    }
+    if is_codex_managed_route(route_id, env_key, base_url, &CODEX_CODING_FAMILY) {
+        return Some(&CODEX_CODING_FAMILY);
+    }
+    None
+}
+
+fn collect_codex_managed_indexes_from_config(
+    config_text: &str,
+    family: &CodexManagedRouteFamily<'_>,
+    indexes: &mut Vec<u8>,
+) {
     let Some(doc) = codex_config_doc(config_text) else {
         return;
     };
@@ -107,15 +173,16 @@ fn collect_codex_tuzi_indexes_from_config(config_text: &str, indexes: &mut Vec<u
             .get("env_key")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        if let Some(index) = codex_tuzi_index(route_id, env_key) {
+        if let Some(index) = codex_managed_index(route_id, env_key, family) {
             indexes.push(index);
         }
     }
 }
 
-fn codex_tuzi_index_used_by_other_provider(
+fn codex_managed_index_used_by_other_provider(
     db: &Database,
     index: u8,
+    family: &CodexManagedRouteFamily<'_>,
     exclude_provider_id: Option<&str>,
 ) -> Result<bool, AppError> {
     for (provider_id, provider) in db.get_all_providers(AppType::Codex.as_str())? {
@@ -129,18 +196,22 @@ fn codex_tuzi_index_used_by_other_provider(
             .unwrap_or("");
         let route_id = codex_active_route_id(config).unwrap_or_default();
         let env_key = codex_active_provider_string_field(config, "env_key").unwrap_or_default();
-        if codex_tuzi_index(&route_id, &env_key) == Some(index) {
+        if codex_managed_index(&route_id, &env_key, family) == Some(index) {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn next_codex_tuzi_index(db: &Database, exclude_provider_id: Option<&str>) -> Result<u8, AppError> {
+fn next_codex_managed_index(
+    db: &Database,
+    family: &CodexManagedRouteFamily<'_>,
+    exclude_provider_id: Option<&str>,
+) -> Result<u8, AppError> {
     let mut indexes = Vec::new();
 
     if let Ok(live_config) = crate::codex_config::read_codex_config_text() {
-        collect_codex_tuzi_indexes_from_config(&live_config, &mut indexes);
+        collect_codex_managed_indexes_from_config(&live_config, family, &mut indexes);
     }
 
     for (provider_id, provider) in db.get_all_providers(AppType::Codex.as_str())? {
@@ -152,7 +223,7 @@ fn next_codex_tuzi_index(db: &Database, exclude_provider_id: Option<&str>) -> Re
             .get("config")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        collect_codex_tuzi_indexes_from_config(config, &mut indexes);
+        collect_codex_managed_indexes_from_config(config, family, &mut indexes);
     }
 
     for index in 1u8..=99 {
@@ -162,7 +233,7 @@ fn next_codex_tuzi_index(db: &Database, exclude_provider_id: Option<&str>) -> Re
     }
 
     Err(AppError::Config(
-        "Codex 兔子线路供应商编号已用尽".to_string(),
+        format!("{}供应商编号已用尽", family.exhaustion_label),
     ))
 }
 
@@ -208,7 +279,7 @@ fn rewrite_codex_active_provider(
     Ok(doc.to_string())
 }
 
-pub(crate) fn normalize_codex_tuzi_provider_for_storage(
+pub(crate) fn normalize_codex_managed_provider_for_storage(
     db: &Database,
     provider: &mut Provider,
     exclude_provider_id: Option<&str>,
@@ -227,14 +298,14 @@ pub(crate) fn normalize_codex_tuzi_provider_for_storage(
     let route_id = codex_active_route_id(config_str).unwrap_or_default();
     let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
     let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
-    if !is_codex_tuzi_route(&route_id, &env_key, &base_url) {
+    let Some(family) = detect_codex_managed_route_family(&route_id, &env_key, &base_url) else {
         return Ok(());
-    }
+    };
 
-    let Some(index) = codex_tuzi_index(&route_id, &env_key) else {
-        let index = next_codex_tuzi_index(db, exclude_provider_id)?;
-        let next_route_id = format!("provider-tuzi{index:02}");
-        let next_env_key = format!("TUZI{index:02}_CODEX_API_KEY");
+    let Some(index) = codex_managed_index(&route_id, &env_key, family) else {
+        let index = next_codex_managed_index(db, family, exclude_provider_id)?;
+        let next_route_id = format!("{}{index:02}", family.route_prefix);
+        let next_env_key = format!("{}{index:02}_CODEX_API_KEY", family.env_prefix);
         let rewritten = rewrite_codex_active_provider(config_str, &next_route_id, &next_env_key)?;
         obj.insert("config".to_string(), Value::String(rewritten));
         obj.insert("env".to_string(), json!({ "envKey": next_env_key }));
@@ -242,12 +313,12 @@ pub(crate) fn normalize_codex_tuzi_provider_for_storage(
     };
 
     let mut normalized_index = index;
-    if codex_tuzi_index_used_by_other_provider(db, index, exclude_provider_id)? {
-        normalized_index = next_codex_tuzi_index(db, exclude_provider_id)?;
+    if codex_managed_index_used_by_other_provider(db, index, family, exclude_provider_id)? {
+        normalized_index = next_codex_managed_index(db, family, exclude_provider_id)?;
     }
 
-    let expected_route_id = format!("provider-tuzi{normalized_index:02}");
-    let expected_env_key = format!("TUZI{normalized_index:02}_CODEX_API_KEY");
+    let expected_route_id = format!("{}{normalized_index:02}", family.route_prefix);
+    let expected_env_key = format!("{}{normalized_index:02}_CODEX_API_KEY", family.env_prefix);
     if normalized_index != index || route_id != expected_route_id || env_key != expected_env_key {
         let rewritten =
             rewrite_codex_active_provider(config_str, &expected_route_id, &expected_env_key)?;
@@ -263,6 +334,7 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         .settings_config
         .as_object()
         .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
+    let auth = obj.get("auth").unwrap_or(&Value::Null);
     let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
     if config_str.trim().is_empty() {
         return Ok(());
@@ -270,7 +342,31 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
 
     let route_id = codex_active_route_id(config_str).unwrap_or_else(|| "tuziswitch".to_string());
     let existing = crate::codex_config::read_codex_config_text().unwrap_or_default();
-    let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
+    let mut env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
+    if env_key.is_empty() {
+        if let Some(env_obj) = provider.settings_config.get("env") {
+            if let Some(ek) = env_obj.get("envKey").and_then(|v| v.as_str()) {
+                env_key = ek.to_string();
+            }
+        }
+    }
+
+    let mut profile_config_str = config_str.to_string();
+    let token = crate::codex_config::extract_codex_auth_api_key(auth)
+        .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
+        .or_else(|| {
+            if !env_key.is_empty() {
+                crate::codex_config::read_managed_env_key(&env_key)
+            } else {
+                None
+            }
+        });
+    if let Some(token) = &token {
+        if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(&profile_config_str, token) {
+            profile_config_str = updated;
+        }
+    }
+
     let model =
         codex_top_level_string_field(config_str, "model").unwrap_or_else(|| "gpt-5.5".to_string());
     let effort = codex_top_level_string_field(config_str, "model_reasoning_effort")
@@ -287,7 +383,7 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         Some(config_str),
     )?;
     crate::codex_config::write_codex_live_config_atomic(Some(&updated))?;
-    crate::codex_config::write_codex_profile_config(&provider.name, config_str)?;
+    crate::codex_config::write_codex_profile_config(&provider.name, &profile_config_str)?;
     Ok(())
 }
 
@@ -1020,13 +1116,41 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
 
             let route_id =
                 codex_active_route_id(config_str).unwrap_or_else(|| "tuziswitch".to_string());
-            write_codex_profile_config(&provider.name, config_str)?;
-            let existing = read_codex_config_text().unwrap_or_default();
 
             // Extract fields from provider's config
             // env_key must come from the correct [model_providers.<route_id>] section
-            let env_key =
+            let mut env_key =
                 codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
+
+            if env_key.is_empty() {
+                if let Some(env_obj) = provider.settings_config.get("env") {
+                    if let Some(ek) = env_obj.get("envKey").and_then(|v| v.as_str()) {
+                        env_key = ek.to_string();
+                    }
+                }
+            }
+
+            let mut profile_config_str = config_str.to_string();
+            let token = crate::codex_config::extract_codex_auth_api_key(auth)
+                .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
+                .or_else(|| {
+                    if !env_key.is_empty() {
+                        crate::codex_config::read_managed_env_key(&env_key)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(token) = &token {
+                if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(
+                    &profile_config_str,
+                    token,
+                ) {
+                    profile_config_str = updated;
+                }
+            }
+
+            write_codex_profile_config(&provider.name, &profile_config_str)?;
+            let existing = read_codex_config_text().unwrap_or_default();
 
             let model = codex_top_level_string_field(config_str, "model")
                 .unwrap_or_else(|| "gpt-5.5".to_string());
@@ -1051,10 +1175,19 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             let mut final_config =
                 switch_codex_profile(&config_with_route, &route_id, Some(&model), Some(&effort))?;
 
-            // Restore experimental_bearer_token if it exists in the provider's config
-            if let Some(token) =
-                crate::codex_config::extract_codex_experimental_bearer_token(config_str)
-            {
+            // Restore experimental_bearer_token if it exists in the provider's config,
+            // or fetch it from the env vars to guarantee Codex auth bypass
+            let token = crate::codex_config::extract_codex_auth_api_key(auth)
+                .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
+                .or_else(|| {
+                    if !env_key.is_empty() {
+                        crate::codex_config::read_managed_env_key(&env_key)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(token) = token {
                 if let Ok(updated) =
                     crate::codex_config::set_codex_experimental_bearer_token(&final_config, &token)
                 {
@@ -1429,7 +1562,7 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
             None,
         );
         provider.category = Some("custom".to_string());
-        normalize_codex_tuzi_provider_for_storage(
+        normalize_codex_managed_provider_for_storage(
             state.db.as_ref(),
             &mut provider,
             Some("codex-live-config"),
@@ -1880,6 +2013,36 @@ pub fn remove_openclaw_provider_from_live(provider_id: &str) -> Result<(), AppEr
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
+
+    fn with_test_home<T>(test: impl FnOnce() -> T) -> T {
+        let _guard = test_guard();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        let old_home = std::env::var_os("HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        std::env::set_var("HOME", temp.path());
+
+        let result = test();
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+        match old_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+
+        result
+    }
 
     #[test]
     fn claude_common_config_apply_and_remove_roundtrip_for_non_overlapping_fields() {
@@ -2002,5 +2165,71 @@ mod tests {
             .map(|value| value.as_str().expect("tool id should be string"))
             .collect();
         assert_eq!(values, vec!["tool2"]);
+    }
+
+    #[test]
+    fn normalize_codex_managed_provider_assigns_unique_coding_route_indexes() {
+        with_test_home(|| {
+            let db = Database::memory().expect("memory db");
+            let existing = Provider::with_id(
+                "coding-existing".to_string(),
+                "codex订阅".to_string(),
+                json!({
+                    "auth": {},
+                    "config": r#"model_provider = "provider-coding01"
+model = "gpt-5.5"
+
+[model_providers.provider-coding01]
+name = "provider-coding01"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODING01_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#,
+                    "env": { "envKey": "CODING01_CODEX_API_KEY" }
+                }),
+                None,
+            );
+            db.save_provider(AppType::Codex.as_str(), &existing)
+                .expect("save existing provider");
+
+            let mut provider = Provider::with_id(
+                "coding-new".to_string(),
+                "codex订阅".to_string(),
+                json!({
+                    "auth": {},
+                    "config": r#"model_provider = "codex"
+model = "gpt-5.5"
+
+[model_providers.codex]
+name = "codex"
+base_url = "https://coding.tu-zi.com"
+env_key = "CODING_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#
+                }),
+                None,
+            );
+
+            normalize_codex_managed_provider_for_storage(&db, &mut provider, None)
+                .expect("normalize coding provider");
+
+            assert_eq!(
+                provider
+                    .settings_config
+                    .pointer("/env/envKey")
+                    .and_then(|value| value.as_str()),
+                Some("CODING02_CODEX_API_KEY")
+            );
+            let normalized = provider
+                .settings_config
+                .get("config")
+                .and_then(|value| value.as_str())
+                .expect("normalized config");
+            assert!(normalized.contains(r#"model_provider = "provider-coding02""#));
+            assert!(normalized.contains(r#"[model_providers.provider-coding02]"#));
+            assert!(normalized.contains(r#"env_key = "CODING02_CODEX_API_KEY""#));
+        });
     }
 }

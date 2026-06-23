@@ -152,7 +152,7 @@ model = "gpt-5.4"
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     tuzi_switch_lib::write_codex_live_atomic(&legacy_auth, Some(legacy_config))
         .expect("seed existing Codex live config");
@@ -169,7 +169,7 @@ model = "gpt-5.4"
 name = "AiHubMix"
 base_url = "https://aihubmix.example/v1"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#
     });
 

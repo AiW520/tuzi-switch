@@ -29,7 +29,7 @@ pub(crate) const CODEX_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str, &str, &
         "codex订阅",
         "https://store.tu-zi.com/cat/11",
         "https://api.tu-zi.com/coding",
-        "CODING_CODEX_API_KEY",
+        "CODING01_CODEX_API_KEY",
         "gpt-5.5",
     ),
     (

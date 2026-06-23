@@ -28,7 +28,7 @@ name = "tuzi"
 base_url = "https://api.tu-zi.com/v1"
 env_key = "TUZI_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     write_codex_live_atomic(&auth, Some(config)).expect("seed codex live config");
 
@@ -360,7 +360,7 @@ fn provider_seed_does_not_overwrite_existing_api_keys() {
             .settings_config
             .pointer("/env/envKey")
             .and_then(|value| value.as_str()),
-        Some("CODING_CODEX_API_KEY"),
+        Some("CODING01_CODEX_API_KEY"),
         "seed rerun should restore the coding dedicated env key"
     );
     assert_eq!(
@@ -534,13 +534,13 @@ name = "tuzi"
 base_url = "https://api.tu-zi.com/v1"
 env_key = "TUZI_CODEX_API_KEY"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 
 [model_providers.custom]
 name = "custom"
 base_url = "https://api.tu-zi.com/coding"
 wire_api = "responses"
-requires_openai_auth = true
+requires_openai_auth = false
 "#;
     write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
 
