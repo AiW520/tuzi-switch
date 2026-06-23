@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.31] - 2026-06-23
+
+### Fixes
+
+- 修复 `codex订阅` 在多端点测速后仍共用同一条 Codex route，导致打开 Codex 时可能错误进入 ChatGPT 登录界面的问题。
+- 修复第三方 Codex provider 在保存、导入与种子重建时可能保留错误 OAuth 标记的问题，统一改为独立 API Key 路径。
+- 修复 Codex 供应商编辑时环境变量自动改名后未随保存链路落盘的问题，并允许供应商名称重复以兼容多线路配置。
+
 ## [1.1.28] - 2026-06-13
 
 ### Fixes
