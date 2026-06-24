@@ -1,10 +1,9 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    extract_codex_experimental_bearer_token, get_codex_config_path,
-    import_default_config_test_hook, read_json_file, save_codex_route_test_hook,
-    switch_provider_test_hook, write_codex_live_atomic, AppError, AppType, McpApps, McpServer,
-    MultiAppConfig, Provider, ProviderService,
+    clear_provider_live_config_test_hook, get_codex_config_path, import_default_config_test_hook,
+    read_json_file, save_codex_route_test_hook, switch_provider_test_hook, write_codex_live_atomic,
+    AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -102,6 +101,54 @@ requires_openai_auth = true
             .expect("re-check startup import eligibility"),
         "subsequent startup should skip once Codex live config has been imported"
     );
+}
+
+#[test]
+fn clear_provider_live_config_command_hook_clears_codex_route() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    ensure_test_home();
+
+    let config_text = r#"model_provider = "provider-clear"
+model = "gpt-5.5"
+
+[model_providers.provider-clear]
+name = "provider-clear"
+base_url = "https://clear.example/v1"
+env_key = "CLEAR_CODEX_API_KEY"
+"#;
+    write_codex_live_atomic(&json!({}), Some(config_text)).expect("seed codex live config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "provider-clear".to_string();
+        manager.providers.insert(
+            "provider-clear".to_string(),
+            Provider::with_id(
+                "provider-clear".to_string(),
+                "Provider Clear".to_string(),
+                json!({
+                    "config": config_text,
+                    "auth": {"OPENAI_API_KEY": "sk-clear"}
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+    assert!(
+        clear_provider_live_config_test_hook(&state, AppType::Codex, "provider-clear")
+            .expect("clear provider live config"),
+        "command hook should return true"
+    );
+
+    let live_after = std::fs::read_to_string(get_codex_config_path()).expect("read codex config");
+    assert!(live_after.contains("model_provider = \"\""));
+    assert!(!live_after.contains("[model_providers.provider-clear]"));
 }
 
 #[test]
@@ -627,7 +674,16 @@ command = "echo"
                 "Latest".to_string(),
                 json!({
                     "auth": {"OPENAI_API_KEY": "fresh-key"},
-                    "config": r#"[mcp_servers.latest]
+                    "config": r#"model_provider = "new-provider"
+
+[model_providers.new-provider]
+name = "new-provider"
+base_url = "https://fresh.example/v1"
+env_key = "FRESH_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[mcp_servers.latest]
 type = "stdio"
 command = "say"
 "#
@@ -668,10 +724,13 @@ command = "say"
         .expect("switch provider should succeed");
 
     let config_text = std::fs::read_to_string(get_codex_config_path()).expect("read config.toml");
-    assert_eq!(
-        extract_codex_experimental_bearer_token(&config_text).as_deref(),
-        Some("fresh-key"),
-        "live Codex config should carry the new provider token"
+    assert!(
+        !config_text.contains("experimental_bearer_token"),
+        "live Codex config should not expose API key values"
+    );
+    assert!(
+        config_text.contains("env_key = \"FRESH_CODEX_API_KEY\""),
+        "live Codex config should reference env_key"
     );
     assert!(
         config_text.contains("mcp_servers.echo-server"),

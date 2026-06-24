@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   Edit,
+  Eraser,
   Loader2,
   Minus,
   Play,
@@ -32,6 +33,7 @@ interface ProviderActionsProps {
   onConfigureUsage?: () => void;
   onDelete: () => void;
   onRemoveFromConfig?: () => void;
+  onClearConfig?: () => void;
   onDisableOmo?: () => void;
   onOpenTerminal?: () => void;
   isAutoFailoverEnabled?: boolean;
@@ -59,6 +61,7 @@ export function ProviderActions({
   onConfigureUsage,
   onDelete,
   onRemoveFromConfig,
+  onClearConfig,
   onDisableOmo,
   onOpenTerminal,
   isAutoFailoverEnabled = false,
@@ -210,9 +213,13 @@ export function ProviderActions({
 
   const canDelete =
     !isReadOnly && (isOmo || isAdditiveMode ? true : !isCurrent);
+  const canClearConfig = Boolean(onClearConfig) && !isReadOnly;
   const readOnlyHint = t("provider.managedByHermesHint", {
     defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
   });
+  const clearConfigTitle = isReadOnly
+    ? readOnlyHint
+    : t("provider.clearConfig", { defaultValue: "清除配置" });
   const deleteTitle = isReadOnly
     ? readOnlyHint
     : canDelete
@@ -334,6 +341,25 @@ export function ProviderActions({
             )}
           >
             <Terminal className="h-4 w-4" />
+          </Button>
+        )}
+
+        {onClearConfig && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={canClearConfig ? onClearConfig : undefined}
+            aria-disabled={!canClearConfig}
+            title={clearConfigTitle}
+            className={cn(
+              iconButtonClass,
+              canClearConfig &&
+                "hover:text-orange-500 dark:hover:text-orange-400",
+              !canClearConfig &&
+                "opacity-40 cursor-not-allowed text-muted-foreground",
+            )}
+          >
+            <Eraser className="h-4 w-4" />
           </Button>
         )}
 

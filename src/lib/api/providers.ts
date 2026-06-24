@@ -88,6 +88,10 @@ export const providersApi = {
     return await invoke("remove_provider_from_live_config", { id, app: appId });
   },
 
+  async clearLiveConfig(id: string, appId: AppId): Promise<boolean> {
+    return await invoke("clear_provider_live_config", { id, app: appId });
+  },
+
   async switch(id: string, appId: AppId): Promise<SwitchResult> {
     return await invoke("switch_provider", { id, app: appId });
   },

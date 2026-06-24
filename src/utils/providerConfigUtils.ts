@@ -1130,6 +1130,72 @@ export const updateCodexExperimentalBearerToken = (
   return finalizeTomlText(lines);
 };
 
+export const removeCodexExperimentalBearerToken = (
+  configText: string,
+): string => {
+  const normalizedText = normalizeTomlText(configText);
+  if (
+    !normalizedText ||
+    !normalizedText.includes("experimental_bearer_token")
+  ) {
+    return configText;
+  }
+
+  const lines = normalizedText
+    .split("\n")
+    .filter(
+      (line) => !TOML_EXPERIMENTAL_BEARER_TOKEN_REPLACE_PATTERN.test(line),
+    );
+  return finalizeTomlText(lines);
+};
+
+export interface MigrateCodexExperimentalBearerTokenInput {
+  config?: string;
+  auth?: Record<string, unknown> | null;
+  env?: Record<string, unknown> | null;
+}
+
+export interface MigrateCodexExperimentalBearerTokenResult {
+  config: string;
+  auth: Record<string, unknown>;
+  migratedApiKey?: string;
+}
+
+const readNonEmptyString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+export const migrateCodexExperimentalBearerToken = (
+  input: MigrateCodexExperimentalBearerTokenInput,
+): MigrateCodexExperimentalBearerTokenResult => {
+  const originalConfig = typeof input.config === "string" ? input.config : "";
+  const sanitizedConfig = removeCodexExperimentalBearerToken(originalConfig);
+  const legacyToken = extractCodexExperimentalBearerToken(originalConfig);
+  const nextAuth = isPlainObject(input.auth) ? deepClone(input.auth) : {};
+
+  const existingAuthApiKey = readNonEmptyString(nextAuth.OPENAI_API_KEY);
+  const existingEnvKey = getCodexProviderEnvKeyFromSettings({
+    config: sanitizedConfig,
+    env: input.env ?? {},
+  });
+
+  if (!legacyToken || existingAuthApiKey || existingEnvKey) {
+    return {
+      config: sanitizedConfig,
+      auth: nextAuth,
+    };
+  }
+
+  nextAuth.OPENAI_API_KEY = legacyToken;
+  return {
+    config: sanitizedConfig,
+    auth: nextAuth,
+    migratedApiKey: legacyToken,
+  };
+};
+
 export const extractCodexModelCatalogJson = (
   configText: string | undefined | null,
 ): string | undefined => {

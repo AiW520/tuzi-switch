@@ -1,9 +1,8 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    extract_codex_experimental_bearer_token, get_claude_settings_path, read_json_file,
-    write_codex_live_atomic, AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider,
-    ProviderMeta, ProviderService,
+    get_claude_settings_path, read_json_file, write_codex_live_atomic, AppError, AppType, McpApps,
+    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -135,7 +134,16 @@ command = "echo"
                 "Latest".to_string(),
                 json!({
                     "auth": {"OPENAI_API_KEY": "fresh-key"},
-                    "config": r#"[mcp_servers.latest]
+                    "config": r#"model_provider = "new-provider"
+
+[model_providers.new-provider]
+name = "new-provider"
+base_url = "https://fresh.example/v1"
+env_key = "FRESH_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[mcp_servers.latest]
 type = "stdio"
 command = "say"
 "#
@@ -180,10 +188,13 @@ command = "say"
 
     let config_text = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
         .expect("read config.toml");
-    assert_eq!(
-        extract_codex_experimental_bearer_token(&config_text).as_deref(),
-        Some("fresh-key"),
-        "live Codex config should carry the new provider token"
+    assert!(
+        !config_text.contains("experimental_bearer_token"),
+        "live Codex config should not expose API key values"
+    );
+    assert!(
+        config_text.contains("env_key = \"FRESH_CODEX_API_KEY\""),
+        "live Codex config should reference env_key"
     );
     assert!(
         config_text.contains("mcp_servers.echo-server"),
@@ -234,6 +245,538 @@ command = "say"
     assert_eq!(
         legacy_auth_value, "legacy-key",
         "previous provider should be backfilled with live auth"
+    );
+}
+
+#[test]
+fn provider_service_clear_codex_config_removes_live_route_profile_env_and_card_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let shell_rc = home.join(".zshrc");
+    std::fs::write(
+        &shell_rc,
+        "# Codex\nexport CUSTOM_API_KEY=sk-test\nexport OTHER_KEY=keep\n# End Codex\n\n# >>> tuzi-switch codex env >>>\nexport MANAGED_CUSTOM_API_KEY=sk-managed\nexport CARD_ONLY_CODEX_API_KEY=sk-card\n# <<< tuzi-switch codex env <<<\n",
+    )
+    .expect("seed shell rc");
+
+    let live_config = r#"model_provider = "custom"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+disable_response_storage = true
+
+[model_providers.custom]
+name = "custom"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "MANAGED_CUSTOM_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.legacy]
+name = "legacy"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "MANAGED_CUSTOM_API_KEY"
+
+[model_providers.custom.headers]
+X-Test = "remove"
+
+[model_providers.keep]
+name = "keep"
+base_url = "https://keep.example/v1"
+env_key = "KEEP_API_KEY"
+
+[profiles.custom]
+model_provider = "custom"
+model = "gpt-5.5"
+
+[mcp_servers.echo]
+command = "echo"
+"#;
+    write_codex_live_atomic(&json!({"OPENAI_API_KEY": "must-stay"}), Some(live_config))
+        .expect("seed codex live config");
+
+    let profile_path = home.join(".codex").join(format!(
+        "{}.config.toml",
+        sanitize_provider_name("codex订阅")
+    ));
+    std::fs::create_dir_all(profile_path.parent().expect("profile parent"))
+        .expect("create codex dir");
+    std::fs::write(&profile_path, "model = \"gpt-5.5\"\n").expect("seed profile file");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "codex-subscription".to_string();
+        manager.providers.insert(
+            "codex-subscription".to_string(),
+            Provider::with_id(
+                "codex-subscription".to_string(),
+                "codex订阅".to_string(),
+                json!({
+                    "auth": {"OPENAI_API_KEY": "sk-test"},
+                    "env": {"envKey": "CARD_ONLY_CODEX_API_KEY"},
+                    "config": live_config
+                }),
+                Some("https://api.tu-zi.com/coding".to_string()),
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::clear_live_config(&state, AppType::Codex, "codex-subscription")
+        .expect("clear codex config");
+
+    let live_after = std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+        .expect("read codex config after clear");
+    assert!(
+        live_after.contains("model_provider = \"\""),
+        "active model_provider should be left empty"
+    );
+    assert!(
+        !live_after.contains("[model_providers.custom]"),
+        "target model_provider section should be removed"
+    );
+    assert!(
+        !live_after.contains("[model_providers.custom.headers]"),
+        "nested provider sections should be removed"
+    );
+    assert!(
+        !live_after.contains("[profiles.custom]"),
+        "target profile section should be removed"
+    );
+    assert!(
+        live_after.contains("[model_providers.keep]"),
+        "unrelated providers should remain"
+    );
+    assert!(
+        live_after.contains("[mcp_servers.echo]"),
+        "unrelated mcp servers should remain"
+    );
+    assert!(
+        !profile_path.exists(),
+        "official Codex profile overlay file should be removed"
+    );
+
+    let shell_after = std::fs::read_to_string(&shell_rc).expect("read shell rc after clear");
+    assert!(
+        shell_after.contains("CUSTOM_API_KEY=sk-test"),
+        "user-authored Codex env should be preserved when ownership is unknown"
+    );
+    assert!(
+        !shell_after.contains("MANAGED_CUSTOM_API_KEY"),
+        "legacy tuzi-switch managed env should still be removable"
+    );
+    assert!(
+        !shell_after.contains("CARD_ONLY_CODEX_API_KEY"),
+        "card envKey should be removable even when the TOML env_key points elsewhere"
+    );
+    assert!(
+        shell_after.contains("OTHER_KEY=keep"),
+        "unrelated env keys should remain"
+    );
+
+    let saved = state
+        .db
+        .get_provider_by_id("codex-subscription", AppType::Codex.as_str())
+        .expect("query saved provider")
+        .expect("provider card should remain");
+    assert!(saved.settings_config.get("auth").is_none());
+    assert!(saved.settings_config.get("env").is_none());
+    let saved_config = saved
+        .settings_config
+        .get("config")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    assert!(
+        !saved_config.contains("[model_providers.custom]"),
+        "card config should no longer keep the removed provider section"
+    );
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Codex.as_str())
+            .expect("get db current provider"),
+        None,
+        "current provider marker should be cleared"
+    );
+}
+
+#[test]
+fn provider_service_clear_claude_config_removes_env_without_deleting_card() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    ensure_test_home();
+
+    let settings_path = get_claude_settings_path();
+    std::fs::create_dir_all(settings_path.parent().expect("claude settings parent"))
+        .expect("create claude dir");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&json!({
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "sk-test",
+                "ANTHROPIC_BASE_URL": "https://api.tu-zi.com",
+                "KEEP_ME": "yes"
+            },
+            "permissions": { "allow": ["Bash"] }
+        }))
+        .expect("serialize claude settings"),
+    )
+    .expect("seed claude settings");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.current = "claude-tuzi".to_string();
+        manager.providers.insert(
+            "claude-tuzi".to_string(),
+            Provider::with_id(
+                "claude-tuzi".to_string(),
+                "Claude Tuzi".to_string(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_AUTH_TOKEN": "sk-test",
+                        "ANTHROPIC_BASE_URL": "https://api.tu-zi.com"
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::clear_live_config(&state, AppType::Claude, "claude-tuzi")
+        .expect("clear claude config");
+
+    let live_after: serde_json::Value = read_json_file(&settings_path).expect("read settings");
+    assert!(
+        live_after
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_AUTH_TOKEN"))
+            .is_none(),
+        "claude auth token should be removed"
+    );
+    assert_eq!(
+        live_after
+            .get("env")
+            .and_then(|env| env.get("KEEP_ME"))
+            .and_then(|value| value.as_str()),
+        Some("yes"),
+        "unrelated env values should remain"
+    );
+    assert!(
+        live_after.get("permissions").is_some(),
+        "unrelated Claude settings should remain"
+    );
+
+    let saved = state
+        .db
+        .get_provider_by_id("claude-tuzi", AppType::Claude.as_str())
+        .expect("query saved provider")
+        .expect("provider card should remain");
+    assert!(saved.settings_config.get("env").is_none());
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Claude.as_str())
+            .expect("get db current provider"),
+        Some("tuzi-route".to_string()),
+        "clearing a non-DB-current provider should preserve the existing DB current marker"
+    );
+}
+
+#[test]
+fn provider_service_clear_claude_config_preserves_changed_live_env_values() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    ensure_test_home();
+
+    let settings_path = get_claude_settings_path();
+    std::fs::create_dir_all(settings_path.parent().expect("claude settings parent"))
+        .expect("create claude dir");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&json!({
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "user-replaced-token",
+                "ANTHROPIC_BASE_URL": "https://user.example"
+            }
+        }))
+        .expect("serialize claude settings"),
+    )
+    .expect("seed claude settings");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.providers.insert(
+            "claude-tuzi".to_string(),
+            Provider::with_id(
+                "claude-tuzi".to_string(),
+                "Claude Tuzi".to_string(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_AUTH_TOKEN": "sk-test",
+                        "ANTHROPIC_BASE_URL": "https://api.tu-zi.com"
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::clear_live_config(&state, AppType::Claude, "claude-tuzi")
+        .expect("clear claude config");
+
+    let live_after: serde_json::Value = read_json_file(&settings_path).expect("read settings");
+    assert_eq!(
+        live_after
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_AUTH_TOKEN"))
+            .and_then(|value| value.as_str()),
+        Some("user-replaced-token"),
+        "clear should not delete a same-key live env value that no longer matches the provider card"
+    );
+    assert_eq!(
+        live_after
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+            .and_then(|value| value.as_str()),
+        Some("https://user.example"),
+        "clear should preserve changed live base URL values"
+    );
+}
+
+#[test]
+fn provider_service_clear_gemini_config_removes_env_and_provider_settings_keys() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let gemini_dir = home.join(".gemini");
+    std::fs::create_dir_all(&gemini_dir).expect("create gemini dir");
+    std::fs::write(
+        gemini_dir.join(".env"),
+        "GEMINI_API_KEY=sk-test\nGOOGLE_GEMINI_BASE_URL=https://api.tu-zi.com\nKEEP_ME=yes\n",
+    )
+    .expect("seed gemini env");
+    std::fs::write(
+        gemini_dir.join("settings.json"),
+        serde_json::to_string_pretty(&json!({
+            "selectedAuthType": "gemini-api-key",
+            "mcpServers": { "echo": { "command": "echo" } }
+        }))
+        .expect("serialize gemini settings"),
+    )
+    .expect("seed gemini settings");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Gemini)
+            .expect("gemini manager");
+        manager.current = "gemini-tuzi".to_string();
+        manager.providers.insert(
+            "gemini-tuzi".to_string(),
+            Provider::with_id(
+                "gemini-tuzi".to_string(),
+                "Gemini Tuzi".to_string(),
+                json!({
+                    "env": {
+                        "GEMINI_API_KEY": "sk-test",
+                        "GOOGLE_GEMINI_BASE_URL": "https://api.tu-zi.com"
+                    },
+                    "config": {
+                        "selectedAuthType": "gemini-api-key"
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::clear_live_config(&state, AppType::Gemini, "gemini-tuzi")
+        .expect("clear gemini config");
+
+    let env_after = std::fs::read_to_string(gemini_dir.join(".env")).expect("read gemini env");
+    assert!(!env_after.contains("GEMINI_API_KEY"));
+    assert!(!env_after.contains("GOOGLE_GEMINI_BASE_URL"));
+    assert!(env_after.contains("KEEP_ME=yes"));
+
+    let settings_after: serde_json::Value =
+        read_json_file(&gemini_dir.join("settings.json")).expect("read gemini settings");
+    assert!(settings_after.get("selectedAuthType").is_none());
+    assert!(
+        settings_after.get("mcpServers").is_some(),
+        "unrelated Gemini settings should remain"
+    );
+
+    let saved = state
+        .db
+        .get_provider_by_id("gemini-tuzi", AppType::Gemini.as_str())
+        .expect("query saved provider")
+        .expect("provider card should remain");
+    assert!(saved.settings_config.get("env").is_none());
+    assert!(saved.settings_config.get("config").is_none());
+}
+
+#[test]
+fn provider_service_clear_gemini_config_preserves_changed_live_values() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let gemini_dir = home.join(".gemini");
+    std::fs::create_dir_all(&gemini_dir).expect("create gemini dir");
+    std::fs::write(
+        gemini_dir.join(".env"),
+        "GEMINI_API_KEY=user-replaced-key\nGOOGLE_GEMINI_BASE_URL=https://user.example\n",
+    )
+    .expect("seed gemini env");
+    std::fs::write(
+        gemini_dir.join("settings.json"),
+        serde_json::to_string_pretty(&json!({
+            "selectedAuthType": "oauth-personal",
+            "mcpServers": { "echo": { "command": "echo" } }
+        }))
+        .expect("serialize gemini settings"),
+    )
+    .expect("seed gemini settings");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Gemini)
+            .expect("gemini manager");
+        manager.providers.insert(
+            "gemini-tuzi".to_string(),
+            Provider::with_id(
+                "gemini-tuzi".to_string(),
+                "Gemini Tuzi".to_string(),
+                json!({
+                    "env": {
+                        "GEMINI_API_KEY": "sk-test",
+                        "GOOGLE_GEMINI_BASE_URL": "https://api.tu-zi.com"
+                    },
+                    "config": {
+                        "selectedAuthType": "gemini-api-key"
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    ProviderService::clear_live_config(&state, AppType::Gemini, "gemini-tuzi")
+        .expect("clear gemini config");
+
+    let env_after = std::fs::read_to_string(gemini_dir.join(".env")).expect("read gemini env");
+    assert!(env_after.contains("GEMINI_API_KEY=user-replaced-key"));
+    assert!(env_after.contains("GOOGLE_GEMINI_BASE_URL=https://user.example"));
+
+    let settings_after: serde_json::Value =
+        read_json_file(&gemini_dir.join("settings.json")).expect("read gemini settings");
+    assert_eq!(
+        settings_after
+            .get("selectedAuthType")
+            .and_then(|value| value.as_str()),
+        Some("oauth-personal"),
+        "clear should not remove a same-key setting whose value was changed by the user"
+    );
+}
+
+#[test]
+fn provider_service_clear_config_only_clears_matching_current_markers() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    ensure_test_home();
+
+    let settings_path = get_claude_settings_path();
+    std::fs::create_dir_all(settings_path.parent().expect("claude settings parent"))
+        .expect("create claude dir");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&json!({
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "sk-local"
+            }
+        }))
+        .expect("serialize claude settings"),
+    )
+    .expect("seed claude settings");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.current = "db-current".to_string();
+        manager.providers.insert(
+            "local-current".to_string(),
+            Provider::with_id(
+                "local-current".to_string(),
+                "Local Current".to_string(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_AUTH_TOKEN": "sk-local"
+                    }
+                }),
+                None,
+            ),
+        );
+        manager.providers.insert(
+            "db-current".to_string(),
+            Provider::with_id(
+                "db-current".to_string(),
+                "DB Current".to_string(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_AUTH_TOKEN": "sk-db"
+                    }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+    tuzi_switch_lib::update_settings(tuzi_switch_lib::AppSettings {
+        current_provider_claude: Some("local-current".to_string()),
+        ..tuzi_switch_lib::AppSettings::default()
+    })
+    .expect("set local current provider");
+
+    ProviderService::clear_live_config(&state, AppType::Claude, "local-current")
+        .expect("clear local current config");
+
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Claude.as_str())
+            .expect("get db current provider")
+            .as_deref(),
+        Some("db-current"),
+        "clearing the local current provider must not clear a different DB current provider"
+    );
+    assert_eq!(
+        ProviderService::current(&state, AppType::Claude).expect("get effective current"),
+        "db-current",
+        "effective current should fall back to the preserved DB current after clearing local current"
     );
 }
 

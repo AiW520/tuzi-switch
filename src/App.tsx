@@ -41,7 +41,11 @@ import {
 import { checkAllEnvConflicts, checkEnvConflicts } from "@/lib/api/env";
 import { useProviderActions } from "@/hooks/useProviderActions";
 import { openclawKeys, useOpenClawHealth } from "@/hooks/useOpenClaw";
-import { hermesKeys, useOpenHermesWebUI } from "@/hooks/useHermes";
+import {
+  hermesKeys,
+  invalidateHermesProviderCaches,
+  useOpenHermesWebUI,
+} from "@/hooks/useHermes";
 import { hermesApi } from "@/lib/api/hermes";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useAutoCompact } from "@/hooks/useAutoCompact";
@@ -248,8 +252,9 @@ function App() {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
+    appId: AppId;
     provider: Provider;
-    action: "remove" | "delete";
+    action: "remove" | "clearConfig" | "delete";
   } | null>(null);
   const [envConflicts, setEnvConflicts] = useState<EnvConflict[]>([]);
   const [showEnvBanner, setShowEnvBanner] = useState(false);
@@ -310,7 +315,6 @@ function App() {
     addProvider,
     updateProvider,
     switchProvider,
-    deleteProvider,
     saveUsageScript,
     setAsDefaultModel,
   } = useProviderActions(
@@ -682,41 +686,106 @@ function App() {
     setEditingProvider(null);
   };
 
+  const invalidateProviderCachesForApp = async (appId: AppId) => {
+    await queryClient.invalidateQueries({
+      queryKey: ["providers", appId],
+    });
+
+    if (appId === "opencode") {
+      await queryClient.invalidateQueries({
+        queryKey: ["opencodeLiveProviderIds"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["omo", "current-provider-id"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["omo", "provider-count"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["omo-slim", "current-provider-id"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["omo-slim", "provider-count"],
+      });
+    } else if (appId === "openclaw") {
+      await queryClient.invalidateQueries({
+        queryKey: openclawKeys.liveProviderIds,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: openclawKeys.health,
+      });
+    } else if (appId === "hermes") {
+      await queryClient.invalidateQueries({
+        queryKey: hermesKeys.liveProviderIds,
+      });
+      await invalidateHermesProviderCaches(queryClient);
+    }
+  };
+
   const handleConfirmAction = async () => {
     if (!confirmAction) return;
-    const { provider, action } = confirmAction;
+    const { provider, action, appId } = confirmAction;
 
-    if (action === "remove") {
-      // Remove from live config only (for additive mode apps like OpenCode/OpenClaw)
-      // Does NOT delete from database - provider remains in the list
-      await providersApi.removeFromLiveConfig(provider.id, activeApp);
-      // Invalidate queries to refresh the isInConfig state
-      if (activeApp === "opencode") {
-        await queryClient.invalidateQueries({
-          queryKey: ["opencodeLiveProviderIds"],
-        });
-      } else if (activeApp === "openclaw") {
-        await queryClient.invalidateQueries({
-          queryKey: openclawKeys.liveProviderIds,
-        });
-        await queryClient.invalidateQueries({
-          queryKey: openclawKeys.health,
-        });
-      } else if (activeApp === "hermes") {
-        await queryClient.invalidateQueries({
-          queryKey: hermesKeys.liveProviderIds,
-        });
+    try {
+      if (action === "remove") {
+        // Remove from live config only (for additive mode apps like OpenCode/OpenClaw)
+        // Does NOT delete from database - provider remains in the list
+        await providersApi.removeFromLiveConfig(provider.id, appId);
+        await invalidateProviderCachesForApp(appId);
+        toast.success(
+          t("notifications.removeFromConfigSuccess", {
+            defaultValue: "已从配置移除",
+          }),
+          { closeButton: true },
+        );
+      } else if (action === "clearConfig") {
+        await providersApi.clearLiveConfig(provider.id, appId);
+        await invalidateProviderCachesForApp(appId);
+        toast.success(
+          t("notifications.clearConfigSuccess", {
+            defaultValue: "已清除当前供应商配置",
+          }),
+          { closeButton: true },
+        );
+      } else {
+        await providersApi.delete(provider.id, appId);
+        await invalidateProviderCachesForApp(appId);
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (trayError) {
+          console.error(
+            "Failed to update tray menu after deleting provider",
+            trayError,
+          );
+        }
+        toast.success(
+          t("notifications.deleteSuccess", {
+            defaultValue: "供应商已删除",
+          }),
+          { closeButton: true },
+        );
       }
-      toast.success(
-        t("notifications.removeFromConfigSuccess", {
-          defaultValue: "已从配置移除",
-        }),
-        { closeButton: true },
-      );
-    } else {
-      await deleteProvider(provider.id);
+
+      setConfirmAction(null);
+    } catch (error) {
+      const detail = extractErrorMessage(error) || String(error);
+      const message =
+        action === "remove"
+          ? t("notifications.removeFromConfigFailed", {
+              error: detail,
+              defaultValue: "从配置移除失败：{{error}}",
+            })
+          : action === "clearConfig"
+            ? t("notifications.clearConfigFailed", {
+                error: detail,
+                defaultValue: "清除供应商配置失败：{{error}}",
+              })
+            : t("notifications.deleteFailed", {
+                error: detail,
+                defaultValue: "删除供应商失败：{{error}}",
+              });
+      toast.error(message, { closeButton: true });
     }
-    setConfirmAction(null);
   };
 
   const generateUniqueProviderCopyKey = (
@@ -1011,14 +1080,34 @@ function App() {
                         setEditingProvider(provider);
                       }}
                       onDelete={(provider) =>
-                        setConfirmAction({ provider, action: "delete" })
+                        setConfirmAction({
+                          appId: activeApp,
+                          provider,
+                          action: "delete",
+                        })
                       }
                       onRemoveFromConfig={
                         activeApp === "opencode" ||
                         activeApp === "openclaw" ||
                         activeApp === "hermes"
                           ? (provider) =>
-                              setConfirmAction({ provider, action: "remove" })
+                              setConfirmAction({
+                                appId: activeApp,
+                                provider,
+                                action: "remove",
+                              })
+                          : undefined
+                      }
+                      onClearConfig={
+                        activeApp === "claude" ||
+                        activeApp === "codex" ||
+                        activeApp === "gemini"
+                          ? (provider) =>
+                              setConfirmAction({
+                                appId: activeApp,
+                                provider,
+                                action: "clearConfig",
+                              })
                           : undefined
                       }
                       onDisableOmo={
@@ -1625,7 +1714,11 @@ function App() {
         title={
           confirmAction?.action === "remove"
             ? t("confirm.removeProvider")
-            : t("confirm.deleteProvider")
+            : confirmAction?.action === "clearConfig"
+              ? t("confirm.clearProviderConfig", {
+                  defaultValue: "清除供应商配置",
+                })
+              : t("confirm.deleteProvider")
         }
         message={
           confirmAction
@@ -1633,6 +1726,25 @@ function App() {
               ? t("confirm.removeProviderMessage", {
                   name: confirmAction.provider.name,
                 })
+              : confirmAction.action === "clearConfig"
+                ? confirmAction.appId === "codex"
+                  ? t("confirm.clearCodexProviderConfigMessage", {
+                      name: confirmAction.provider.name,
+                      defaultValue:
+                        "是否清除“{{name}}”的当前 Codex 配置？\n\n将清除：\n- ~/.codex/config.toml 中该供应商对应的 model_provider/profile 配置段；\n- 如果当前 model_provider 指向该供应商，会改为 model_provider = \"\"；\n- tuzi-switch 为该供应商创建的 Codex profile 文件；\n- env_key 对应的环境变量；\n- 卡片中保存的 API Key / env_key / 写入状态。\n\n不会删除：\n- 供应商卡片；\n- ~/.codex/auth.json；\n- 其他供应商配置。\n\n清除后如需继续使用，需要重新填写 Key 并保存/启用。",
+                    })
+                  : confirmAction.appId === "claude" ||
+                      confirmAction.appId === "gemini"
+                    ? t("confirm.clearEnvProviderConfigMessage", {
+                        name: confirmAction.provider.name,
+                        defaultValue:
+                          "是否清除“{{name}}”写入客户端的环境变量配置？\n\n将清除：\n- 该供应商写入客户端配置文件中的 API Key / Base URL 等环境变量；\n- 卡片中保存的 API Key / 环境变量配置；\n- 如果它是当前供应商，会清空当前使用状态。\n\n不会删除：\n- 供应商卡片；\n- 其他供应商配置。\n\n清除后如需继续使用，需要重新填写 Key 并保存/启用。",
+                      })
+                  : t("confirm.clearProviderConfigMessage", {
+                      name: confirmAction.provider.name,
+                      defaultValue:
+                        "是否清除“{{name}}”写入真实客户端的相关配置？\n\n将从客户端配置中移除该供应商，并清空卡片的写入状态；不会删除供应商卡片。清除后如需继续使用，需要重新保存/启用。",
+                    })
               : t("confirm.deleteProviderMessage", {
                   name: confirmAction.provider.name,
                 })

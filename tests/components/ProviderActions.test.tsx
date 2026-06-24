@@ -48,4 +48,13 @@ describe("ProviderActions", () => {
 
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
+
+  it("显示清除配置按钮并触发回调", () => {
+    const onClearConfig = vi.fn();
+    renderActions({ onClearConfig });
+
+    fireEvent.click(screen.getByTitle("清除配置"));
+
+    expect(onClearConfig).toHaveBeenCalledTimes(1);
+  });
 });
