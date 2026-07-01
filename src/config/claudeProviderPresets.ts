@@ -77,7 +77,7 @@ export const providerPresets: ProviderPreset[] = [
     apiKeyUrl: "https://api.tu-zi.com",
     settingsConfig: {
       env: {
-        ANTHROPIC_BASE_URL: "https://api.tu-zi.com",
+        ANTHROPIC_BASE_URL: "https://apius.tu-zi.com",
         ANTHROPIC_AUTH_TOKEN: "",
         ANTHROPIC_API_KEY: "",
         ANTHROPIC_MODEL: "anthropic/claude-sonnet-4.6",
@@ -87,7 +87,7 @@ export const providerPresets: ProviderPreset[] = [
       },
     },
     category: "aggregator",
-    endpointCandidates: ["https://api.tu-zi.com"],
+    endpointCandidates: ["https://apius.tu-zi.com"],
     icon: "tuzi",
     theme: { icon: "tuzi" },
   },

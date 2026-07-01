@@ -790,6 +790,7 @@ impl Database {
             let provider = build_claude_official_provider(id, name, base_url, model);
             seeded += upsert_seed_provider(&tx, "claude", &provider, sort_index)?;
         }
+        migrate_claude_tuzi_route_base_url(&tx)?;
 
         for (sort_index, (id, name, website_url, base_url, env_key, model)) in
             crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
@@ -939,6 +940,53 @@ fn seed_settings_config_update_for_existing(
     app_type: &str,
     provider: &Provider,
 ) -> Result<Option<Value>, AppError> {
+    // Claude 兔子线路：把历史默认域名迁到新默认线路，同时保留用户已填密钥。
+    if app_type == "claude" && provider.id == "tuzi-route" {
+        let existing_settings_config = tx
+            .query_row(
+                "SELECT settings_config FROM providers WHERE app_type = ?1 AND id = ?2",
+                params![app_type, provider.id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let existing: Value =
+            serde_json::from_str(&existing_settings_config).unwrap_or_else(|_| json!({}));
+        let mut next = provider.settings_config.clone();
+
+        if let Some(existing_env) = existing.get("env").and_then(|value| value.as_object()) {
+            if let Some(next_env) = next.get_mut("env").and_then(|value| value.as_object_mut()) {
+                for key in [
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_AUTH_TOKEN",
+                    "ANTHROPIC_MODEL",
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                ] {
+                    if let Some(value) = existing_env.get(key) {
+                        next_env.insert(key.to_string(), value.clone());
+                    }
+                }
+
+                let existing_base_url = existing_env
+                    .get("ANTHROPIC_BASE_URL")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.trim_end_matches('/'));
+                if let Some(base_url) = existing_base_url {
+                    if base_url != "https://api.tu-zi.com" {
+                        next_env.insert(
+                            "ANTHROPIC_BASE_URL".to_string(),
+                            json!(base_url.to_string()),
+                        );
+                    }
+                }
+            }
+        }
+
+        return Ok(Some(next));
+    }
+
     // Codex: 保留用户已填的 API key，其余字段用种子数据覆盖
     if app_type == "codex"
         && crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
@@ -1017,6 +1065,54 @@ fn seed_settings_config_update_for_existing(
     }
 
     Ok(None)
+}
+
+fn migrate_claude_tuzi_route_base_url(tx: &rusqlite::Transaction<'_>) -> Result<(), AppError> {
+    let mut stmt = tx
+        .prepare(
+            "SELECT id, settings_config
+             FROM providers
+             WHERE app_type = 'claude'
+               AND name = '兔子线路'
+               AND json_extract(settings_config, '$.env.ANTHROPIC_BASE_URL') IN (
+                   'https://api.tu-zi.com',
+                   'https://api.tu-zi.com/'
+               )",
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let mut updates = Vec::new();
+    for row in rows {
+        let (id, settings_config) = row.map_err(|e| AppError::Database(e.to_string()))?;
+        let mut config: Value =
+            serde_json::from_str(&settings_config).unwrap_or_else(|_| json!({}));
+        if let Some(env) = config.get_mut("env").and_then(|value| value.as_object_mut()) {
+            env.insert(
+                "ANTHROPIC_BASE_URL".to_string(),
+                json!("https://apius.tu-zi.com"),
+            );
+            updates.push((id, config));
+        }
+    }
+    drop(stmt);
+
+    for (id, config) in updates {
+        tx.execute(
+            "UPDATE providers SET settings_config = ?1 WHERE app_type = 'claude' AND id = ?2",
+            params![
+                serde_json::to_string(&config).map_err(|e| {
+                    AppError::Database(format!("Failed to serialize settings_config: {e}"))
+                })?,
+                id,
+            ],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    }
+
+    Ok(())
 }
 
 fn ensure_seed_current_provider(

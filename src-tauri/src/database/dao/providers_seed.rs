@@ -5,7 +5,7 @@ pub(crate) const CLAUDE_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str)] = &[
     (
         "tuzi-route",
         "兔子线路",
-        "https://api.tu-zi.com",
+        "https://apius.tu-zi.com",
         "anthropic/claude-sonnet-4.6",
     ),
     (
