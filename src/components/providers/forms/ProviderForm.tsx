@@ -73,6 +73,7 @@ import {
   getCodexProviderEnvKeyFromSettings,
   hasApiKeyField,
   isCodexEnvKeyDuplicate,
+  removeCodexExperimentalBearerToken,
   setCodexBaseUrl as setCodexBaseUrlInConfig,
   setCodexEnvKey as setCodexEnvKeyInConfig,
   setCodexModelName as setCodexModelNameInConfig,
@@ -246,6 +247,31 @@ const buildPresetPrefixedName = (presetName: string, customName: string) => {
   if (!prefix) return suffix;
   if (!suffix) return `${prefix}-`;
   return suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
+};
+
+const splitPresetPrefixedName = (name: string) => {
+  const trimmed = name.trim();
+  const separatorIndex = trimmed.indexOf("-");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return null;
+  }
+  return {
+    prefix: trimmed.slice(0, separatorIndex).trim(),
+    customName: trimmed.slice(separatorIndex + 1).trim(),
+  };
+};
+
+const parseCodexAuthObject = (authString: string): Record<string, unknown> => {
+  if (!authString.trim()) return {};
+  try {
+    const parsed = JSON.parse(authString);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 };
 
 const extractCodexRouteId = (config: string): string => {
@@ -1539,9 +1565,12 @@ function ProviderFormFull({
 
     if (appId === "codex") {
       try {
+        const codexAuthObject = parseCodexAuthObject(codexAuth);
         let normalizedCodexConfig =
           category !== "official" && (codexConfig ?? "").trim()
-            ? setCodexWireApi(codexConfig ?? "", "responses")
+            ? removeCodexExperimentalBearerToken(
+                setCodexWireApi(codexConfig ?? "", "responses"),
+              )
             : (codexConfig ?? "");
         const requestedCodexEnvKey = (
           resolvedEnvKeyOverride ||
@@ -1605,12 +1634,15 @@ function ProviderFormFull({
         }
 
         const configObj: {
-          auth: {};
+          auth: Record<string, unknown>;
           config: string;
           env: { envKey: string };
           modelCatalog?: { models: CodexCatalogModel[] };
         } = {
-          auth: {},
+          auth:
+            resolvedCodexEnvKey && codexApiKey
+              ? {}
+              : codexAuthObject,
           config: normalizedCodexConfig,
           env: { envKey: resolvedCodexEnvKey },
         };
@@ -1620,7 +1652,9 @@ function ProviderFormFull({
         settingsConfig = JSON.stringify(configObj);
       } catch (err) {
         let fallbackConfig = (codexConfig ?? "").trim()
-          ? setCodexWireApi(codexConfig ?? "", "responses")
+          ? removeCodexExperimentalBearerToken(
+              setCodexWireApi(codexConfig ?? "", "responses"),
+            )
           : (codexConfig ?? "");
         const fallbackEnvKey = (
           resolvedEnvKeyOverride ||
@@ -1634,7 +1668,7 @@ function ProviderFormFull({
           fallbackConfig = setCodexEnvKeyInConfig(fallbackConfig, fallbackEnvKey);
         }
         settingsConfig = JSON.stringify({
-          auth: {},
+          auth: parseCodexAuthObject(codexAuth),
           config: fallbackConfig,
           env: {
             envKey: fallbackEnvKey,

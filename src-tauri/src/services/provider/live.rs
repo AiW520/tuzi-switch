@@ -351,22 +351,6 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         }
     }
 
-    let mut profile_config_str = config_str.to_string();
-    let token = crate::codex_config::extract_codex_auth_api_key(auth)
-        .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
-        .or_else(|| {
-            if !env_key.is_empty() {
-                crate::codex_config::read_managed_env_key(&env_key)
-            } else {
-                None
-            }
-        });
-    if let Some(token) = &token {
-        if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(&profile_config_str, token) {
-            profile_config_str = updated;
-        }
-    }
-
     let model =
         codex_top_level_string_field(config_str, "model").unwrap_or_else(|| "gpt-5.5".to_string());
     let effort = codex_top_level_string_field(config_str, "model_reasoning_effort")
@@ -383,7 +367,7 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         Some(config_str),
     )?;
     crate::codex_config::write_codex_live_config_atomic(Some(&updated))?;
-    crate::codex_config::write_codex_profile_config(&provider.name, &profile_config_str)?;
+    crate::codex_config::write_codex_profile_config(&provider.name, config_str)?;
     Ok(())
 }
 
@@ -1130,26 +1114,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 }
             }
 
-            let mut profile_config_str = config_str.to_string();
-            let token = crate::codex_config::extract_codex_auth_api_key(auth)
-                .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
-                .or_else(|| {
-                    if !env_key.is_empty() {
-                        crate::codex_config::read_managed_env_key(&env_key)
-                    } else {
-                        None
-                    }
-                });
-            if let Some(token) = &token {
-                if let Ok(updated) = crate::codex_config::set_codex_experimental_bearer_token(
-                    &profile_config_str,
-                    token,
-                ) {
-                    profile_config_str = updated;
-                }
-            }
-
-            write_codex_profile_config(&provider.name, &profile_config_str)?;
+            write_codex_profile_config(&provider.name, config_str)?;
             let existing = read_codex_config_text().unwrap_or_default();
 
             let model = codex_top_level_string_field(config_str, "model")
@@ -1172,28 +1137,8 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             )?;
 
             // Switch top-level fields (model_provider + model + effort)
-            let mut final_config =
+            let final_config =
                 switch_codex_profile(&config_with_route, &route_id, Some(&model), Some(&effort))?;
-
-            // Restore experimental_bearer_token if it exists in the provider's config,
-            // or fetch it from the env vars to guarantee Codex auth bypass
-            let token = crate::codex_config::extract_codex_auth_api_key(auth)
-                .or_else(|| crate::codex_config::extract_codex_experimental_bearer_token(config_str))
-                .or_else(|| {
-                    if !env_key.is_empty() {
-                        crate::codex_config::read_managed_env_key(&env_key)
-                    } else {
-                        None
-                    }
-                });
-
-            if let Some(token) = token {
-                if let Ok(updated) =
-                    crate::codex_config::set_codex_experimental_bearer_token(&final_config, &token)
-                {
-                    final_config = updated;
-                }
-            }
 
             write_codex_provider_live_with_catalog(
                 &provider.settings_config,

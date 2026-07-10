@@ -30,6 +30,7 @@ const CODEX_RESERVED_MODEL_PROVIDER_IDS: &[&str] = &[
 
 const MANAGED_ENV_BEGIN: &str = "# >>> tuzi-switch codex env >>>";
 const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
+const CODEX_ENV_MANAGED_MARKER_PREFIX: &str = "# tuzi-switch managed env:";
 
 fn is_valid_env_key_name(env_key: &str) -> bool {
     let mut chars = env_key.chars();
@@ -47,6 +48,40 @@ fn validate_env_key_name(env_key: &str) -> Result<(), AppError> {
     Err(AppError::Message(format!(
         "Invalid Codex env_key name: {env_key}"
     )))
+}
+
+fn shell_single_quote(value: &str) -> Result<String, AppError> {
+    if value.contains('\0') || value.contains('\n') || value.contains('\r') {
+        return Err(AppError::InvalidInput(
+            "Codex env value must not contain newline or NUL".to_string(),
+        ));
+    }
+    Ok(format!("'{}'", value.replace('\'', "'\\''")))
+}
+
+fn shell_unquote_value(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if !value.starts_with('\'') {
+        return Some(value.trim_matches('"').to_string());
+    }
+
+    let mut result = String::new();
+    let mut rest = value;
+    loop {
+        let after_open = rest.strip_prefix('\'')?;
+        let close_index = after_open.find('\'')?;
+        result.push_str(&after_open[..close_index]);
+        rest = &after_open[close_index + 1..];
+        if rest.is_empty() {
+            return Some(result);
+        }
+        if let Some(after_escape) = rest.strip_prefix("\\'") {
+            result.push('\'');
+            rest = after_escape;
+            continue;
+        }
+        return None;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +140,17 @@ fn get_default_shell_rc_path() -> PathBuf {
     }
 }
 
+fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for path in paths {
+        if seen.insert(path.clone()) {
+            result.push(path);
+        }
+    }
+    result
+}
+
 fn shell_rc_candidates() -> Vec<PathBuf> {
     if cfg!(target_os = "windows") {
         return Vec::new();
@@ -112,15 +158,22 @@ fn shell_rc_candidates() -> Vec<PathBuf> {
 
     let home = get_home_dir();
     let primary = get_default_shell_rc_path();
-    let mut candidates = vec![
+    dedup_paths(vec![
         primary,
         home.join(".zshrc"),
         home.join(".bashrc"),
         home.join(".bash_profile"),
         home.join(".profile"),
-    ];
-    candidates.dedup();
-    candidates
+    ])
+}
+
+fn existing_shell_rc_candidates() -> Vec<PathBuf> {
+    dedup_paths(
+        shell_rc_candidates()
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect(),
+    )
 }
 
 fn get_codex_env_file_path() -> PathBuf {
@@ -171,17 +224,20 @@ fn write_codex_env_file(env_map: &HashMap<String, String>) -> Result<(), AppErro
 }
 
 pub fn read_managed_env_block() -> HashMap<String, String> {
-    let mut result = HashMap::new();
     if cfg!(target_os = "windows") {
-        result.extend(read_windows_env_keys());
+        return read_windows_env_keys();
     }
+    let mut managed = HashMap::new();
+    let mut codex = HashMap::new();
     for rc_path in shell_rc_candidates() {
         let Ok(content) = fs::read_to_string(&rc_path) else {
             continue;
         };
-        result.extend(parse_managed_block(&content));
-        result.extend(parse_codex_env_section(&content));
+        managed.extend(parse_managed_block(&content));
+        codex.extend(parse_codex_env_section(&content));
     }
+    let mut result = managed;
+    result.extend(codex);
     // Codex desktop/IDE may not inherit shell startup files, so mirror keys into
     // `~/.codex/.env` and prefer that copy when present.
     result.extend(read_codex_env_file());
@@ -198,8 +254,24 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
     if cfg!(target_os = "windows") {
         return std::env::var(env_key).ok().filter(|v| !v.is_empty());
     }
-    if let Some(value) = read_managed_env_block().remove(env_key) {
-        return Some(value);
+    for rc_path in shell_rc_candidates() {
+        if let Some(value) = fs::read_to_string(&rc_path)
+            .ok()
+            .and_then(|content| parse_codex_env_section(&content).remove(env_key))
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value);
+        }
+    }
+
+    for rc_path in shell_rc_candidates() {
+        if let Some(value) = fs::read_to_string(&rc_path)
+            .ok()
+            .and_then(|content| parse_managed_block(&content).remove(env_key))
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value);
+        }
     }
 
     for rc_path in shell_rc_candidates() {
@@ -222,15 +294,21 @@ pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError>
         return write_windows_env_key(env_key, value);
     }
     let rc_path = get_shell_rc_path();
+    for path in existing_shell_rc_candidates()
+        .into_iter()
+        .filter(|path| path != &rc_path)
+    {
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let migrated = migrate_managed_env_block_to_codex_section(&content);
+        if migrated != content {
+            atomic_write(&path, migrated.as_bytes())?;
+        }
+    }
     let content = fs::read_to_string(&rc_path).unwrap_or_default();
-    let new_content = if has_codex_env_section(&content) {
-        let content = remove_managed_env_block_key_from_content(&content, env_key);
-        upsert_codex_env_section_key(&content, env_key, value)
-    } else {
-        let mut env_map = parse_managed_block(&content);
-        env_map.insert(env_key.to_string(), value.to_string());
-        rebuild_rc_with_managed_block(&content, &env_map)
-    };
+    let content = migrate_managed_env_block_to_codex_section(&content);
+    let new_content = upsert_codex_env_section_key(&content, env_key, value)?;
     atomic_write(&rc_path, new_content.as_bytes())
 }
 
@@ -244,21 +322,21 @@ pub fn remove_managed_env_key(env_key: &str) -> Result<(), AppError> {
     if cfg!(target_os = "windows") {
         return remove_windows_env_key(env_key);
     }
-    let rc_path = get_shell_rc_path();
-    let content = match fs::read_to_string(&rc_path) {
-        Ok(c) => c,
-        Err(_) => return Ok(()),
-    };
-    let mut env_map = parse_managed_block(&content);
-    if env_map.remove(env_key).is_none() {
-        if !has_codex_env_section(&content) {
-            return Ok(());
+    for path in existing_shell_rc_candidates() {
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let migrated = migrate_managed_env_block_to_codex_section(&content);
+        let new_content = if has_codex_env_section(&migrated) {
+            remove_codex_env_section_key(&migrated, env_key)
+        } else {
+            migrated
+        };
+        if new_content != content {
+            atomic_write(&path, new_content.as_bytes())?;
         }
-        let new_content = remove_codex_env_section_key(&content, env_key);
-        return atomic_write(&rc_path, new_content.as_bytes());
     }
-    let new_content = rebuild_rc_with_managed_block(&content, &env_map);
-    atomic_write(&rc_path, new_content.as_bytes())
+    Ok(())
 }
 
 fn parse_managed_block(content: &str) -> HashMap<String, String> {
@@ -281,12 +359,49 @@ fn parse_managed_block(content: &str) -> HashMap<String, String> {
     result
 }
 
-fn remove_managed_env_block_key_from_content(content: &str, env_key: &str) -> String {
-    let mut env_map = parse_managed_block(content);
-    if env_map.remove(env_key).is_none() {
-        return content.to_string();
+fn remove_managed_env_block_from_content(content: &str) -> String {
+    let mut lines = Vec::new();
+    let mut in_block = false;
+
+    for line in content.lines() {
+        if line.trim() == MANAGED_ENV_BEGIN {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if line.trim() == MANAGED_ENV_END {
+                in_block = false;
+            }
+            continue;
+        }
+        lines.push(line.to_string());
     }
-    rebuild_rc_with_managed_block(content, &env_map)
+
+    finish_shell_rc_lines(lines, content.ends_with('\n'))
+}
+
+fn migrate_managed_env_block_to_codex_section(content: &str) -> String {
+    let env_map = parse_managed_block(content);
+    if env_map.is_empty() {
+        return remove_managed_env_block_from_content(content);
+    }
+
+    let mut result = remove_managed_env_block_from_content(content);
+    let existing_codex_env = parse_codex_env_section(&result);
+    let mut keys: Vec<String> = env_map.keys().cloned().collect();
+    keys.sort();
+    for key in keys {
+        if existing_codex_env.contains_key(&key) {
+            continue;
+        }
+        if let Some(value) = env_map.get(&key) {
+            let Ok(new_result) = upsert_codex_env_section_key(&result, &key, value) else {
+                return content.to_string();
+            };
+            result = new_result;
+        }
+    }
+    result
 }
 
 fn parse_export_line(line: &str) -> Option<(String, String)> {
@@ -296,12 +411,28 @@ fn parse_export_line(line: &str) -> Option<(String, String)> {
     if !is_valid_env_key_name(key) {
         return None;
     }
-    let val = val_raw
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_string();
+    let val = shell_unquote_value(val_raw)?;
     Some((key.to_string(), val))
+}
+
+fn codex_env_managed_marker(env_key: &str) -> String {
+    format!("{CODEX_ENV_MANAGED_MARKER_PREFIX} {env_key}")
+}
+
+fn managed_marker_key(line: &str) -> Option<&str> {
+    let key = line
+        .trim()
+        .strip_prefix(CODEX_ENV_MANAGED_MARKER_PREFIX)?
+        .trim();
+    is_valid_env_key_name(key).then_some(key)
+}
+
+fn is_managed_marker_line(line: &str) -> bool {
+    managed_marker_key(line).is_some()
+}
+
+fn is_managed_marker_for_key(line: &str, env_key: &str) -> bool {
+    managed_marker_key(line).is_some_and(|key| key == env_key)
 }
 
 fn is_codex_env_section_header(line: &str) -> bool {
@@ -333,6 +464,7 @@ fn find_codex_env_section_range(lines: &[&str]) -> Option<(usize, usize)> {
         if trimmed.starts_with('#')
             && !is_commented_export_line(line)
             && !is_codex_env_section_header(line)
+            && !is_managed_marker_line(line)
         {
             end = index;
             break;
@@ -361,7 +493,15 @@ fn parse_codex_env_section(content: &str) -> HashMap<String, String> {
     result
 }
 
-fn upsert_codex_env_section_key(content: &str, env_key: &str, value: &str) -> String {
+fn upsert_codex_env_section_key(
+    content: &str,
+    env_key: &str,
+    value: &str,
+) -> Result<String, AppError> {
+    validate_env_key_name(env_key)?;
+    let quoted_value = shell_single_quote(value)?;
+    let replacement = format!("export {env_key}={quoted_value}");
+    let marker = codex_env_managed_marker(env_key);
     let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
     let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
     let Some((start, end)) = find_codex_env_section_range(&borrowed) else {
@@ -370,20 +510,26 @@ fn upsert_codex_env_section_key(content: &str, env_key: &str, value: &str) -> St
             result.push('\n');
         }
         result.push_str("# Codex\n");
-        result.push_str(&format!("export {env_key}={value}\n"));
-        return result;
+        result.push_str(&replacement);
+        result.push('\n');
+        result.push_str(&marker);
+        result.push('\n');
+        return Ok(result);
     };
 
-    let replacement = format!("export {env_key}={value}");
-    for line in lines.iter_mut().take(end).skip(start + 1) {
-        if parse_export_line(line).is_some_and(|(key, _)| key == env_key) {
-            *line = replacement;
-            return finish_shell_rc_lines(lines, content.ends_with('\n'));
+    for index in start + 1..end {
+        if parse_export_line(&lines[index]).is_some_and(|(key, _)| key == env_key) {
+            lines[index] = replacement;
+            if index + 1 >= lines.len() || !is_managed_marker_for_key(&lines[index + 1], env_key) {
+                lines.insert(index + 1, marker);
+            }
+            return Ok(finish_shell_rc_lines(lines, content.ends_with('\n')));
         }
     }
 
     lines.insert(end, replacement);
-    finish_shell_rc_lines(lines, content.ends_with('\n'))
+    lines.insert(end + 1, marker);
+    Ok(finish_shell_rc_lines(lines, content.ends_with('\n')))
 }
 
 fn remove_codex_env_section_key(content: &str, env_key: &str) -> String {
@@ -405,7 +551,10 @@ fn remove_codex_env_section_key(content: &str, env_key: &str) -> String {
                     .then_some(index)
             })
     {
-        lines.remove(index);
+        if index + 1 < lines.len() && is_managed_marker_for_key(&lines[index + 1], env_key) {
+            lines.remove(index + 1);
+            lines.remove(index);
+        }
     }
 
     finish_shell_rc_lines(lines, content.ends_with('\n'))
@@ -747,6 +896,9 @@ fn build_model_provider_section(
         table["env_key"] = toml_edit::value(env_key);
     }
 
+    table.remove("experimental_bearer_token");
+    doc.as_table_mut().remove("experimental_bearer_token");
+
     extract_model_provider_section_text(&doc.to_string(), route_id).ok_or_else(|| {
         AppError::Message(format!(
             "Failed to render Codex provider section for '{route_id}'"
@@ -801,6 +953,39 @@ pub fn remove_route_from_config(config_text: &str, route_id: &str) -> String {
         result.push('\n');
     }
     result
+}
+
+/// Remove a tuzi-switch managed Codex provider route from `config.toml`.
+///
+/// The official Codex config keeps the active provider in the top-level
+/// `model_provider` key. When it points at the removed route, leave the key in
+/// place but clear it, matching the UI's "no active provider" state.
+pub fn clear_codex_route_from_config(
+    config_text: &str,
+    route_id: &str,
+) -> Result<String, AppError> {
+    let mut cleaned = remove_route_from_config(config_text, route_id);
+    if cleaned.trim().is_empty() {
+        return Ok(cleaned);
+    }
+
+    let mut doc = cleaned
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("TOML parse error: {e}")))?;
+
+    let active_route = doc
+        .get("model_provider")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if active_route == route_id {
+        doc["model_provider"] = toml_edit::value("");
+        cleaned = doc.to_string();
+    }
+
+    if !cleaned.ends_with('\n') {
+        cleaned.push('\n');
+    }
+    Ok(cleaned)
 }
 
 fn remove_section(lines: &[String], header: &str) -> Vec<String> {
@@ -1088,6 +1273,14 @@ pub fn write_codex_profile_config(profile_name: &str, config_text: &str) -> Resu
     write_text_file(&get_codex_profile_config_path(profile_name), &config_text)
 }
 
+pub fn delete_codex_profile_config(profile_name: &str) -> Result<(), AppError> {
+    let path = get_codex_profile_config_path(profile_name);
+    if path.exists() {
+        delete_file(&path)?;
+    }
+    Ok(())
+}
+
 /// 删除 Codex 供应商配置文件
 #[allow(dead_code)]
 pub fn delete_codex_provider_config(
@@ -1361,49 +1554,7 @@ pub fn extract_codex_experimental_bearer_token(config_text: &str) -> Option<Stri
         .map(str::to_string)
 }
 
-pub fn set_codex_experimental_bearer_token(
-    config_text: &str,
-    token: &str,
-) -> Result<String, AppError> {
-    if config_text.trim().is_empty() {
-        return Err(AppError::localized(
-            "provider.codex.config.missing",
-            "Codex 第三方供应商缺少 config.toml 配置，无法写入 bearer token",
-            "Codex third-party provider is missing config.toml, cannot write bearer token",
-        ));
-    }
-
-    let mut doc = config_text
-        .parse::<DocumentMut>()
-        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
-
-    let Some(provider_id) = active_codex_model_provider_id(&doc) else {
-        doc["experimental_bearer_token"] = toml_edit::value(token);
-        return Ok(doc.to_string());
-    };
-
-    if !is_custom_codex_model_provider_id(&provider_id) {
-        doc["experimental_bearer_token"] = toml_edit::value(token);
-        return Ok(doc.to_string());
-    }
-
-    if let Some(provider_table) = doc
-        .get_mut("model_providers")
-        .and_then(|item| item.as_table_mut())
-        .and_then(|table| table.get_mut(provider_id.as_str()))
-        .and_then(|item| item.as_table_mut())
-    {
-        provider_table["experimental_bearer_token"] = toml_edit::value(token);
-        // Remove env_key so Codex doesn't crash trying to read a missing environment variable
-        provider_table.remove("env_key");
-        return Ok(doc.to_string());
-    }
-
-    doc["experimental_bearer_token"] = toml_edit::value(token);
-    Ok(doc.to_string())
-}
-
-fn remove_codex_experimental_bearer_token(config_text: &str) -> Result<String, AppError> {
+pub fn remove_codex_experimental_bearer_token(config_text: &str) -> Result<String, AppError> {
     if config_text.trim().is_empty() || !config_text.contains("experimental_bearer_token") {
         return Ok(config_text.to_string());
     }
@@ -1412,14 +1563,14 @@ fn remove_codex_experimental_bearer_token(config_text: &str) -> Result<String, A
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
 
-    if let Some(provider_id) = active_codex_model_provider_id(&doc) {
-        if let Some(provider_table) = doc
-            .get_mut("model_providers")
-            .and_then(|item| item.as_table_mut())
-            .and_then(|table| table.get_mut(provider_id.as_str()))
-            .and_then(|item| item.as_table_mut())
-        {
-            provider_table.remove("experimental_bearer_token");
+    if let Some(providers) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+    {
+        for (_, item) in providers.iter_mut() {
+            if let Some(provider_table) = item.as_table_mut() {
+                provider_table.remove("experimental_bearer_token");
+            }
         }
     }
 
@@ -1439,14 +1590,11 @@ fn prepare_codex_provider_live_config_with_env_reader(
     config_text: &str,
     read_env_key: impl Fn(&str) -> Option<String>,
 ) -> Result<String, AppError> {
-    let token = extract_codex_auth_api_key(auth)
+    let _ = extract_codex_auth_api_key(auth)
         .or_else(|| extract_codex_env_key(config_text).and_then(|env_key| read_env_key(&env_key)))
         .or_else(|| extract_codex_experimental_bearer_token(config_text));
 
-    match token {
-        Some(token) => set_codex_experimental_bearer_token(config_text, &token),
-        None => Ok(config_text.to_string()),
-    }
+    remove_codex_experimental_bearer_token(config_text)
 }
 
 fn stable_codex_model_provider_id_from_config(config_text: &str) -> Option<String> {
@@ -1821,6 +1969,14 @@ pub fn write_codex_live_for_provider(
     let Some(config_text) = config_text_opt else {
         return write_codex_live_config_atomic(None);
     };
+
+    if let Some(env_key) = extract_codex_env_key(config_text) {
+        if let Some(token) = extract_codex_auth_api_key(auth)
+            .or_else(|| extract_codex_experimental_bearer_token(config_text))
+        {
+            write_managed_env_key(&env_key, &token)?;
+        }
+    }
 
     let live_config = prepare_codex_provider_live_config(auth, config_text)?;
     write_codex_live_config_atomic(Some(&live_config))
