@@ -13,7 +13,9 @@ import {
   setCodexModelName,
   setCodexWireApi,
   isCodexEnvKeyDuplicate,
+  migrateCodexExperimentalBearerToken,
   updateCodexExperimentalBearerToken,
+  removeCodexExperimentalBearerToken,
 } from "@/utils/providerConfigUtils";
 
 describe("Codex TOML utils", () => {
@@ -530,6 +532,93 @@ describe("Codex TOML utils", () => {
 
     expect(updateCodexExperimentalBearerToken(input, "new-token")).toBe(input);
     expect(updateCodexExperimentalBearerToken(input, "")).toBe(input);
+  });
+
+  it("removes experimental_bearer_token from top-level and active provider sections", () => {
+    const input = [
+      'model_provider = "active"',
+      'experimental_bearer_token = "top-level-token"',
+      "",
+      "[model_providers.active]",
+      'name = "Active"',
+      'env_key = "ACTIVE_CODEX_API_KEY"',
+      'experimental_bearer_token = "provider-token"',
+      "",
+      "[model_providers.inactive]",
+      'experimental_bearer_token = "inactive-token"',
+      "",
+    ].join("\n");
+
+    const output = removeCodexExperimentalBearerToken(input);
+
+    expect(output).not.toMatch(/^\s*experimental_bearer_token\s*=/m);
+    expect(output).toContain('env_key = "ACTIVE_CODEX_API_KEY"');
+    expect(output).not.toContain("provider-token");
+    expect(output).not.toContain("inactive-token");
+  });
+
+  it("migrates legacy experimental_bearer_token into auth api key and removes the token from config", () => {
+    const config = [
+      'model_provider = "active"',
+      "",
+      "[model_providers.active]",
+      'name = "Active"',
+      'experimental_bearer_token = "legacy-token"',
+      "",
+    ].join("\n");
+
+    const migrated = migrateCodexExperimentalBearerToken({
+      config,
+      auth: {},
+      env: {},
+    });
+
+    expect(migrated.migratedApiKey).toBe("legacy-token");
+    expect(migrated.auth).toEqual({ OPENAI_API_KEY: "legacy-token" });
+    expect(migrated.config).not.toMatch(/experimental_bearer_token/);
+    expect(extractCodexExperimentalBearerToken(migrated.config)).toBeUndefined();
+  });
+
+  it("does not overwrite existing auth or env_key when migrating legacy experimental_bearer_token", () => {
+    const configWithLegacyToken = [
+      'model_provider = "active"',
+      "",
+      "[model_providers.active]",
+      'name = "Active"',
+      'experimental_bearer_token = "legacy-token"',
+      "",
+    ].join("\n");
+
+    const configWithEnvKey = [
+      'model_provider = "active"',
+      "",
+      "[model_providers.active]",
+      'name = "Active"',
+      'env_key = "ACTIVE_CODEX_API_KEY"',
+      'experimental_bearer_token = "legacy-token"',
+      "",
+    ].join("\n");
+
+    const envKeyResult = migrateCodexExperimentalBearerToken({
+      config: configWithEnvKey,
+      auth: {},
+      env: {},
+    });
+
+    expect(envKeyResult.migratedApiKey).toBeUndefined();
+    expect(envKeyResult.auth).toEqual({});
+    expect(envKeyResult.config).not.toMatch(/experimental_bearer_token/);
+    expect(getCodexEnvKey(envKeyResult.config)).toBe("ACTIVE_CODEX_API_KEY");
+
+    const authResult = migrateCodexExperimentalBearerToken({
+      config: configWithLegacyToken,
+      auth: { OPENAI_API_KEY: "fresh-key" },
+      env: {},
+    });
+
+    expect(authResult.migratedApiKey).toBeUndefined();
+    expect(authResult.auth).toEqual({ OPENAI_API_KEY: "fresh-key" });
+    expect(authResult.config).not.toMatch(/experimental_bearer_token/);
   });
 
   it("reads, writes, and removes top-level model_catalog_json", () => {

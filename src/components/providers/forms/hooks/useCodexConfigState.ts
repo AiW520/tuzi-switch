@@ -6,6 +6,8 @@ import {
   setCodexModelName as setCodexModelNameInConfig,
   getCodexEnvKey,
   getCodexProviderEnvKeyFromSettings,
+  migrateCodexExperimentalBearerToken,
+  removeCodexExperimentalBearerToken,
 } from "@/utils/providerConfigUtils";
 import { normalizeTomlText } from "@/utils/textNormalization";
 import { invoke } from "@tauri-apps/api/core";
@@ -131,8 +133,6 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
     const config = initialData.settingsConfig;
     if (typeof config === "object" && config !== null) {
-      setCodexAuthState("{}");
-
       let configStr =
         typeof (config as any).config === "string"
           ? (config as any).config
@@ -140,6 +140,14 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
       // Migrate legacy format: if no [profiles.xxx] section, auto-generate it
       configStr = migrateLegacyConfig(configStr);
+
+      const migratedLegacyToken = migrateCodexExperimentalBearerToken({
+        config: configStr,
+        auth: (config as any).auth,
+        env: (config as any).env,
+      });
+      configStr = migratedLegacyToken.config;
+      setCodexAuthState(JSON.stringify(migratedLegacyToken.auth));
 
       setCodexConfigState(configStr);
       const modelCatalog = (config as any).modelCatalog;
@@ -183,10 +191,13 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
         invoke<string | null>("read_codex_env_key", { envKey: resolvedEnvKey })
           .then((key) => {
             if (key) setCodexApiKey(key);
+            else if (migratedLegacyToken.migratedApiKey) {
+              setCodexApiKey(migratedLegacyToken.migratedApiKey);
+            }
           })
           .catch(() => {
             // Fallback: legacy auth field
-            const auth = (config as any).auth;
+            const auth = migratedLegacyToken.auth;
             if (
               auth?.OPENAI_API_KEY &&
               typeof auth.OPENAI_API_KEY === "string"
@@ -196,7 +207,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
           });
       } else {
         // Legacy provider without envKey
-        const auth = (config as any).auth;
+        const auth = migratedLegacyToken.auth;
         if (auth?.OPENAI_API_KEY && typeof auth.OPENAI_API_KEY === "string") {
           setCodexApiKey(auth.OPENAI_API_KEY);
         }
@@ -284,7 +295,9 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
   const handleCodexConfigChange = useCallback(
     (value: string) => {
-      const normalized = normalizeTomlText(value);
+      const normalized = removeCodexExperimentalBearerToken(
+        normalizeTomlText(value),
+      );
       setCodexConfig(normalized);
 
       if (!isUpdatingCodexBaseUrlRef.current) {

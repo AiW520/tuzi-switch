@@ -81,6 +81,27 @@ pub fn remove_provider_from_live_config(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn clear_provider_live_config(
+    state: tauri::State<'_, AppState>,
+    app: String,
+    id: String,
+) -> Result<bool, String> {
+    let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    ProviderService::clear_live_config(state.inner(), app_type, &id)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub fn clear_provider_live_config_test_hook(
+    state: &AppState,
+    app_type: AppType,
+    id: &str,
+) -> Result<bool, AppError> {
+    ProviderService::clear_live_config(state, app_type, id).map(|_| true)
+}
+
 fn switch_provider_internal(
     state: &AppState,
     app_type: AppType,

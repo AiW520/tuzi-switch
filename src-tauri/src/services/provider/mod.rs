@@ -10,7 +10,7 @@ mod usage;
 use indexmap::IndexMap;
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::app_config::AppType;
 use crate::error::AppError;
@@ -1350,6 +1350,155 @@ impl ProviderService {
         Ok(())
     }
 
+    pub fn clear_live_config(
+        state: &AppState,
+        app_type: AppType,
+        id: &str,
+    ) -> Result<(), AppError> {
+        match app_type {
+            AppType::Claude => Self::clear_claude_live_config(state, id),
+            AppType::Codex => Self::clear_codex_live_config(state, id),
+            AppType::Gemini => Self::clear_gemini_live_config(state, id),
+            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
+                Self::remove_from_live_config(state, app_type, id)
+            }
+            _ => Err(AppError::Message(format!(
+                "App {} does not support clear live config",
+                app_type.as_str()
+            ))),
+        }
+    }
+
+    fn clear_codex_live_config(state: &AppState, id: &str) -> Result<(), AppError> {
+        let mut provider = state
+            .db
+            .get_provider_by_id(id, AppType::Codex.as_str())?
+            .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+
+        let config_text = provider
+            .settings_config
+            .get("config")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let route_id = codex_route_id_from_config(config_text)
+            .or_else(|| (!provider.id.trim().is_empty()).then(|| provider.id.clone()))
+            .ok_or_else(|| AppError::Message("Codex 供应商缺少 model_provider".to_string()))?;
+        let env_keys = codex_env_keys_for_clear(config_text, &provider.settings_config);
+
+        let live_config = crate::codex_config::read_codex_config_text()?;
+        let cleared_live =
+            crate::codex_config::clear_codex_route_from_config(&live_config, &route_id)?;
+        crate::codex_config::write_codex_live_config_atomic(Some(&cleared_live))?;
+        crate::codex_config::delete_codex_profile_config(&provider.name)?;
+
+        for env_key in &env_keys {
+            crate::codex_config::remove_managed_env_key(env_key)?;
+        }
+
+        provider.settings_config =
+            clear_codex_provider_settings_config(&provider.settings_config, &route_id)?;
+        Self::set_provider_live_config_managed(&mut provider, false);
+        state.db.save_provider(AppType::Codex.as_str(), &provider)?;
+
+        Self::clear_current_if_matches(state, AppType::Codex, id)?;
+
+        Ok(())
+    }
+
+    fn clear_claude_live_config(state: &AppState, id: &str) -> Result<(), AppError> {
+        let mut provider = state
+            .db
+            .get_provider_by_id(id, AppType::Claude.as_str())?
+            .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+
+        let env_values = provider_env_values(&provider.settings_config);
+        let settings_path = crate::config::get_claude_settings_path();
+        if settings_path.exists() {
+            let mut live_settings = crate::config::read_json_file::<Value>(&settings_path)?;
+            remove_json_env_values_if_matching(&mut live_settings, &env_values);
+            crate::config::write_json_file(&settings_path, &live_settings)?;
+        }
+
+        provider.settings_config =
+            clear_env_based_provider_settings_config(&provider.settings_config);
+        state
+            .db
+            .save_provider(AppType::Claude.as_str(), &provider)?;
+        Self::clear_current_if_matches(state, AppType::Claude, id)?;
+
+        Ok(())
+    }
+
+    fn clear_gemini_live_config(state: &AppState, id: &str) -> Result<(), AppError> {
+        let mut provider = state
+            .db
+            .get_provider_by_id(id, AppType::Gemini.as_str())?
+            .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+
+        let env_values = provider_env_values(&provider.settings_config);
+        let config_values = provider
+            .settings_config
+            .get("config")
+            .and_then(|value| value.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let settings_path = crate::gemini_config::get_gemini_settings_path();
+        let mut live_settings = if settings_path.exists() && !config_values.is_empty() {
+            Some(crate::config::read_json_file::<Value>(&settings_path)?)
+        } else {
+            None
+        };
+
+        let mut env_map = crate::gemini_config::read_gemini_env()?;
+        let before_len = env_map.len();
+        for (key, value) in &env_values {
+            if env_map
+                .get(key)
+                .is_some_and(|live_value| live_value == value)
+            {
+                env_map.remove(key);
+            }
+        }
+        if env_map.len() != before_len {
+            crate::gemini_config::write_gemini_env_atomic(&env_map)?;
+        }
+
+        if let Some(live_settings) = live_settings.as_mut() {
+            remove_json_top_level_values_if_matching(live_settings, &config_values);
+            crate::config::write_json_file(&settings_path, &live_settings)?;
+        }
+
+        provider.settings_config =
+            clear_env_based_provider_settings_config(&provider.settings_config);
+        state
+            .db
+            .save_provider(AppType::Gemini.as_str(), &provider)?;
+        Self::clear_current_if_matches(state, AppType::Gemini, id)?;
+
+        Ok(())
+    }
+
+    fn clear_current_if_matches(
+        state: &AppState,
+        app_type: AppType,
+        id: &str,
+    ) -> Result<(), AppError> {
+        if crate::settings::get_current_provider(&app_type).as_deref() == Some(id) {
+            crate::settings::set_current_provider(&app_type, None)?;
+        }
+        if state.db.get_current_provider(app_type.as_str())?.as_deref() == Some(id) {
+            state
+                .db
+                .clear_current_provider_if_matches(app_type.as_str(), id)?;
+        }
+        Ok(())
+    }
+
     /// Switch to a provider
     ///
     /// Switch flow:
@@ -2402,6 +2551,156 @@ pub(crate) fn normalize_claude_models_in_value(settings: &mut Value) -> bool {
     }
 
     changed
+}
+
+fn codex_route_id_from_config(config_text: &str) -> Option<String> {
+    let doc = config_text.parse::<toml_edit::DocumentMut>().ok()?;
+    doc.get("model_provider")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn codex_env_key_from_config(config_text: &str) -> Option<String> {
+    let doc = config_text.parse::<toml_edit::DocumentMut>().ok()?;
+    let route_id = doc.get("model_provider")?.as_str()?.trim();
+    if route_id.is_empty() {
+        return None;
+    }
+
+    doc.get("model_providers")
+        .and_then(|value| value.get(route_id))
+        .and_then(|value| value.get("env_key"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn codex_env_key_from_settings(settings: &Value) -> Option<String> {
+    settings
+        .get("env")
+        .and_then(|value| value.get("envKey"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn codex_env_keys_for_clear(config_text: &str, settings: &Value) -> Vec<String> {
+    let mut env_keys = Vec::new();
+    for env_key in [
+        codex_env_key_from_config(config_text),
+        codex_env_key_from_settings(settings),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !env_keys.iter().any(|existing| existing == &env_key) {
+            env_keys.push(env_key);
+        }
+    }
+    env_keys
+}
+
+fn clear_codex_provider_settings_config(
+    settings: &Value,
+    route_id: &str,
+) -> Result<Value, AppError> {
+    let mut next = settings.clone();
+    if !next.is_object() {
+        return Ok(json!({}));
+    }
+
+    let root = next.as_object_mut().expect("checked object");
+    root.remove("auth");
+    root.remove("env");
+    root.remove("apiKey");
+    root.remove("api_key");
+
+    let config_text = root
+        .get("config")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if config_text.trim().is_empty() {
+        root.remove("config");
+    } else {
+        let cleared = crate::codex_config::clear_codex_route_from_config(config_text, route_id)?;
+        if cleared.trim().is_empty() {
+            root.remove("config");
+        } else {
+            root.insert("config".to_string(), Value::String(cleared));
+        }
+    }
+
+    Ok(next)
+}
+
+fn provider_env_values(settings: &Value) -> Vec<(String, String)> {
+    settings
+        .get("env")
+        .and_then(|value| value.as_object())
+        .map(|env| {
+            env.iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn remove_json_env_values_if_matching(settings: &mut Value, entries: &[(String, String)]) {
+    if entries.is_empty() {
+        return;
+    }
+
+    let Some(env) = settings
+        .get_mut("env")
+        .and_then(|value| value.as_object_mut())
+    else {
+        return;
+    };
+    for (key, expected_value) in entries {
+        if env
+            .get(key)
+            .and_then(|value| value.as_str())
+            .is_some_and(|live_value| live_value == expected_value)
+        {
+            env.remove(key);
+        }
+    }
+    if env.is_empty() {
+        if let Some(root) = settings.as_object_mut() {
+            root.remove("env");
+        }
+    }
+}
+
+fn remove_json_top_level_values_if_matching(settings: &mut Value, entries: &[(String, Value)]) {
+    let Some(root) = settings.as_object_mut() else {
+        return;
+    };
+    for (key, expected_value) in entries {
+        if root
+            .get(key)
+            .is_some_and(|live_value| live_value == expected_value)
+        {
+            root.remove(key);
+        }
+    }
+}
+
+fn clear_env_based_provider_settings_config(settings: &Value) -> Value {
+    let mut next = settings.clone();
+    if let Some(root) = next.as_object_mut() {
+        root.remove("env");
+        root.remove("apiKey");
+        root.remove("api_key");
+        root.remove("config");
+    }
+    next
 }
 
 #[derive(Debug, Clone, Deserialize)]

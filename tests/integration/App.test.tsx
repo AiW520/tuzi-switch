@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { providersApi } from "@/lib/api/providers";
 import {
+  deleteProvider as deleteProviderState,
   resetProviderState,
   setCurrentProviderId,
   setLiveProviderIds,
@@ -27,8 +28,11 @@ vi.mock("@/components/providers/ProviderList", () => ({
     currentProviderId,
     onSwitch,
     onEdit,
+    onDelete,
     onDuplicate,
     onConfigureUsage,
+    onRemoveFromConfig,
+    onClearConfig,
     onOpenWebsite,
     onCreate,
   }: any) => (
@@ -45,6 +49,19 @@ vi.mock("@/components/providers/ProviderList", () => ({
       <button onClick={() => onConfigureUsage(providers[currentProviderId])}>
         usage
       </button>
+      <button onClick={() => onDelete?.(providers[currentProviderId])}>
+        delete
+      </button>
+      {onRemoveFromConfig && (
+        <button onClick={() => onRemoveFromConfig(providers[currentProviderId])}>
+          remove-config
+        </button>
+      )}
+      {onClearConfig && (
+        <button onClick={() => onClearConfig(providers[currentProviderId])}>
+          clear-config
+        </button>
+      )}
       <button onClick={() => onOpenWebsite("https://example.com")}>
         open-website
       </button>
@@ -111,7 +128,7 @@ vi.mock("@/components/ConfirmDialog", () => ({
   ConfirmDialog: ({ isOpen, onConfirm, onCancel }: any) =>
     isOpen ? (
       <div data-testid="confirm-dialog">
-        <button onClick={() => onConfirm()}>confirm-delete</button>
+        <button onClick={() => onConfirm()}>confirm-action</button>
         <button onClick={() => onCancel()}>cancel-delete</button>
       </div>
     ) : null,
@@ -241,6 +258,80 @@ describe("App integration with MSW", () => {
     });
   });
 
+  it("confirms provider action against the original app after switching apps", async () => {
+    const clearLiveConfigSpy = vi
+      .spyOn(providersApi, "clearLiveConfig")
+      .mockImplementationOnce(async (providerId, appId) => {
+        deleteProviderState(appId, providerId);
+        return true;
+      });
+
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("switch-codex"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "codex-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("clear-config"));
+    expect(await screen.findByTestId("confirm-dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("switch-claude"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("confirm-action"));
+
+    await waitFor(() => {
+      expect(clearLiveConfigSpy).toHaveBeenCalledWith("codex-1", "codex");
+    });
+
+    expect(clearLiveConfigSpy).toHaveBeenCalledTimes(1);
+
+    clearLiveConfigSpy.mockRestore();
+  });
+
+  it("shows an error and keeps the dialog open when provider action fails", async () => {
+    const clearLiveConfigSpy = vi
+      .spyOn(providersApi, "clearLiveConfig")
+      .mockRejectedValueOnce(new Error("clear failed"));
+
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    fireEvent.click(screen.getByText("switch-codex"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "codex-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("clear-config"));
+    fireEvent.click(await screen.findByText("confirm-action"));
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        expect.stringContaining("clear failed"),
+        { closeButton: true },
+      );
+    });
+    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
+
+    clearLiveConfigSpy.mockRestore();
+  });
+
   it("duplicates openclaw providers with a generated key that avoids live-only ids", async () => {
     setProviders("openclaw", {
       deepseek: {
@@ -270,6 +361,9 @@ describe("App integration with MSW", () => {
         "deepseek",
       ),
     );
+
+    expect(screen.getByText("remove-config")).toBeInTheDocument();
+    expect(screen.queryByText("clear-config")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("duplicate"));
 
@@ -305,6 +399,9 @@ describe("App integration with MSW", () => {
     const liveIdsSpy = vi
       .spyOn(providersApi, "getOpenClawLiveProviderIds")
       .mockRejectedValueOnce(new Error("broken config"));
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     const { default: App } = await import("@/App");
     renderApp(App);
@@ -330,5 +427,6 @@ describe("App integration with MSW", () => {
     );
 
     liveIdsSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 });

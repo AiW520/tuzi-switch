@@ -249,18 +249,6 @@ const buildPresetPrefixedName = (presetName: string, customName: string) => {
   return suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
 };
 
-const splitPresetPrefixedName = (name: string) => {
-  const trimmed = name.trim();
-  const separatorIndex = trimmed.indexOf("-");
-  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
-    return null;
-  }
-  return {
-    prefix: trimmed.slice(0, separatorIndex).trim(),
-    customName: trimmed.slice(separatorIndex + 1).trim(),
-  };
-};
-
 const parseCodexAuthObject = (authString: string): Record<string, unknown> => {
   if (!authString.trim()) return {};
   try {

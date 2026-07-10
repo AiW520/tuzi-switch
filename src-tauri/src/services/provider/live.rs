@@ -107,8 +107,7 @@ fn codex_managed_index(
         && env_key.ends_with("_CODEX_API_KEY")
         && env_key.len() >= family.env_prefix.len() + 2 + "_CODEX_API_KEY".len()
     {
-        let index_part =
-            &env_key[family.env_prefix.len()..env_key.len() - "_CODEX_API_KEY".len()];
+        let index_part = &env_key[family.env_prefix.len()..env_key.len() - "_CODEX_API_KEY".len()];
         if index_part.len() == 2 && index_part.chars().all(|ch| ch.is_ascii_digit()) {
             return index_part.parse::<u8>().ok().filter(|index| *index > 0);
         }
@@ -232,9 +231,10 @@ fn next_codex_managed_index(
         }
     }
 
-    Err(AppError::Config(
-        format!("{}供应商编号已用尽", family.exhaustion_label),
-    ))
+    Err(AppError::Config(format!(
+        "{}供应商编号已用尽",
+        family.exhaustion_label
+    )))
 }
 
 fn rewrite_codex_active_provider(
@@ -334,7 +334,6 @@ pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<()
         .settings_config
         .as_object()
         .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
-    let auth = obj.get("auth").unwrap_or(&Value::Null);
     let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
     if config_str.trim().is_empty() {
         return Ok(());

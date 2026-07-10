@@ -89,6 +89,7 @@ fn shell_unquote_value(raw: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Detect Codex CLI version. Returns (major, minor, patch) or None if not found.
+#[allow(dead_code)]
 pub fn get_codex_version() -> Option<(u32, u32, u32)> {
     use std::process::Command;
 
@@ -578,57 +579,6 @@ fn read_env_key_from_shell_rc(content: &str, env_key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn rebuild_rc_with_managed_block(content: &str, env_map: &HashMap<String, String>) -> String {
-    let mut before = Vec::new();
-    let mut after = Vec::new();
-    let mut state = 0u8; // 0=before, 1=in block, 2=after
-
-    for line in content.lines() {
-        match state {
-            0 => {
-                if line.trim() == MANAGED_ENV_BEGIN {
-                    state = 1;
-                } else {
-                    before.push(line);
-                }
-            }
-            1 => {
-                if line.trim() == MANAGED_ENV_END {
-                    state = 2;
-                }
-            }
-            _ => {
-                after.push(line);
-            }
-        }
-    }
-
-    let mut result = before.join("\n");
-    if !env_map.is_empty() {
-        if !result.is_empty() && !result.ends_with('\n') {
-            result.push('\n');
-        }
-        result.push_str(MANAGED_ENV_BEGIN);
-        result.push('\n');
-        let mut keys: Vec<&String> = env_map.keys().collect();
-        keys.sort();
-        for key in keys {
-            result.push_str(&format!("export {}={}\n", key, env_map[key]));
-        }
-        result.push_str(MANAGED_ENV_END);
-        result.push('\n');
-    }
-    if !after.is_empty() {
-        result.push_str(&after.join("\n"));
-        if !result.ends_with('\n') {
-            result.push('\n');
-        }
-    } else if !result.ends_with('\n') {
-        result.push('\n');
-    }
-    result
-}
-
 // ---------------------------------------------------------------------------
 // Windows environment variable management (via registry/setx)
 // ---------------------------------------------------------------------------
@@ -869,34 +819,35 @@ fn build_model_provider_section(
         }
     }
 
-    let Some(table) = doc
-        .get_mut("model_providers")
-        .and_then(|item| item.as_table_mut())
-        .and_then(|providers| providers.get_mut(route_id))
-        .and_then(|item| item.as_table_mut())
-    else {
-        return Err(AppError::Message(format!(
-            "Failed to prepare Codex provider section for '{route_id}'"
-        )));
-    };
+    {
+        let Some(table) = doc
+            .get_mut("model_providers")
+            .and_then(|item| item.as_table_mut())
+            .and_then(|providers| providers.get_mut(route_id))
+            .and_then(|item| item.as_table_mut())
+        else {
+            return Err(AppError::Message(format!(
+                "Failed to prepare Codex provider section for '{route_id}'"
+            )));
+        };
 
-    table["name"] = toml_edit::value(route_id);
-    table["base_url"] = toml_edit::value(base_url);
-    if !table.contains_key("wire_api") {
-        table["wire_api"] = toml_edit::value("responses");
+        table["name"] = toml_edit::value(route_id);
+        table["base_url"] = toml_edit::value(base_url);
+        if !table.contains_key("wire_api") {
+            table["wire_api"] = toml_edit::value("responses");
+        }
+        if !env_key.trim().is_empty() {
+            table["requires_openai_auth"] = toml_edit::value(false);
+        } else if !table.contains_key("requires_openai_auth") {
+            table["requires_openai_auth"] = toml_edit::value(false);
+        }
+        if env_key.trim().is_empty() {
+            table.remove("env_key");
+        } else {
+            table["env_key"] = toml_edit::value(env_key);
+        }
+        table.remove("experimental_bearer_token");
     }
-    if !env_key.trim().is_empty() {
-        table["requires_openai_auth"] = toml_edit::value(false);
-    } else if !table.contains_key("requires_openai_auth") {
-        table["requires_openai_auth"] = toml_edit::value(false);
-    }
-    if env_key.trim().is_empty() {
-        table.remove("env_key");
-    } else {
-        table["env_key"] = toml_edit::value(env_key);
-    }
-
-    table.remove("experimental_bearer_token");
     doc.as_table_mut().remove("experimental_bearer_token");
 
     extract_model_provider_section_text(&doc.to_string(), route_id).ok_or_else(|| {
@@ -1108,10 +1059,7 @@ fn migrate_reserved_custom_model_provider_ids(config_text: &str) -> Result<Strin
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
 
-    let Some(model_providers) = doc
-        .get("model_providers")
-        .and_then(|item| item.as_table())
-    else {
+    let Some(model_providers) = doc.get("model_providers").and_then(|item| item.as_table()) else {
         return Ok(config_text.to_string());
     };
 
@@ -2460,11 +2408,13 @@ mod tests {
             Some("old")
         );
 
-        let updated = upsert_codex_env_section_key(input, "TUZI_CODEX_API_KEY", "sk-test");
-        assert!(updated.contains("# Codex\nexport CUSTOM_API_KEY=old\n#export OPENAI_BASE_URL=https://api.example\nexport TUZI_CODEX_API_KEY=sk-test\n\n# Other"));
+        let updated = upsert_codex_env_section_key(input, "TUZI_CODEX_API_KEY", "sk-test").unwrap();
+        assert!(updated.contains("# Codex\nexport CUSTOM_API_KEY=old\n#export OPENAI_BASE_URL=https://api.example\nexport TUZI_CODEX_API_KEY='sk-test'\n# tuzi-switch managed env: TUZI_CODEX_API_KEY\n\n# Other"));
 
-        let replaced = upsert_codex_env_section_key(&updated, "CUSTOM_API_KEY", "new");
-        assert!(replaced.contains("# Codex\nexport CUSTOM_API_KEY=new\n"));
+        let replaced = upsert_codex_env_section_key(&updated, "CUSTOM_API_KEY", "new").unwrap();
+        assert!(replaced.contains(
+            "# Codex\nexport CUSTOM_API_KEY='new'\n# tuzi-switch managed env: CUSTOM_API_KEY\n"
+        ));
         assert_eq!(replaced.matches("export CUSTOM_API_KEY=").count(), 1);
     }
 
@@ -2472,13 +2422,80 @@ mod tests {
     fn codex_env_section_supports_compact_header() {
         let input = "#Codex\nexport CUSTOM_API_KEY=old\n";
 
-        let updated = upsert_codex_env_section_key(input, "NEW_CODEX_API_KEY", "sk-new");
+        let updated = upsert_codex_env_section_key(input, "NEW_CODEX_API_KEY", "sk-new").unwrap();
 
-        assert!(updated
-            .contains("#Codex\nexport CUSTOM_API_KEY=old\nexport NEW_CODEX_API_KEY=sk-new\n"));
+        assert!(updated.contains(
+            "#Codex\nexport CUSTOM_API_KEY=old\nexport NEW_CODEX_API_KEY='sk-new'\n# tuzi-switch managed env: NEW_CODEX_API_KEY\n"
+        ));
         assert_eq!(
             read_env_key_from_shell_rc(&updated, "NEW_CODEX_API_KEY").as_deref(),
             Some("sk-new")
+        );
+    }
+
+    #[test]
+    fn codex_env_section_shell_quotes_token_and_rejects_control_bytes() {
+        let input = "# Codex\n";
+        let token = "sk has 'single' and $(touch /tmp/pwn)";
+
+        let updated = upsert_codex_env_section_key(input, "TUZI_CODEX_API_KEY", token).unwrap();
+
+        assert!(updated
+            .contains("export TUZI_CODEX_API_KEY='sk has '\\''single'\\'' and $(touch /tmp/pwn)'"));
+        assert!(!updated.contains("export TUZI_CODEX_API_KEY=sk has"));
+        assert_eq!(
+            parse_codex_env_section(&updated)
+                .get("TUZI_CODEX_API_KEY")
+                .map(String::as_str),
+            Some(token)
+        );
+        assert!(upsert_codex_env_section_key(input, "TUZI_CODEX_API_KEY", "line\nbreak").is_err());
+        assert!(upsert_codex_env_section_key(input, "TUZI_CODEX_API_KEY", "nul\0byte").is_err());
+    }
+
+    #[test]
+    fn codex_env_section_updates_user_section_without_bottom_managed_block() {
+        let input = "# Codex\nexport CUSTOM_API_KEY=old\nexport TUZI_CODEX_API_KEY=old-token\n#export OPENAI_BASE_URL=https://api.example/v1\n\n# Other\nexport OTHER_KEY=value\n\n# >>> tuzi-switch codex env >>>\nexport TUZI_CODEX_API_KEY=stale-token\nexport EXTRA_CODEX_API_KEY=extra-token\n# <<< tuzi-switch codex env <<<\n";
+
+        let cleaned = migrate_managed_env_block_to_codex_section(input);
+        let updated =
+            upsert_codex_env_section_key(&cleaned, "TUZI_CODEX_API_KEY", "new-token").unwrap();
+
+        assert!(updated.contains("# Codex"));
+        assert!(updated.contains("export CUSTOM_API_KEY=old"));
+        assert!(updated.contains("export TUZI_CODEX_API_KEY='new-token'"));
+        assert!(updated.contains("#export OPENAI_BASE_URL=https://api.example/v1"));
+        assert!(updated.contains("# Other"));
+        assert!(!updated.contains(MANAGED_ENV_BEGIN));
+        assert!(!updated.contains("stale-token"));
+        assert!(updated.contains("export EXTRA_CODEX_API_KEY='extra-token'"));
+        assert!(updated.contains("# tuzi-switch managed env: EXTRA_CODEX_API_KEY"));
+        assert_eq!(updated.matches("export TUZI_CODEX_API_KEY=").count(), 1);
+    }
+
+    #[test]
+    fn remove_codex_env_section_key_only_removes_tuzi_managed_env() {
+        let input = "# Codex\nexport CUSTOM_API_KEY=sk-user\nexport TUZI_CODEX_API_KEY='sk-managed'\n# tuzi-switch managed env: TUZI_CODEX_API_KEY\n\n# Other\nexport OTHER_KEY=keep\n";
+
+        let preserved_user = remove_codex_env_section_key(input, "CUSTOM_API_KEY");
+        assert!(preserved_user.contains("export CUSTOM_API_KEY=sk-user"));
+
+        let removed_managed = remove_codex_env_section_key(input, "TUZI_CODEX_API_KEY");
+        assert!(!removed_managed.contains("TUZI_CODEX_API_KEY"));
+        assert!(removed_managed.contains("export CUSTOM_API_KEY=sk-user"));
+        assert!(removed_managed.contains("export OTHER_KEY=keep"));
+    }
+
+    #[test]
+    fn codex_env_read_key_prefers_codex_section_over_legacy_managed_block() {
+        let input = "# Codex\nexport TUZI_CODEX_API_KEY=correct-token\n\n# >>> tuzi-switch codex env >>>\nexport TUZI_CODEX_API_KEY=stale-token\n# <<< tuzi-switch codex env <<<\n";
+
+        let mut merged = parse_managed_block(input);
+        merged.extend(parse_codex_env_section(input));
+
+        assert_eq!(
+            merged.get("TUZI_CODEX_API_KEY").map(String::as_str),
+            Some("correct-token")
         );
     }
 
@@ -2532,7 +2549,10 @@ mod tests {
         let zshrc = fs::read_to_string(temp.path().join(".zshrc")).expect("read zshrc");
         assert!(zshrc.contains("export NEW_CODEX_API_KEY=sk-new"));
         assert!(!temp.path().join(".bashrc").exists());
-        assert_eq!(get_codex_env_file_path(), temp.path().join(".codex").join(".env"));
+        assert_eq!(
+            get_codex_env_file_path(),
+            temp.path().join(".codex").join(".env")
+        );
         assert_eq!(
             read_codex_env_file()
                 .get("NEW_CODEX_API_KEY")
@@ -2596,7 +2616,10 @@ mod tests {
 
         remove_managed_env_key("TUZI_TEST_CODEX_API_KEY").expect("remove env key");
 
-        assert_eq!(get_codex_env_file_path(), temp.path().join(".codex").join(".env"));
+        assert_eq!(
+            get_codex_env_file_path(),
+            temp.path().join(".codex").join(".env")
+        );
         let codex_env = read_codex_env_file();
         assert!(!codex_env.contains_key("TUZI_TEST_CODEX_API_KEY"));
         assert_eq!(
@@ -2707,15 +2730,15 @@ requires_openai_auth = false
         let parsed: toml::Value = toml::from_str(&migrated).expect("parse migrated");
 
         assert_eq!(
-            parsed.get("model_provider").and_then(|value| value.as_str()),
+            parsed
+                .get("model_provider")
+                .and_then(|value| value.as_str()),
             Some("openai-custom")
         );
-        assert!(
-            parsed
-                .get("model_providers")
-                .and_then(|value| value.get("openai"))
-                .is_none()
-        );
+        assert!(parsed
+            .get("model_providers")
+            .and_then(|value| value.get("openai"))
+            .is_none());
         assert_eq!(
             parsed
                 .get("model_providers")
@@ -3074,13 +3097,13 @@ wire_api = "responses"
         .unwrap();
         let parsed: toml::Value = toml::from_str(&result).unwrap();
 
-        assert_eq!(
+        assert!(
             parsed
                 .get("model_providers")
                 .and_then(|value| value.get("vendor_alpha"))
                 .and_then(|value| value.get("experimental_bearer_token"))
-                .and_then(|value| value.as_str()),
-            Some("sk-env-test")
+                .is_none(),
+            "live config must not expose API key values"
         );
         assert_eq!(
             parsed
@@ -3102,11 +3125,9 @@ model = "gpt-5"
                 .unwrap();
         let parsed: toml::Value = toml::from_str(&result).unwrap();
 
-        assert_eq!(
-            parsed
-                .get("experimental_bearer_token")
-                .and_then(|value| value.as_str()),
-            Some("sk-test")
+        assert!(
+            parsed.get("experimental_bearer_token").is_none(),
+            "live config must not expose API key values"
         );
         assert!(parsed.get("model_providers").is_none());
     }

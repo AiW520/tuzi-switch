@@ -13,6 +13,7 @@ import {
   listSessions,
   resetProviderState,
   setCurrentProviderId,
+  setLiveProviderIds,
   updateProvider,
   updateSortOrder,
   getSettings,
@@ -117,6 +118,21 @@ export const handlers = [
     deleteProvider(app, id);
     return success(true);
   }),
+
+  http.post(`${TAURI_ENDPOINT}/clear_provider_live_config`, async ({ request }) => {
+    const { id, app } = await withJson<{ id: string; app: AppId }>(request);
+    if (app === "opencode" || app === "openclaw" || app === "hermes") {
+      setLiveProviderIds(
+        app,
+        getLiveProviderIds(app).filter((providerId) => providerId !== id),
+      );
+    }
+    return success(true);
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/sync_claude_live_api_key`, () => success(true)),
+
+  http.post(`${TAURI_ENDPOINT}/sync_codex_live_api_key`, () => success(true)),
 
   http.post(`${TAURI_ENDPOINT}/import_default_config`, async () => {
     resetProviderState();

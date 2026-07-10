@@ -1,11 +1,11 @@
-# CC Switch 用户手册
+# tuzi-switch 用户手册
 
 > Claude Code / Claude Desktop / Codex / Gemini CLI / OpenCode / OpenClaw / Hermes 全方位辅助工具
 
 ## 目录结构
 
 ```
-📚 CC Switch 用户手册
+📚 tuzi-switch 用户手册
 │
 ├── 1. 快速入门
 │   ├── 1.1 软件介绍
@@ -90,7 +90,7 @@
 
 | 文件 | 内容 |
 |------|------|
-| [5.1-config-files.md](./5-faq/5.1-config-files.md) | CC Switch 存储、CLI 配置文件格式 |
+| [5.1-config-files.md](./5-faq/5.1-config-files.md) | tuzi-switch 存储、CLI 配置文件格式 |
 | [5.2-questions.md](./5-faq/5.2-questions.md) | 常见问题解答 |
 | [5.3-deeplink.md](./5-faq/5.3-deeplink.md) | 深度链接协议、生成和使用方法 |
 | [5.4-env-conflict.md](./5-faq/5.4-env-conflict.md) | 环境变量冲突检测与处理 |
@@ -106,11 +106,20 @@
 
 ## 版本信息
 
-- 文档版本：v3.15.0
-- 最后更新：2026-05-16
-- 适用于 CC Switch v3.15.0+
+- 文档版本：v1.1.30
+- 最后更新：2026-06-17
+- 适用于 tuzi-switch v1.1.30+
 
-### v3.15.0 亮点
+### tuzi-switch 当前重点
+
+- **兔子业务快速接入**：围绕 Claude Code、Codex、Gemini、OpenClaw 提供更短的配置路径。
+- **Codex 新配置适配**：使用 `model_provider`、`[model_providers.xxx]`、`env_key` 和 `wire_api = "responses"`，适配 Codex 0.134+。
+- **Codex 密钥不写入 config.toml**：第三方线路只在 `config.toml` 保留 `env_key`，真实 API Key 写入系统环境变量或 shell rc 的 `# Codex` 分组。
+- **第三方线路不覆盖登录态**：切换 Codex 第三方 Provider 不覆盖 `~/.codex/auth.json` 中的 ChatGPT/OAuth 登录状态。
+- **多线路共存**：Codex 多个 `[model_providers.xxx]` 可同时存在，切换时只更新顶层指针。
+- **自动更新链路**：原生升级走 Tauri updater，界面热更新走签名校验后的本地资源加载。
+
+### 历史 tuzi-switch 能力
 
 - **Claude Desktop 一等管理面板**：支持第三方供应商、直连 / 模型映射两种模式、Copilot / Codex OAuth 复用与 3P profile 写入 — 详见 [2.6 Claude Desktop](./2-providers/2.6-claude-desktop.md)
 - **按角色的模型映射**：用 Sonnet / Opus / Haiku 路由和 `supports1m` 标志适配 Claude Desktop 的模型校验
@@ -130,5 +139,5 @@
 
 欢迎提交 Issue 或 PR 改进文档：
 
-- [GitHub Issues](https://github.com/farion1231/cc-switch/issues)
-- [GitHub Repository](https://github.com/farion1231/cc-switch)
+- [GitHub Issues](https://github.com/tuziapi/tuzi-switch/issues)
+- [GitHub Repository](https://github.com/tuziapi/tuzi-switch)

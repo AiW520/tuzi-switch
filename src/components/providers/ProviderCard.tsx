@@ -43,6 +43,7 @@ interface ProviderCardProps {
   onEdit: (provider: Provider) => void;
   onDelete: (provider: Provider) => void;
   onRemoveFromConfig?: (provider: Provider) => void;
+  onClearConfig?: (provider: Provider) => void;
   onDisableOmo?: () => void;
   onDisableOmoSlim?: () => void;
   onConfigureUsage: (provider: Provider) => void;
@@ -139,6 +140,7 @@ export function ProviderCard({
   onEdit,
   onDelete,
   onRemoveFromConfig,
+  onClearConfig,
   onDisableOmo,
   onDisableOmoSlim,
   onConfigureUsage,
@@ -676,6 +678,9 @@ export function ProviderCard({
                 onRemoveFromConfig
                   ? () => onRemoveFromConfig(provider)
                   : undefined
+              }
+              onClearConfig={
+                onClearConfig ? () => onClearConfig(provider) : undefined
               }
               onDisableOmo={handleDisableAnyOmo}
               onOpenTerminal={

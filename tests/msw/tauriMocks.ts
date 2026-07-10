@@ -56,6 +56,28 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 
+let windowMaximized = false;
+const resizeListeners = new Set<() => void>();
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    isMaximized: async () => windowMaximized,
+    onResized: async (handler: () => void) => {
+      resizeListeners.add(handler);
+      return () => {
+        resizeListeners.delete(handler);
+      };
+    },
+    setDecorations: async () => undefined,
+    minimize: async () => undefined,
+    toggleMaximize: async () => {
+      windowMaximized = !windowMaximized;
+      resizeListeners.forEach((handler) => handler());
+    },
+    close: async () => undefined,
+  }),
+}));
+
 // Ensure the MSW server is referenced so tree shaking doesn't remove imports
 void server;
 
