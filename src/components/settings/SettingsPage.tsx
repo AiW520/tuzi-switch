@@ -44,6 +44,7 @@ import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UsageDashboard } from "@/components/usage/UsageDashboard";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
+import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
 import { useInstalledSkills } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
@@ -163,18 +164,27 @@ export function SettingsPage({
   // 通用设置即时保存（无需手动点击）
   // 使用 autoSaveSettings 避免误触发系统 API（开机自启、Claude 插件等）
   const handleAutoSave = useCallback(
-    async (updates: Partial<SettingsFormState>) => {
-      if (!settings) return;
+    async (updates: Partial<SettingsFormState>): Promise<boolean> => {
+      if (!settings) return false;
+      const previousValues = Object.fromEntries(
+        Object.keys(updates).map((key) => [
+          key,
+          settings[key as keyof SettingsFormState],
+        ]),
+      ) as Partial<SettingsFormState>;
       updateSettings(updates);
       try {
         await autoSaveSettings(updates);
+        return true;
       } catch (error) {
         console.error("[SettingsPage] Failed to autosave settings", error);
+        updateSettings(previousValues);
         toast.error(
           t("settings.saveFailedGeneric", {
             defaultValue: "保存失败，请重试",
           }),
         );
+        return false;
       }
     },
     [autoSaveSettings, settings, t, updateSettings],
@@ -247,6 +257,10 @@ export function SettingsPage({
                       }
                     />
                     <WindowSettings
+                      settings={settings}
+                      onChange={handleAutoSave}
+                    />
+                    <CodexAuthSettings
                       settings={settings}
                       onChange={handleAutoSave}
                     />

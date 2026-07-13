@@ -41,6 +41,12 @@ pub(crate) const CODEX_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str, &str, &
         "gpt-5.5",
     ),
 ];
+
+pub(crate) fn is_codex_official_seed_id(id: &str) -> bool {
+    CODEX_OFFICIAL_PROVIDER_IDS
+        .iter()
+        .any(|(seed_id, _, _, _, _, _)| *seed_id == id)
+}
 pub(crate) const GEMINI_OFFICIAL_PROVIDER_IDS: &[(&str, &str, &str, &str)] = &[(
     "tuzi-route",
     "兔子线路",

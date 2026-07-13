@@ -285,6 +285,18 @@
       "title": "共通設定について",
       "message": "「共通設定スニペット」を使うと、プラグインや環境変数などの設定を異なるプロバイダー間で共有でき、切り替え時に失われることがありません。\n\n使い方：\n① プロバイダーを編集 →「共通設定を編集」→「編集内容から抽出」\n② 新規プロバイダー作成時に「共通設定を書き込む」をチェック（デフォルトでオン）\n\n新しいプラグインや Hook をインストールした場合は、共通設定を再抽出してください。",
       "confirm": "わかりました"
+    },
+    "unifyCodexHistory": {
+      "title": "Codex セッション履歴を統一",
+      "message": "オンにすると、公式サブスクリプションとサードパーティが同じセッション履歴リストを共有します。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content を相手のバックエンドが復号できず失敗する場合があります。\n\n既存の公式セッション履歴を共有リストへ移行することもできます（移行前に ~/.tuzi-switch/backups へ自動バックアップされ、オフにする際に復元を選択できます）。",
+      "migrateExisting": "既存の公式セッション履歴も移行する",
+      "confirm": "理解しました、オンにする"
+    },
+    "unifyCodexHistoryOff": {
+      "title": "セッション履歴の統一をオフにする",
+      "message": "オフにすると、公式サブスクリプションとサードパーティはそれぞれ独立した履歴リストに戻ります。オン期間中に作成されたセッションは提供元を判別できないため、サードパーティの履歴に残り、公式サブスクリプションからは見えなくなります。",
+      "restoreBackup": "オンにした際に移行した公式セッションを公式履歴へ復元する（バックアップから正確に復元）",
+      "confirm": "オフにする"
     }
   },
   "settings": {
@@ -697,7 +709,16 @@
       "defaultCostMultiplierRequired": "デフォルト倍率は必須です",
       "defaultCostMultiplierInvalid": "デフォルト倍率の形式が正しくありません"
     },
-    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください"
+    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください",
+    "codexAuth": "Codex アプリ拡張",
+    "preserveCodexOfficialAuthOnSwitch": "サードパーティ切替時に公式ログインを保持",
+    "preserveCodexOfficialAuthOnSwitchDescription": "オンにすると、サードパーティ API を使用する際に Codex アプリの公式プラグインやスマホからのリモート操作などの機能を利用できます。",
+    "unifyCodexSessionHistory": "Codex セッション履歴を統一",
+    "unifyCodexSessionHistoryDescription": "オンにすると、公式サブスクリプションも共有の tuziswitch プロバイダー ID で動作し、公式とサードパーティのセッションが同じ履歴リストに表示されます。既存の公式セッションの移行も選択できます（移行前に自動バックアップ）。オフにする際はバックアップから復元できます。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content の推論内容を相手のバックエンドが復号できず、再開に失敗する場合があります。",
+    "unifyCodexHistoryRestoreCompleted": "バックアップから公式セッション履歴を復元しました（セッションファイル {{files}} 件、インデックス {{rows}} 行）",
+    "unifyCodexHistoryRestoreFailed": "公式セッション履歴の復元に失敗しました。もう一度お試しください",
+    "unifyCodexHistoryRestoreNothing": "現在の Codex ディレクトリに復元可能な移行バックアップはありません",
+    "unifyCodexHistoryRestoreSkippedToggleOn": "統一セッション履歴が再度有効化されたため、復元をスキップしました"
   },
   "apps": {
     "claude": "Claude",

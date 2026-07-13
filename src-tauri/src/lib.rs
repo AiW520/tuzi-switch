@@ -6,6 +6,8 @@ mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
+mod codex_history_migration;
+mod codex_state_db;
 mod commands;
 mod config;
 mod database;
@@ -600,6 +602,92 @@ pub fn run() {
                 }
             }
 
+            {
+                if crate::settings::unify_codex_session_history() {
+                    if let Err(e) = crate::services::provider::reapply_current_codex_live(&app_state)
+                    {
+                        log::warn!("✗ Failed to reapply Codex unified live config on startup: {e}");
+                    }
+                }
+
+                let db_for_codex_history_migration = app_state.db.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    match crate::codex_history_migration::migrate_codex_defined_state_history_to_unified_bucket(
+                        &db_for_codex_history_migration,
+                    ) {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::info!("○ Codex defined state history migration skipped: {reason}");
+                            } else {
+                                log::info!(
+                                    "✓ Codex defined state history migration completed: sources={}, state_rows={}",
+                                    outcome.source_provider_ids.len(),
+                                    outcome.migrated_state_rows
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex defined state history migration failed: {e}");
+                        }
+                    }
+
+                    match crate::codex_history_migration::maybe_migrate_codex_third_party_history_provider_bucket(
+                        &db_for_codex_history_migration,
+                    ) {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::debug!("○ Codex history provider bucket migration skipped: {reason}");
+                            } else {
+                                log::info!(
+                                    "✓ Codex history provider bucket migration completed: sources={}, jsonl_files={}, state_rows={}",
+                                    outcome.source_provider_ids.len(),
+                                    outcome.migrated_jsonl_files,
+                                    outcome.migrated_state_rows
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex history provider bucket migration failed: {e}");
+                        }
+                    }
+
+                    match crate::codex_history_migration::maybe_migrate_codex_provider_template_bucket(
+                        &db_for_codex_history_migration,
+                    ) {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::debug!("○ Codex provider template bucket migration skipped: {reason}");
+                            } else if !outcome.migrated_provider_ids.is_empty() {
+                                log::info!(
+                                    "✓ Codex provider template bucket migration completed: providers={}",
+                                    outcome.migrated_provider_ids.len()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex provider template bucket migration failed: {e}");
+                        }
+                    }
+
+                    match crate::codex_history_migration::maybe_migrate_codex_official_history_to_unified_bucket() {
+                        Ok(outcome) => {
+                            if let Some(reason) = outcome.skipped_reason {
+                                log::debug!("○ Codex official history unify migration skipped: {reason}");
+                            } else {
+                                log::info!(
+                                    "✓ Codex official history unify migration completed: jsonl_files={}, state_rows={}",
+                                    outcome.migrated_jsonl_files,
+                                    outcome.migrated_state_rows
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("✗ Codex official history unify migration failed: {e}");
+                        }
+                    }
+                });
+            }
+
             // 老用户 / 已确认的路径由 `fresh_install_at_startup` 自行拦截，这里不做写入。
             // 字段只由前端在用户点击"我知道了"时 save_settings 回写，语义是"用户显式确认过"。
             if !first_run_already_confirmed && fresh_install_at_startup {
@@ -1145,6 +1233,8 @@ pub fn run() {
             commands::read_live_provider_settings,
             commands::get_settings,
             commands::save_settings,
+            commands::has_codex_unify_history_backup,
+            commands::restore_codex_unified_history,
             commands::get_rectifier_config,
             commands::set_rectifier_config,
             commands::get_optimizer_config,

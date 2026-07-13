@@ -33,6 +33,12 @@ export interface WebHotUpdateResult {
   message: string;
 }
 
+export interface CodexUnifyHistoryRestoreResult {
+  restoredJsonlFiles: number;
+  restoredStateRows: number;
+  skippedReason?: string;
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -40,6 +46,14 @@ export const settingsApi = {
 
   async save(settings: Settings): Promise<boolean> {
     return await invoke("save_settings", { settings });
+  },
+
+  async hasCodexUnifyHistoryBackup(): Promise<boolean> {
+    return await invoke("has_codex_unify_history_backup");
+  },
+
+  async restoreCodexUnifiedHistory(): Promise<CodexUnifyHistoryRestoreResult> {
+    return await invoke("restore_codex_unified_history");
   },
 
   async restart(): Promise<boolean> {
