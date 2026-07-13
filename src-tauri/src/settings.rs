@@ -434,11 +434,6 @@ impl AppSettings {
         )
     }
 
-    fn normalize_codex_enhancement_defaults(&mut self) {
-        self.preserve_codex_official_auth_on_switch = true;
-        self.unify_codex_session_history = true;
-    }
-
     fn normalize_paths(&mut self) {
         self.claude_config_dir = self
             .claude_config_dir
@@ -497,6 +492,11 @@ impl AppSettings {
         }
     }
 
+    fn reset_codex_enhancement_toggles_on(&mut self) {
+        self.preserve_codex_official_auth_on_switch = true;
+        self.unify_codex_session_history = true;
+    }
+
     fn load_from_file() -> Self {
         let Some(path) = Self::settings_path() else {
             return Self::default();
@@ -505,7 +505,6 @@ impl AppSettings {
             match serde_json::from_str::<AppSettings>(&content) {
                 Ok(mut settings) => {
                     settings.normalize_paths();
-                    settings.normalize_codex_enhancement_defaults();
                     settings
                 }
                 Err(err) => {
@@ -526,6 +525,7 @@ impl AppSettings {
 fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
     let mut normalized = settings.clone();
     normalized.normalize_paths();
+    normalized.reset_codex_enhancement_toggles_on();
     let Some(path) = AppSettings::settings_path() else {
         return Err(AppError::Config("无法获取用户主目录".to_string()));
     };
@@ -605,7 +605,6 @@ pub fn get_settings_for_frontend() -> AppSettings {
 
 pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     new_settings.normalize_paths();
-    new_settings.normalize_codex_enhancement_defaults();
     save_settings_file(&new_settings)?;
 
     let mut guard = settings_store().write().unwrap_or_else(|e| {
@@ -1015,14 +1014,14 @@ mod tests {
     }
 
     #[test]
-    fn saved_false_codex_enhancement_toggles_reset_to_on() {
+    fn codex_enhancement_toggles_reset_on_before_persisting() {
         let mut settings: AppSettings = serde_json::from_value(serde_json::json!({
             "preserveCodexOfficialAuthOnSwitch": false,
             "unifyCodexSessionHistory": false
         }))
         .expect("settings");
 
-        settings.normalize_codex_enhancement_defaults();
+        settings.reset_codex_enhancement_toggles_on();
 
         assert!(settings.preserve_codex_official_auth_on_switch);
         assert!(settings.unify_codex_session_history);

@@ -22,10 +22,6 @@ fn merge_settings_for_save(
         _ => {}
     }
     incoming.local_migrations = existing.local_migrations.clone();
-    // Codex 应用增强是默认开启能力：前端允许临时拨动开关做确认/查看，
-    // 但关闭不作为持久设置保存，刷新后恢复开启。
-    incoming.preserve_codex_official_auth_on_switch = true;
-    incoming.unify_codex_session_history = true;
     incoming
 }
 
