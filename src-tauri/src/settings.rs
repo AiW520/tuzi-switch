@@ -434,6 +434,11 @@ impl AppSettings {
         )
     }
 
+    fn normalize_codex_enhancement_defaults(&mut self) {
+        self.preserve_codex_official_auth_on_switch = true;
+        self.unify_codex_session_history = true;
+    }
+
     fn normalize_paths(&mut self) {
         self.claude_config_dir = self
             .claude_config_dir
@@ -500,6 +505,7 @@ impl AppSettings {
             match serde_json::from_str::<AppSettings>(&content) {
                 Ok(mut settings) => {
                     settings.normalize_paths();
+                    settings.normalize_codex_enhancement_defaults();
                     settings
                 }
                 Err(err) => {
@@ -599,6 +605,7 @@ pub fn get_settings_for_frontend() -> AppSettings {
 
 pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     new_settings.normalize_paths();
+    new_settings.normalize_codex_enhancement_defaults();
     save_settings_file(&new_settings)?;
 
     let mut guard = settings_store().write().unwrap_or_else(|e| {
@@ -1002,6 +1009,20 @@ mod tests {
             "minimizeToTrayOnClose": true
         }))
         .expect("settings");
+
+        assert!(settings.preserve_codex_official_auth_on_switch);
+        assert!(settings.unify_codex_session_history);
+    }
+
+    #[test]
+    fn saved_false_codex_enhancement_toggles_reset_to_on() {
+        let mut settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "preserveCodexOfficialAuthOnSwitch": false,
+            "unifyCodexSessionHistory": false
+        }))
+        .expect("settings");
+
+        settings.normalize_codex_enhancement_defaults();
 
         assert!(settings.preserve_codex_official_auth_on_switch);
         assert!(settings.unify_codex_session_history);
