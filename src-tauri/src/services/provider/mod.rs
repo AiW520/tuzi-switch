@@ -41,6 +41,48 @@ use live::{
 };
 use usage::validate_usage_script;
 
+/// 统一会话开关变更后，立即按新开关状态重写当前 Codex 供应商的
+/// live 配置，使开关即时生效（无需等下一次切换）。
+pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
+    let current_id = ProviderService::current(state, AppType::Codex)?;
+    if current_id.is_empty() {
+        return Ok(false);
+    }
+    let providers = state.db.get_all_providers(AppType::Codex.as_str())?;
+    let Some(provider) = providers.get(&current_id) else {
+        return Ok(false);
+    };
+    let mut provider = provider.clone();
+    if crate::settings::unify_codex_session_history() {
+        crate::codex_config::apply_codex_unified_session_bucket_to_settings(
+            provider.category.as_deref(),
+            &mut provider.settings_config,
+        )?;
+        state.db.save_provider(AppType::Codex.as_str(), &provider)?;
+    }
+
+    let has_live_backup =
+        futures::executor::block_on(state.db.get_live_backup(AppType::Codex.as_str()))
+            .ok()
+            .flatten()
+            .is_some();
+    let live_taken_over = state
+        .proxy_service
+        .detect_takeover_in_live_config_for_app(&AppType::Codex);
+    if has_live_backup || live_taken_over {
+        futures::executor::block_on(
+            state
+                .proxy_service
+                .update_live_backup_from_provider(AppType::Codex.as_str(), &provider),
+        )
+        .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
+        return Ok(true);
+    }
+
+    live::write_live_with_common_config(&state.db, &AppType::Codex, &provider)?;
+    Ok(true)
+}
+
 /// Provider business logic service
 pub struct ProviderService;
 
@@ -1401,21 +1443,18 @@ impl ProviderService {
             return Self::switch_normal(state, app_type, id, &providers);
         }
 
-        // Check if proxy takeover mode is active AND proxy server is actually running
-        // Both conditions must be true to use hot-switch mode
-        // Use blocking wait since this is a sync function
         let is_app_taken_over =
             futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
                 .ok()
                 .flatten()
                 .is_some();
-        let is_proxy_running = futures::executor::block_on(state.proxy_service.is_running());
         let live_taken_over = state
             .proxy_service
             .detect_takeover_in_live_config_for_app(&app_type);
 
-        // Hot-switch only when BOTH: this app is taken over AND proxy server is actually running
-        let should_hot_switch = (is_app_taken_over || live_taken_over) && is_proxy_running;
+        // Backup or live placeholders mean proxy takeover owns the live config,
+        // even if the proxy server is temporarily stopped.
+        let should_hot_switch = is_app_taken_over || live_taken_over;
 
         // Block switching to official providers when proxy takeover is active.
         // Using a proxy with official APIs (Anthropic/OpenAI/Google) may cause account bans.
@@ -1612,11 +1651,6 @@ impl ProviderService {
             return Ok(());
         };
 
-        let takeover_enabled =
-            futures::executor::block_on(state.db.get_proxy_config_for_app(app_type.as_str()))
-                .map(|config| config.enabled)
-                .unwrap_or(false);
-
         let has_live_backup =
             futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
                 .ok()
@@ -1627,7 +1661,7 @@ impl ProviderService {
             .proxy_service
             .detect_takeover_in_live_config_for_app(&app_type);
 
-        if takeover_enabled && (has_live_backup || live_taken_over) {
+        if has_live_backup || live_taken_over {
             futures::executor::block_on(
                 state
                     .proxy_service

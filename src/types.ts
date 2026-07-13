@@ -325,6 +325,12 @@ export interface Settings {
   streamCheckConfirmed?: boolean;
   // Whether to show the failover toggle independently on the main page
   enableFailoverToggle?: boolean;
+  // 切换第三方 Codex 供应商时保留官方登录材料
+  preserveCodexOfficialAuthOnSwitch?: boolean;
+  // 统一官方/第三方 Codex 会话历史桶
+  unifyCodexSessionHistory?: boolean;
+  // 开启统一历史时是否迁入既有官方会话
+  unifyCodexMigrateExisting?: boolean;
   // User has confirmed the failover toggle first-run notice
   failoverConfirmed?: boolean;
   // User has confirmed the first-run welcome notice

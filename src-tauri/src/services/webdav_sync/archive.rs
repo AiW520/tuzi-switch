@@ -275,14 +275,12 @@ fn zip_dir_recursive(
                 )
             })?;
             let mut file = fs::File::open(&real_path).map_err(|e| AppError::io(&real_path, e))?;
-            let mut buf = Vec::new();
-            file.read_to_end(&mut buf)
-                .map_err(|e| AppError::io(&real_path, e))?;
-            writer.write_all(&buf).map_err(|e| {
-                localized(
+            std::io::copy(&mut file, writer).map_err(|e| {
+                io_context_localized(
                     "webdav.sync.zip_write_file_failed",
-                    format!("写入 ZIP 文件内容失败: {e}"),
-                    format!("Failed to write ZIP file content: {e}"),
+                    format!("写入 ZIP 文件内容失败: {}", real_path.display()),
+                    format!("Failed to write ZIP file content: {}", real_path.display()),
+                    e,
                 )
             })?;
         }
