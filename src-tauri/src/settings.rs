@@ -269,11 +269,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub enable_failover_toggle: bool,
     /// Keep Codex ChatGPT login material in auth.json when switching to third-party providers.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub preserve_codex_official_auth_on_switch: bool,
     /// Run official Codex providers under the shared model_provider id so official
     /// sessions share one resume-history bucket with third-party providers.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub unify_codex_session_history: bool,
     /// User opted in to migrate existing official sessions into the shared bucket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -993,5 +993,17 @@ mod tests {
         .expect("visible apps");
 
         assert!(!visible.is_visible(&AppType::ClaudeDesktop));
+    }
+
+    #[test]
+    fn old_settings_default_codex_enhancement_toggles_on() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "showInTray": true,
+            "minimizeToTrayOnClose": true
+        }))
+        .expect("settings");
+
+        assert!(settings.preserve_codex_official_auth_on_switch);
+        assert!(settings.unify_codex_session_history);
     }
 }
