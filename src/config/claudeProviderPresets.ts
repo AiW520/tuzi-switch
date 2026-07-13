@@ -15,7 +15,14 @@ export interface TemplateValueConfig {
  */
 export interface PresetTheme {
   /** 图标类型：'claude' | 'codex' | 'gemini' | 'generic' | 'tuzi' | 'codex-sub' | 'gaccode' */
-  icon?: "claude" | "codex" | "gemini" | "generic" | "tuzi" | "codex-sub" | "gaccode";
+  icon?:
+    | "claude"
+    | "codex"
+    | "gemini"
+    | "generic"
+    | "tuzi"
+    | "codex-sub"
+    | "gaccode";
   /** 背景色（选中状态），支持 Tailwind 类名或 hex 颜色 */
   backgroundColor?: string;
   /** 文字色（选中状态），支持 Tailwind 类名或 hex 颜色 */
@@ -77,7 +84,7 @@ export const providerPresets: ProviderPreset[] = [
     apiKeyUrl: "https://api.tu-zi.com",
     settingsConfig: {
       env: {
-        ANTHROPIC_BASE_URL: "https://api.tu-zi.com",
+        ANTHROPIC_BASE_URL: "https://apius.tu-zi.com",
         ANTHROPIC_AUTH_TOKEN: "",
         ANTHROPIC_API_KEY: "",
         ANTHROPIC_MODEL: "anthropic/claude-sonnet-4.6",
@@ -87,7 +94,7 @@ export const providerPresets: ProviderPreset[] = [
       },
     },
     category: "aggregator",
-    endpointCandidates: ["https://api.tu-zi.com"],
+    endpointCandidates: ["https://apius.tu-zi.com"],
     icon: "tuzi",
     theme: { icon: "tuzi" },
   },
