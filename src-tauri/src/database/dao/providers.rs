@@ -831,10 +831,7 @@ impl Database {
         }
 
         ensure_seed_current_provider(&tx, "claude", previous_claude_current.as_deref())?;
-        // Codex: don't auto-set current — user must explicitly enable a route
-        if previous_codex_current.is_some() {
-            ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
-        }
+        ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
         ensure_seed_current_provider(&tx, "gemini", previous_gemini_current.as_deref())?;
         ensure_seed_current_provider(&tx, "openclaw", None)?;
         ensure_seed_current_provider(&tx, "hermes", None)?;

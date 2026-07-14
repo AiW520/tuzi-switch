@@ -1786,6 +1786,29 @@ pub fn write_codex_provider_live_with_catalog(
     write_codex_live_for_provider(category, auth, prepared_config.as_deref())
 }
 
+/// Write Codex live config exactly from the provider template.
+///
+/// This is used when turning off unified session history: the live config must
+/// return to the provider's own `model_provider` instead of reusing the current
+/// live history anchor.
+pub fn write_codex_provider_live_exact_with_catalog(
+    settings: &Value,
+    auth: &Value,
+    config_text: Option<&str>,
+) -> Result<(), AppError> {
+    let prepared_config = config_text
+        .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
+        .transpose()?;
+
+    match prepared_config.as_deref() {
+        Some(config_text) => {
+            let live_config = prepare_codex_provider_live_config(auth, config_text)?;
+            write_codex_live_atomic(auth, Some(&live_config))
+        }
+        None => write_codex_live_atomic(auth, None),
+    }
+}
+
 /// Update a field in Codex config.toml using toml_edit (syntax-preserving).
 ///
 /// Supported fields:

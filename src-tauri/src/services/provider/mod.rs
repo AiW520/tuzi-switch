@@ -58,9 +58,13 @@ pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
             provider.category.as_deref(),
             &mut provider.settings_config,
         )?;
-        state.db.save_provider(AppType::Codex.as_str(), &provider)?;
+    } else {
+        crate::codex_config::strip_codex_unified_session_bucket_from_settings(
+            &mut provider.settings_config,
+        )?;
     }
 
+    let unified_history_enabled = crate::settings::unify_codex_session_history();
     let has_live_backup =
         futures::executor::block_on(state.db.get_live_backup(AppType::Codex.as_str()))
             .ok()
@@ -70,12 +74,45 @@ pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
         .proxy_service
         .detect_takeover_in_live_config_for_app(&AppType::Codex);
     if has_live_backup || live_taken_over {
+        if !unified_history_enabled {
+            provider.settings_config = live::build_effective_settings_with_common_config(
+                &state.db,
+                &AppType::Codex,
+                &provider,
+            )?;
+            futures::executor::block_on(
+                state
+                    .proxy_service
+                    .update_live_backup_from_provider_exact(AppType::Codex.as_str(), &provider),
+            )
+            .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
+            return Ok(true);
+        }
         futures::executor::block_on(
             state
                 .proxy_service
                 .update_live_backup_from_provider(AppType::Codex.as_str(), &provider),
         )
         .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
+        return Ok(true);
+    }
+
+    if !unified_history_enabled {
+        let effective_settings = live::build_effective_settings_with_common_config(
+            &state.db,
+            &AppType::Codex,
+            &provider,
+        )?;
+        let obj = effective_settings
+            .as_object()
+            .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
+        let auth = obj.get("auth").unwrap_or(&Value::Null);
+        let config_text = obj.get("config").and_then(Value::as_str);
+        crate::codex_config::write_codex_provider_live_exact_with_catalog(
+            &effective_settings,
+            auth,
+            config_text,
+        )?;
         return Ok(true);
     }
 
@@ -361,6 +398,90 @@ base_url = "http://localhost:8080"
             extracted.contains("http://localhost:8080"),
             "should keep mcp_servers.* base_url"
         );
+    }
+
+    #[test]
+    #[serial]
+    fn reapply_codex_live_strips_unified_bucket_when_toggle_turns_off() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().expect("reload settings");
+            crate::settings::update_settings(crate::settings::AppSettings {
+                unify_codex_session_history: true,
+                ..crate::settings::AppSettings::default()
+            })
+            .expect("enable unified history");
+
+            let provider = Provider::with_id(
+                "codex-provider".into(),
+                "Codex Provider".into(),
+                json!({
+                    "auth": {
+                        "OPENAI_API_KEY": "test-key"
+                    },
+                    "config": r#"model_provider = "rightcode"
+model = "gpt-5"
+
+[model_providers.rightcode]
+name = "RightCode"
+base_url = "https://rightcode.example/v1"
+wire_api = "responses"
+"#
+                }),
+                None,
+            );
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &provider)
+                .expect("save codex provider");
+            state
+                .db
+                .set_current_provider(AppType::Codex.as_str(), "codex-provider")
+                .expect("set database current");
+            crate::settings::set_current_provider(&AppType::Codex, Some("codex-provider"))
+                .expect("set local current");
+
+            reapply_current_codex_live(state).expect("reapply unified live");
+            let unified_live = crate::codex_config::read_codex_config_text()
+                .expect("read unified Codex live config");
+            assert!(unified_live.contains("model_provider = \"tuziswitch\""));
+
+            crate::settings::update_settings(crate::settings::AppSettings {
+                unify_codex_session_history: false,
+                ..crate::settings::get_settings()
+            })
+            .expect("disable unified history");
+            reapply_current_codex_live(state).expect("reapply stripped live");
+
+            let stripped_live = crate::codex_config::read_codex_config_text()
+                .expect("read stripped Codex live config");
+            assert!(
+                stripped_live.contains("model_provider = \"rightcode\""),
+                "live config should return to the provider's own bucket: {stripped_live}"
+            );
+            assert!(
+                !stripped_live.contains("model_provider = \"tuziswitch\""),
+                "live config must not stay on the shared bucket after disabling"
+            );
+
+            let saved = state
+                .db
+                .get_provider_by_id("codex-provider", AppType::Codex.as_str())
+                .expect("query saved provider")
+                .expect("saved provider exists");
+            let saved_config = saved
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+                .expect("saved provider config");
+            assert!(
+                saved_config.contains("model_provider = \"rightcode\""),
+                "stored provider config should stay on its original bucket"
+            );
+            assert!(
+                !saved_config.contains("model_provider = \"tuziswitch\""),
+                "stored provider config must not be polluted by live-only injection"
+            );
+        });
     }
 
     #[tokio::test]
@@ -1500,6 +1621,8 @@ impl ProviderService {
         let provider = providers
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+
+        Self::validate_provider_settings(&app_type, provider)?;
 
         // OMO ↔ OMO Slim are mutually exclusive; activating one removes the other's config file.
         if matches!(app_type, AppType::OpenCode) {

@@ -960,22 +960,23 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
     let err = switch_provider_test_hook(&app_state, AppType::Codex, "invalid")
         .expect_err("switching should fail when auth missing");
     match err {
-        AppError::Config(msg) => assert!(
-            msg.contains("auth"),
-            "expected auth missing error message, got {msg}"
-        ),
-        other => panic!("expected config error, got {other:?}"),
+        AppError::Localized { key, zh, en } => {
+            assert_eq!(key, "provider.codex.auth.missing");
+            assert!(
+                zh.contains("auth") || en.contains("auth"),
+                "expected auth missing error message, got zh={zh}, en={en}"
+            );
+        }
+        other => panic!("expected localized auth error, got {other:?}"),
     }
 
     let current_id = app_state
         .db
         .get_current_provider(AppType::Codex.as_str())
         .expect("get current provider");
-    // 切换失败后，由于数据库操作是先设置再验证，current 可能已被设为 "invalid"
-    // 但由于 live 配置写入失败，状态应该回滚
-    // 注意：这个行为取决于 switch_provider 的具体实现
-    assert!(
-        current_id.is_none() || current_id.as_deref() == Some("invalid"),
-        "current provider should remain empty or be the attempted id on failure, got: {current_id:?}"
+    assert_ne!(
+        current_id.as_deref(),
+        Some("invalid"),
+        "failed switch must not persist the invalid provider as current"
     );
 }

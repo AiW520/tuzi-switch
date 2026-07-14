@@ -116,7 +116,7 @@ export function useSettingsForm(): UseSettingsFormResult {
             skipClaudeOnboarding: false,
             preserveCodexOfficialAuthOnSwitch: true,
             unifyCodexSessionHistory: true,
-            unifyCodexMigrateExisting: false,
+            unifyCodexMigrateExisting: true,
             language: readPersistedLanguage(),
           } as SettingsFormState);
 
@@ -158,7 +158,7 @@ export function useSettingsForm(): UseSettingsFormResult {
           serverData.preserveCodexOfficialAuthOnSwitch ?? true,
         unifyCodexSessionHistory: serverData.unifyCodexSessionHistory ?? true,
         unifyCodexMigrateExisting:
-          serverData.unifyCodexMigrateExisting ?? false,
+          serverData.unifyCodexMigrateExisting ?? true,
         claudeConfigDir: sanitizeDir(serverData.claudeConfigDir),
         codexConfigDir: sanitizeDir(serverData.codexConfigDir),
         geminiConfigDir: sanitizeDir(serverData.geminiConfigDir),
