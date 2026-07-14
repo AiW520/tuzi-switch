@@ -5,7 +5,25 @@
 use super::auth::AuthInfo;
 use crate::provider::Provider;
 use crate::proxy::error::ProxyError;
+use http::{HeaderName, HeaderValue};
 use serde_json::Value;
+
+pub(crate) fn auth_header_value(
+    adapter: &'static str,
+    header_name: HeaderName,
+    raw_value: &str,
+) -> Option<(HeaderName, HeaderValue)> {
+    match HeaderValue::from_str(raw_value) {
+        Ok(value) => Some((header_name, value)),
+        Err(err) => {
+            log::warn!(
+                "[{adapter}] 跳过无效认证 Header `{}`: {err}",
+                header_name.as_str()
+            );
+            None
+        }
+    }
+}
 
 /// 供应商适配器 Trait
 ///

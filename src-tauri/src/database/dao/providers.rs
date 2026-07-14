@@ -814,6 +814,7 @@ impl Database {
             let provider = build_claude_official_provider(id, name, base_url, model);
             seeded += upsert_seed_provider(&tx, "claude", &provider, sort_index)?;
         }
+        migrate_claude_tuzi_route_base_url(&tx)?;
 
         for (sort_index, (id, name, website_url, base_url, env_key, model)) in
             crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
@@ -854,10 +855,7 @@ impl Database {
         }
 
         ensure_seed_current_provider(&tx, "claude", previous_claude_current.as_deref())?;
-        // Codex: don't auto-set current — user must explicitly enable a route
-        if previous_codex_current.is_some() {
-            ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
-        }
+        ensure_seed_current_provider(&tx, "codex", previous_codex_current.as_deref())?;
         ensure_seed_current_provider(&tx, "gemini", previous_gemini_current.as_deref())?;
         ensure_seed_current_provider(&tx, "openclaw", None)?;
         ensure_seed_current_provider(&tx, "hermes", None)?;
@@ -963,6 +961,41 @@ fn seed_settings_config_update_for_existing(
     app_type: &str,
     provider: &Provider,
 ) -> Result<Option<Value>, AppError> {
+    // Claude 兔子线路：仅迁移历史默认域名，其他用户配置原样保留。
+    if app_type == "claude" && provider.id == "tuzi-route" {
+        let existing_settings_config = tx
+            .query_row(
+                "SELECT settings_config FROM providers WHERE app_type = ?1 AND id = ?2",
+                params![app_type, provider.id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let Ok(mut existing) = serde_json::from_str::<Value>(&existing_settings_config) else {
+            log::warn!(
+                "跳过 Claude 兔子线路默认域名迁移：provider {} 的 settings_config 不是有效 JSON",
+                provider.id
+            );
+            return Ok(None);
+        };
+        let Some(env) = existing.get_mut("env").and_then(Value::as_object_mut) else {
+            return Ok(None);
+        };
+        let is_old_default = env
+            .get("ANTHROPIC_BASE_URL")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.trim().trim_end_matches('/') == "https://api.tu-zi.com");
+        if !is_old_default {
+            return Ok(None);
+        }
+
+        env.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            json!("https://apius.tu-zi.com"),
+        );
+        return Ok(Some(existing));
+    }
+
     // Codex: 保留用户已填的 API key，其余字段用种子数据覆盖
     if app_type == "codex"
         && crate::database::dao::providers_seed::CODEX_OFFICIAL_PROVIDER_IDS
@@ -1041,6 +1074,30 @@ fn seed_settings_config_update_for_existing(
     }
 
     Ok(None)
+}
+
+fn migrate_claude_tuzi_route_base_url(tx: &rusqlite::Transaction<'_>) -> Result<(), AppError> {
+    tx.execute(
+        "UPDATE providers
+         SET settings_config = json_set(
+             settings_config,
+             '$.env.ANTHROPIC_BASE_URL',
+             'https://apius.tu-zi.com'
+         )
+         WHERE app_type = 'claude'
+           AND name = '兔子线路'
+           AND rtrim(
+               CASE
+                   WHEN json_valid(settings_config)
+                   THEN json_extract(settings_config, '$.env.ANTHROPIC_BASE_URL')
+                   ELSE NULL
+               END,
+               '/ ' || char(9) || char(10) || char(13)
+           ) = 'https://api.tu-zi.com'",
+        [],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+    Ok(())
 }
 
 fn ensure_seed_current_provider(

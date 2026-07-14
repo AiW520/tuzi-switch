@@ -6,6 +6,7 @@
 //! - **Gemini**: API Key 认证 (x-goog-api-key)
 //! - **GeminiCli**: OAuth Bearer 认证 (用于 Gemini CLI)
 
+use super::adapter::auth_header_value;
 use super::{AuthInfo, AuthStrategy, ProviderAdapter, ProviderType};
 use crate::provider::Provider;
 use crate::proxy::error::ProxyError;
@@ -233,21 +234,27 @@ impl ProviderAdapter for GeminiAdapter {
         match auth.strategy {
             AuthStrategy::GoogleOAuth => {
                 let token = auth.access_token.as_ref().unwrap_or(&auth.api_key);
-                vec![
-                    (
-                        HeaderName::from_static("authorization"),
-                        HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-                    ),
-                    (
-                        HeaderName::from_static("x-goog-api-client"),
-                        HeaderValue::from_static("GeminiCLI/1.0"),
-                    ),
-                ]
+                let mut headers = Vec::new();
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("authorization"),
+                    &format!("Bearer {token}"),
+                ) {
+                    headers.push(header);
+                }
+                headers.push((
+                    HeaderName::from_static("x-goog-api-client"),
+                    HeaderValue::from_static("GeminiCLI/1.0"),
+                ));
+                headers
             }
-            _ => vec![(
+            _ => auth_header_value(
+                self.name(),
                 HeaderName::from_static("x-goog-api-key"),
-                HeaderValue::from_str(&auth.api_key).unwrap(),
-            )],
+                &auth.api_key,
+            )
+            .into_iter()
+            .collect(),
         }
     }
 }

@@ -177,7 +177,7 @@ fn fresh_install_seeds_claude_and_gemini_presets_without_api_keys() {
             .get("env")
             .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
             .and_then(|value| value.as_str()),
-        Some("https://api.tu-zi.com")
+        Some("https://apius.tu-zi.com")
     );
     assert_eq!(
         claude_tuzi
@@ -332,9 +332,11 @@ fn provider_seed_does_not_overwrite_existing_api_keys() {
         .expect("query claude tuzi")
         .expect("claude tuzi provider exists");
     claude_tuzi.settings_config = json!({
+        "customRoot": { "keep": true },
         "env": {
             "ANTHROPIC_BASE_URL": "https://api.tu-zi.com",
-            "ANTHROPIC_AUTH_TOKEN": "user-key"
+            "ANTHROPIC_AUTH_TOKEN": "user-key",
+            "CUSTOM_ENV": "keep-me"
         }
     });
     state
@@ -444,6 +446,149 @@ fn provider_seed_does_not_overwrite_existing_api_keys() {
             .and_then(|value| value.as_str()),
         Some("user-key"),
         "seed rerun must not erase user-entered API keys"
+    );
+    assert_eq!(
+        after
+            .settings_config
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+            .and_then(|value| value.as_str()),
+        Some("https://apius.tu-zi.com"),
+        "seed rerun should migrate Claude tuzi default route to apius"
+    );
+    assert_eq!(
+        after.settings_config.pointer("/customRoot/keep"),
+        Some(&json!(true)),
+        "seed rerun must preserve unknown root fields"
+    );
+    assert_eq!(
+        after.settings_config.pointer("/env/CUSTOM_ENV"),
+        Some(&json!("keep-me")),
+        "seed rerun must preserve unknown environment fields"
+    );
+}
+
+#[test]
+fn claude_tuzi_seed_migrates_existing_named_route_only() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+
+    let state = create_test_state().expect("create test state");
+    let custom_tuzi = Provider::with_id(
+        "custom-claude-tuzi".to_string(),
+        "兔子线路".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://api.tu-zi.com/",
+                "ANTHROPIC_AUTH_TOKEN": "custom-key",
+                "CUSTOM_ENV": "custom-value"
+            }
+        }),
+        None,
+    );
+    state
+        .db
+        .save_provider(AppType::Claude.as_str(), &custom_tuzi)
+        .expect("save custom claude tuzi route");
+    state
+        .db
+        .set_current_provider(AppType::Claude.as_str(), "custom-claude-tuzi")
+        .expect("make custom claude tuzi current");
+
+    let other_claude = Provider::with_id(
+        "custom-claude-other".to_string(),
+        "其它线路".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://api.tu-zi.com",
+                "ANTHROPIC_AUTH_TOKEN": "other-key"
+            }
+        }),
+        None,
+    );
+    state
+        .db
+        .save_provider(AppType::Claude.as_str(), &other_claude)
+        .expect("save non-tuzi claude route");
+
+    let malformed_tuzi = Provider::with_id(
+        "custom-claude-malformed".to_string(),
+        "兔子线路".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": 123,
+                "ANTHROPIC_AUTH_TOKEN": "malformed-key"
+            }
+        }),
+        None,
+    );
+    state
+        .db
+        .save_provider(AppType::Claude.as_str(), &malformed_tuzi)
+        .expect("save malformed claude tuzi route");
+
+    state
+        .db
+        .init_default_official_providers()
+        .expect("rerun provider seed");
+
+    let migrated = state
+        .db
+        .get_provider_by_id("custom-claude-tuzi", AppType::Claude.as_str())
+        .expect("query custom claude tuzi")
+        .expect("custom claude tuzi exists");
+    assert_eq!(
+        migrated
+            .settings_config
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+            .and_then(|value| value.as_str()),
+        Some("https://apius.tu-zi.com")
+    );
+    assert_eq!(
+        migrated
+            .settings_config
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_AUTH_TOKEN"))
+            .and_then(|value| value.as_str()),
+        Some("custom-key")
+    );
+    assert_eq!(
+        migrated.settings_config.pointer("/env/CUSTOM_ENV"),
+        Some(&json!("custom-value")),
+        "named-route migration must preserve unknown environment fields"
+    );
+
+    let untouched = state
+        .db
+        .get_provider_by_id("custom-claude-other", AppType::Claude.as_str())
+        .expect("query non-tuzi claude route")
+        .expect("non-tuzi claude route exists");
+    assert_eq!(
+        untouched
+            .settings_config
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+            .and_then(|value| value.as_str()),
+        Some("https://api.tu-zi.com")
+    );
+    let malformed = state
+        .db
+        .get_provider_by_id("custom-claude-malformed", AppType::Claude.as_str())
+        .expect("query malformed claude tuzi route")
+        .expect("malformed claude tuzi route exists");
+    assert_eq!(
+        malformed.settings_config.pointer("/env/ANTHROPIC_BASE_URL"),
+        Some(&json!(123)),
+        "non-string custom values must not be migrated"
+    );
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Claude.as_str())
+            .expect("query current claude provider")
+            .as_deref(),
+        Some("custom-claude-tuzi")
     );
 }
 
@@ -630,7 +775,7 @@ requires_openai_auth = false
     );
     let zshrc = std::fs::read_to_string(_home.join(".zshrc")).expect("read managed env rc");
     assert!(
-        zshrc.contains("export TUZI01_CODEX_API_KEY=sk-test"),
+        zshrc.contains("export TUZI01_CODEX_API_KEY='sk-test'"),
         "save_codex_route should create the matching managed env key"
     );
 }
@@ -729,8 +874,13 @@ command = "say"
         "live Codex config should not expose API key values"
     );
     assert!(
-        config_text.contains("env_key = \"FRESH_CODEX_API_KEY\""),
-        "live Codex config should reference env_key"
+        !config_text.contains("env_key = \"FRESH_CODEX_API_KEY\""),
+        "live Codex config should not expose managed env_key"
+    );
+    let zshrc = std::fs::read_to_string(_home.join(".zshrc")).expect("read managed env rc");
+    assert!(
+        zshrc.contains("export FRESH_CODEX_API_KEY='fresh-key'"),
+        "managed env rc should contain the provider token"
     );
     assert!(
         config_text.contains("mcp_servers.echo-server"),
@@ -964,26 +1114,23 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
     let err = switch_provider_test_hook(&app_state, AppType::Codex, "invalid")
         .expect_err("switching should fail when auth missing");
     match err {
-        AppError::Config(msg) => assert!(
-            msg.contains("auth"),
-            "expected auth missing error message, got {msg}"
-        ),
-        AppError::Localized { zh, en, .. } => assert!(
-            zh.contains("auth") || en.contains("auth"),
-            "expected auth missing error message, got zh={zh}, en={en}"
-        ),
-        other => panic!("expected config/auth error, got {other:?}"),
+        AppError::Localized { key, zh, en } => {
+            assert_eq!(key, "provider.codex.auth.missing");
+            assert!(
+                zh.contains("auth") || en.contains("auth"),
+                "expected auth missing error message, got zh={zh}, en={en}"
+            );
+        }
+        other => panic!("expected localized auth error, got {other:?}"),
     }
 
     let current_id = app_state
         .db
         .get_current_provider(AppType::Codex.as_str())
         .expect("get current provider");
-    // 切换失败后，由于数据库操作是先设置再验证，current 可能已被设为 "invalid"
-    // 但由于 live 配置写入失败，状态应该回滚
-    // 注意：这个行为取决于 switch_provider 的具体实现
-    assert!(
-        current_id.is_none() || current_id.as_deref() == Some("invalid"),
-        "current provider should remain empty or be the attempted id on failure, got: {current_id:?}"
+    assert_ne!(
+        current_id.as_deref(),
+        Some("invalid"),
+        "failed switch must not persist the invalid provider as current"
     );
 }

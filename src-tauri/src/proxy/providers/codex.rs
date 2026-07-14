@@ -5,6 +5,7 @@
 //! ## 客户端检测
 //! 支持检测官方 Codex 客户端 (codex_vscode, codex_cli_rs)
 
+use super::adapter::auth_header_value;
 use super::{AuthInfo, AuthStrategy, ProviderAdapter};
 use crate::provider::{CodexChatReasoning, Provider};
 use crate::proxy::error::ProxyError;
@@ -541,10 +542,13 @@ impl ProviderAdapter for CodexAdapter {
 
     fn get_auth_headers(&self, auth: &AuthInfo) -> Vec<(http::HeaderName, http::HeaderValue)> {
         let bearer = format!("Bearer {}", auth.api_key);
-        vec![(
+        auth_header_value(
+            self.name(),
             http::HeaderName::from_static("authorization"),
-            http::HeaderValue::from_str(&bearer).unwrap(),
-        )]
+            &bearer,
+        )
+        .into_iter()
+        .collect()
     }
 }
 

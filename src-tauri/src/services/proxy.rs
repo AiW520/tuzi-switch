@@ -1435,7 +1435,20 @@ impl ProxyService {
         provider: &Provider,
     ) -> Result<(), String> {
         let _guard = self.switch_locks.lock_for_app(app_type).await;
-        self.update_live_backup_from_provider_inner(app_type, provider)
+        self.update_live_backup_from_provider_inner(app_type, provider, true)
+            .await
+    }
+
+    /// 从供应商配置更新 Live 备份，但不复用当前 Codex history bucket。
+    ///
+    /// 仅用于关闭 Codex 统一历史时恢复 provider 自身的 model_provider。
+    pub async fn update_live_backup_from_provider_exact(
+        &self,
+        app_type: &str,
+        provider: &Provider,
+    ) -> Result<(), String> {
+        let _guard = self.switch_locks.lock_for_app(app_type).await;
+        self.update_live_backup_from_provider_inner(app_type, provider, false)
             .await
     }
 
@@ -1444,6 +1457,7 @@ impl ProxyService {
         &self,
         app_type: &str,
         provider: &Provider,
+        normalize_codex_history_bucket: bool,
     ) -> Result<(), String> {
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("未知的应用类型: {app_type}"))?;
@@ -1470,15 +1484,17 @@ impl ProxyService {
                 )?;
             }
 
-            let anchor_config_text = existing_backup_value
-                .as_ref()
-                .and_then(|value| value.get("config"))
-                .and_then(|value| value.as_str());
-            crate::codex_config::normalize_codex_settings_config_model_provider(
-                &mut effective_settings,
-                anchor_config_text,
-            )
-            .map_err(|e| format!("归一化 Codex restore backup 失败: {e}"))?;
+            if normalize_codex_history_bucket {
+                let anchor_config_text = existing_backup_value
+                    .as_ref()
+                    .and_then(|value| value.get("config"))
+                    .and_then(|value| value.as_str());
+                crate::codex_config::normalize_codex_settings_config_model_provider(
+                    &mut effective_settings,
+                    anchor_config_text,
+                )
+                .map_err(|e| format!("归一化 Codex restore backup 失败: {e}"))?;
+            }
         }
 
         let backup_json = match app_type_enum {
@@ -1553,7 +1569,7 @@ impl ProxyService {
             .map_err(|e| format!("更新本地当前供应商失败: {e}"))?;
 
         if should_sync_backup {
-            self.update_live_backup_from_provider_inner(app_type, &provider)
+            self.update_live_backup_from_provider_inner(app_type, &provider, true)
                 .await?;
 
             if matches!(app_type_enum, AppType::Claude) {

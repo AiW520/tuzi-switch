@@ -305,6 +305,7 @@ fn build_local_snapshot(
     // Export database to SQL string
     let sql_string = db.export_sql_string_for_sync()?;
     let db_sql = sql_string.into_bytes();
+    validate_artifact_size_limit(REMOTE_DB_SQL, db_sql.len() as u64)?;
 
     // Pack skills into deterministic ZIP
     let tmp = tempdir().map_err(|e| {
@@ -317,6 +318,10 @@ fn build_local_snapshot(
     })?;
     let skills_zip_path = tmp.path().join(REMOTE_SKILLS_ZIP);
     zip_skills_ssot(&skills_zip_path)?;
+    let skills_zip_size = fs::metadata(&skills_zip_path)
+        .map_err(|e| AppError::io(&skills_zip_path, e))?
+        .len();
+    validate_artifact_size_limit(REMOTE_SKILLS_ZIP, skills_zip_size)?;
     let skills_zip = fs::read(&skills_zip_path).map_err(|e| AppError::io(&skills_zip_path, e))?;
 
     // Build artifact map and compute hashes
@@ -657,8 +662,8 @@ fn validate_artifact_size_limit(artifact_name: &str, size: u64) -> Result<(), Ap
         let max_mb = MAX_SYNC_ARTIFACT_BYTES / 1024 / 1024;
         return Err(localized(
             "webdav.sync.artifact_too_large",
-            format!("artifact {artifact_name} 超过下载上限（{max_mb} MB）"),
-            format!("Artifact {artifact_name} exceeds download limit ({max_mb} MB)"),
+            format!("artifact {artifact_name} 超过同步上限（{max_mb} MB）"),
+            format!("Artifact {artifact_name} exceeds sync limit ({max_mb} MB)"),
         ));
     }
     Ok(())

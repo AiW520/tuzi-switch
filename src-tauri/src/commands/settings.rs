@@ -21,6 +21,7 @@ fn merge_settings_for_save(
         }
         _ => {}
     }
+    incoming.local_migrations = existing.local_migrations.clone();
     incoming
 }
 
@@ -32,11 +33,97 @@ pub async fn get_settings() -> Result<crate::settings::AppSettings, String> {
 
 /// 保存设置
 #[tauri::command]
-pub async fn save_settings(settings: crate::settings::AppSettings) -> Result<bool, String> {
+pub async fn save_settings(
+    state: tauri::State<'_, crate::store::AppState>,
+    settings: crate::settings::AppSettings,
+) -> Result<bool, String> {
     let existing = crate::settings::get_settings();
     let merged = merge_settings_for_save(settings, &existing);
+    let unify_codex_changed =
+        merged.unify_codex_session_history != existing.unify_codex_session_history;
+    let unify_codex_enabled = merged.unify_codex_session_history;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
+
+    if unify_codex_changed {
+        if let Err(err) = crate::services::provider::reapply_current_codex_live(state.inner()) {
+            log::warn!("统一 Codex 会话历史开关变更后重写 live 配置失败，回滚设置: {err}");
+            if let Err(rollback_err) = crate::settings::update_settings(existing) {
+                log::error!("回滚统一会话开关设置失败: {rollback_err}");
+            }
+            return Err(format!(
+                "统一 Codex 会话历史开关未生效（live 配置重写失败）: {err}"
+            ));
+        }
+
+        if unify_codex_enabled {
+            tauri::async_runtime::spawn_blocking(|| {
+                match crate::codex_history_migration::maybe_migrate_codex_official_history_to_unified_bucket() {
+                    Ok(outcome) => {
+                        if let Some(reason) = outcome.skipped_reason {
+                            log::debug!("○ Codex official history unify migration skipped: {reason}");
+                        } else {
+                            log::info!(
+                                "✓ Codex official history unify migration completed: jsonl_files={}, state_rows={}",
+                                outcome.migrated_jsonl_files,
+                                outcome.migrated_state_rows
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("✗ Codex official history unify migration failed: {e}");
+                    }
+                }
+            });
+        } else {
+            if let Err(err) = crate::settings::clear_codex_official_history_unify_migration() {
+                log::warn!("清除统一会话迁移标记失败: {err}");
+            }
+            if let Err(err) = crate::settings::clear_codex_unify_migrate_existing() {
+                log::warn!("清除统一会话迁移意愿失败: {err}");
+            }
+        }
+    }
     Ok(true)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexUnifyHistoryRestoreResult {
+    pub restored_jsonl_files: usize,
+    pub restored_state_rows: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_reason: Option<String>,
+}
+
+#[tauri::command]
+pub async fn has_codex_unify_history_backup() -> Result<bool, String> {
+    Ok(crate::codex_history_migration::has_codex_official_history_unify_backup())
+}
+
+#[tauri::command]
+pub async fn restore_codex_unified_history() -> Result<CodexUnifyHistoryRestoreResult, String> {
+    let outcome = tauri::async_runtime::spawn_blocking(|| {
+        crate::codex_history_migration::restore_codex_official_history_from_backups()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if let Some(reason) = &outcome.skipped_reason {
+        log::debug!("○ Codex official history restore skipped: {reason}");
+    } else {
+        log::info!(
+            "✓ Codex official history restored from backups: jsonl_files={}, state_rows={}",
+            outcome.restored_jsonl_files,
+            outcome.restored_state_rows
+        );
+    }
+
+    Ok(CodexUnifyHistoryRestoreResult {
+        restored_jsonl_files: outcome.restored_jsonl_files,
+        restored_state_rows: outcome.restored_state_rows,
+        skipped_reason: outcome.skipped_reason,
+    })
 }
 
 /// 重启应用程序（当 app_config_dir 变更后使用）

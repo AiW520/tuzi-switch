@@ -86,6 +86,10 @@ export function useSettingsForm(): UseSettingsFormResult {
         data.enableClaudePluginIntegration ?? false,
       silentStartup: data.silentStartup ?? false,
       skipClaudeOnboarding: data.skipClaudeOnboarding ?? false,
+      preserveCodexOfficialAuthOnSwitch:
+        data.preserveCodexOfficialAuthOnSwitch ?? true,
+      unifyCodexSessionHistory: data.unifyCodexSessionHistory ?? true,
+      unifyCodexMigrateExisting: data.unifyCodexMigrateExisting ?? true,
       claudeConfigDir: sanitizeDir(data.claudeConfigDir),
       codexConfigDir: sanitizeDir(data.codexConfigDir),
       geminiConfigDir: sanitizeDir(data.geminiConfigDir),
@@ -110,6 +114,9 @@ export function useSettingsForm(): UseSettingsFormResult {
             useAppWindowControls: false,
             enableClaudePluginIntegration: false,
             skipClaudeOnboarding: false,
+            preserveCodexOfficialAuthOnSwitch: true,
+            unifyCodexSessionHistory: true,
+            unifyCodexMigrateExisting: true,
             language: readPersistedLanguage(),
           } as SettingsFormState);
 
@@ -147,6 +154,11 @@ export function useSettingsForm(): UseSettingsFormResult {
           serverData.enableClaudePluginIntegration ?? false,
         silentStartup: serverData.silentStartup ?? false,
         skipClaudeOnboarding: serverData.skipClaudeOnboarding ?? false,
+        preserveCodexOfficialAuthOnSwitch:
+          serverData.preserveCodexOfficialAuthOnSwitch ?? true,
+        unifyCodexSessionHistory: serverData.unifyCodexSessionHistory ?? true,
+        unifyCodexMigrateExisting:
+          serverData.unifyCodexMigrateExisting ?? true,
         claudeConfigDir: sanitizeDir(serverData.claudeConfigDir),
         codexConfigDir: sanitizeDir(serverData.codexConfigDir),
         geminiConfigDir: sanitizeDir(serverData.geminiConfigDir),

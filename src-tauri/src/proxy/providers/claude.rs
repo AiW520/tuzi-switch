@@ -14,6 +14,7 @@
 //! - **OpenRouter**: 已支持 Claude Code 兼容接口，默认透传
 //! - **GitHubCopilot**: GitHub Copilot (OAuth + Copilot Token)
 
+use super::adapter::auth_header_value;
 use super::{AuthInfo, AuthStrategy, ProviderAdapter, ProviderType};
 use crate::provider::Provider;
 use crate::proxy::error::ProxyError;
@@ -594,57 +595,72 @@ impl ProviderAdapter for ClaudeAdapter {
         // 注意：anthropic-version 由 forwarder.rs 统一处理（透传客户端值或设置默认值）
         let bearer = format!("Bearer {}", auth.api_key);
         match auth.strategy {
-            AuthStrategy::Anthropic => {
-                vec![(
-                    HeaderName::from_static("x-api-key"),
-                    HeaderValue::from_str(&auth.api_key).unwrap(),
-                )]
-            }
-            AuthStrategy::ClaudeAuth | AuthStrategy::Bearer => {
-                vec![(
-                    HeaderName::from_static("authorization"),
-                    HeaderValue::from_str(&bearer).unwrap(),
-                )]
-            }
-            AuthStrategy::Google => vec![(
+            AuthStrategy::Anthropic => auth_header_value(
+                self.name(),
+                HeaderName::from_static("x-api-key"),
+                &auth.api_key,
+            )
+            .into_iter()
+            .collect(),
+            AuthStrategy::ClaudeAuth | AuthStrategy::Bearer => auth_header_value(
+                self.name(),
+                HeaderName::from_static("authorization"),
+                &bearer,
+            )
+            .into_iter()
+            .collect(),
+            AuthStrategy::Google => auth_header_value(
+                self.name(),
                 HeaderName::from_static("x-goog-api-key"),
-                HeaderValue::from_str(&auth.api_key).unwrap(),
-            )],
+                &auth.api_key,
+            )
+            .into_iter()
+            .collect(),
             AuthStrategy::GoogleOAuth => {
                 let token = auth.access_token.as_ref().unwrap_or(&auth.api_key);
-                vec![
-                    (
-                        HeaderName::from_static("authorization"),
-                        HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-                    ),
-                    (
-                        HeaderName::from_static("x-goog-api-client"),
-                        HeaderValue::from_static("GeminiCLI/1.0"),
-                    ),
-                ]
+                let mut headers = Vec::new();
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("authorization"),
+                    &format!("Bearer {token}"),
+                ) {
+                    headers.push(header);
+                }
+                headers.push((
+                    HeaderName::from_static("x-goog-api-client"),
+                    HeaderValue::from_static("GeminiCLI/1.0"),
+                ));
+                headers
             }
             AuthStrategy::CodexOAuth => {
                 // 注意：bearer token 由 forwarder 动态注入到 auth.api_key
                 // ChatGPT-Account-Id 由 forwarder 注入额外 header
-                vec![
-                    (
-                        HeaderName::from_static("authorization"),
-                        HeaderValue::from_str(&bearer).unwrap(),
-                    ),
-                    (
-                        HeaderName::from_static("originator"),
-                        HeaderValue::from_static("tuzi-switch"),
-                    ),
-                ]
+                let mut headers = Vec::new();
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("authorization"),
+                    &bearer,
+                ) {
+                    headers.push(header);
+                }
+                headers.push((
+                    HeaderName::from_static("originator"),
+                    HeaderValue::from_static("tuzi-switch"),
+                ));
+                headers
             }
             AuthStrategy::GitHubCopilot => {
                 // 生成请求追踪 ID
                 let request_id = uuid::Uuid::new_v4().to_string();
-                vec![
-                    (
-                        HeaderName::from_static("authorization"),
-                        HeaderValue::from_str(&bearer).unwrap(),
-                    ),
+                let mut headers = Vec::new();
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("authorization"),
+                    &bearer,
+                ) {
+                    headers.push(header);
+                }
+                headers.extend([
                     (
                         HeaderName::from_static("editor-version"),
                         HeaderValue::from_static(super::copilot_auth::COPILOT_EDITOR_VERSION),
@@ -683,15 +699,22 @@ impl ProviderAdapter for ClaudeAdapter {
                         HeaderName::from_static("x-vscode-user-agent-library-version"),
                         HeaderValue::from_static("electron-fetch"),
                     ),
-                    (
-                        HeaderName::from_static("x-request-id"),
-                        HeaderValue::from_str(&request_id).unwrap(),
-                    ),
-                    (
-                        HeaderName::from_static("x-agent-task-id"),
-                        HeaderValue::from_str(&request_id).unwrap(),
-                    ),
-                ]
+                ]);
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("x-request-id"),
+                    &request_id,
+                ) {
+                    headers.push(header);
+                }
+                if let Some(header) = auth_header_value(
+                    self.name(),
+                    HeaderName::from_static("x-agent-task-id"),
+                    &request_id,
+                ) {
+                    headers.push(header);
+                }
+                headers
             }
         }
     }

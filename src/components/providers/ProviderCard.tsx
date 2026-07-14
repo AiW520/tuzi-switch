@@ -478,6 +478,7 @@ export function ProviderCard({
                     `${urlObj.origin}${urlObj.pathname}`.replace(/\/$/, "");
 
                   if (
+                    normalizedUrl === "https://apius.tu-zi.com" ||
                     normalizedUrl === "https://api.tu-zi.com" ||
                     normalizedUrl === "https://api.tu-zi.com/v1"
                   ) {
