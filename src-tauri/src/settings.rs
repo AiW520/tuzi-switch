@@ -692,7 +692,10 @@ pub fn clear_codex_official_history_unify_migration() -> Result<(), AppError> {
 }
 
 pub fn unify_codex_migrate_existing_requested() -> bool {
-    get_settings().unify_codex_migrate_existing.unwrap_or(false)
+    // 统一历史由升级逻辑默认开启时，旧版本没有该字段。此时若默认不迁移，
+    // live 会先切到共享桶，而全部存量历史仍留在官方桶，用户看到的就是空列表。
+    // 明确选择“不迁移”仍会落盘为 Some(false)，只有缺字段的升级用户默认补迁。
+    get_settings().unify_codex_migrate_existing.unwrap_or(true)
 }
 
 pub fn clear_codex_unify_migrate_existing() -> Result<(), AppError> {
@@ -1011,6 +1014,21 @@ mod tests {
 
         assert!(settings.preserve_codex_official_auth_on_switch);
         assert!(settings.unify_codex_session_history);
+        assert!(settings.unify_codex_migrate_existing.is_none());
+    }
+
+    #[test]
+    fn missing_codex_migration_choice_defaults_to_safe_stock_migration() {
+        let settings: AppSettings =
+            serde_json::from_value(serde_json::json!({})).expect("settings");
+
+        assert!(settings.unify_codex_migrate_existing.unwrap_or(true));
+
+        let explicit_opt_out: AppSettings = serde_json::from_value(serde_json::json!({
+            "unifyCodexMigrateExisting": false
+        }))
+        .expect("settings");
+        assert_eq!(explicit_opt_out.unify_codex_migrate_existing, Some(false));
     }
 
     #[test]

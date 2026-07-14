@@ -89,7 +89,7 @@ export function useSettingsForm(): UseSettingsFormResult {
       preserveCodexOfficialAuthOnSwitch:
         data.preserveCodexOfficialAuthOnSwitch ?? true,
       unifyCodexSessionHistory: data.unifyCodexSessionHistory ?? true,
-      unifyCodexMigrateExisting: data.unifyCodexMigrateExisting ?? false,
+      unifyCodexMigrateExisting: data.unifyCodexMigrateExisting ?? true,
       claudeConfigDir: sanitizeDir(data.claudeConfigDir),
       codexConfigDir: sanitizeDir(data.codexConfigDir),
       geminiConfigDir: sanitizeDir(data.geminiConfigDir),

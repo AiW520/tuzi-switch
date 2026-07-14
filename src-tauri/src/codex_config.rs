@@ -888,21 +888,6 @@ pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, 
             return Ok(config_text.to_string());
         }
 
-        let existing_unified_conflicts = doc
-            .get("model_providers")
-            .and_then(|item| item.as_table())
-            .and_then(|providers| providers.get(CC_SWITCH_CODEX_MODEL_PROVIDER_ID))
-            .and_then(|item| item.as_table())
-            .is_some();
-        if existing_unified_conflicts {
-            log::warn!(
-                "Codex 配置已存在 [model_providers.{}]，跳过从 {} 重命名以避免覆盖现有路由",
-                CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
-                active_provider_id
-            );
-            return Ok(config_text.to_string());
-        }
-
         let Some(model_providers) = doc
             .get_mut("model_providers")
             .and_then(|item| item.as_table_mut())
@@ -912,6 +897,8 @@ pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, 
         let Some(provider_table) = model_providers.remove(active_provider_id.as_str()) else {
             return Ok(config_text.to_string());
         };
+        // tuziswitch 是本应用管理的共享历史桶。旧版本可能已留下同名路由，
+        // 切换供应商时必须用当前激活路由刷新它，否则开关虽开启，live 仍停在旧桶。
         model_providers[CC_SWITCH_CODEX_MODEL_PROVIDER_ID] = provider_table;
         rewrite_codex_profile_model_provider_refs(
             &mut doc,
@@ -1919,7 +1906,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unified_bucket_does_not_overwrite_existing_route_table() {
+    fn unified_bucket_refreshes_existing_managed_route_table() {
         let input = r#"model_provider = "rightcode"
 
 [model_providers.rightcode]
@@ -1933,7 +1920,22 @@ base_url = "https://existing.example/v1"
 
         let result = inject_codex_unified_session_bucket(input).expect("inject unified bucket");
 
-        assert_eq!(result, input);
+        let parsed: toml::Value = toml::from_str(&result).expect("parse result");
+        assert_eq!(
+            parsed
+                .get("model_provider")
+                .and_then(|value| value.as_str()),
+            Some("tuziswitch")
+        );
+        assert_eq!(
+            parsed
+                .get("model_providers")
+                .and_then(|value| value.get("tuziswitch"))
+                .and_then(|value| value.get("base_url"))
+                .and_then(|value| value.as_str()),
+            Some("https://rightcode.example/v1")
+        );
+        assert!(result.find("[model_providers.rightcode]").is_none());
     }
 
     #[test]
