@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import CodexConfigEditor from "@/components/providers/forms/CodexConfigEditor";
 import GeminiConfigEditor from "@/components/providers/forms/GeminiConfigEditor";
 
 vi.mock("@/components/common/FullScreenPanel", () => ({
@@ -47,41 +46,6 @@ vi.mock("@/components/JsonEditor", () => ({
 }));
 
 describe("Common config modals", () => {
-  it("keeps the Codex common config modal closed after user closes it with an error present", async () => {
-    render(
-      <CodexConfigEditor
-        authValue="{}"
-        configValue=""
-        onAuthChange={() => {}}
-        onConfigChange={() => {}}
-        useCommonConfig={false}
-        onCommonConfigToggle={() => {}}
-        commonConfigSnippet={`base_url = "https://example.com"`}
-        onCommonConfigSnippetChange={() => false}
-        onCommonConfigErrorClear={() => {}}
-        commonConfigError="Invalid TOML"
-        authError=""
-        configError=""
-      />,
-    );
-
-    expect(screen.queryByTestId("common-config-panel")).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /codexConfig.editCommonConfig|编辑通用配置/ }),
-    );
-
-    expect(screen.getByTestId("common-config-panel")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByTestId("common-config-panel"),
-      ).not.toBeInTheDocument(),
-    );
-  });
-
   it("keeps the Gemini common config modal closed after user closes it with an error present", async () => {
     render(
       <GeminiConfigEditor

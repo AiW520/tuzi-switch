@@ -36,7 +36,7 @@ open "/Applications/兔子switch.app"
 ```
 安装指定版本：
 ```
-curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@v1.1.4/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.1.4 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@v1.2.0/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.0 bash
 ```
 ```
 open "/Applications/兔子switch.app"
@@ -76,7 +76,14 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.1.4`，这一轮更新重点包括：
+当前公开版本为 `v1.2.0`，这一轮更新重点包括：
+
+### Codex 官方登录与会话历史统一
+
+- **保留官方登录材料**：切换第三方供应商时保留 `auth.json` 中的 ChatGPT/OAuth 登录信息
+- **统一会话历史**：官方与第三方 Codex 会话统一写入受管共享桶，切换线路后仍可连续查看历史
+- **安全迁移与恢复**：迁移 JSONL 和 `state_5.sqlite` 历史，记录原始归属，关闭功能后精确恢复
+- **升级兼容**：覆盖旧版缺省设置、官方桶差异和受管路由刷新，避免历史遗漏或共享桶残留
 
 ### Codex 新配置适配
 

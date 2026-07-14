@@ -101,7 +101,9 @@ function createProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: overrides.id ?? "provider-1",
     name: overrides.name ?? "Test Provider",
-    settingsConfig: overrides.settingsConfig ?? {},
+    settingsConfig: overrides.settingsConfig ?? {
+      env: { ANTHROPIC_AUTH_TOKEN: "test-key" },
+    },
     category: overrides.category,
     createdAt: overrides.createdAt,
     sortIndex: overrides.sortIndex,
@@ -235,12 +237,12 @@ describe("ProviderList Component", () => {
     // Drag attributes from useSortable
     expect(
       providerCardRenderSpy.mock.calls[0][0].dragHandleProps?.attributes[
-      "data-dnd-id"
+        "data-dnd-id"
       ],
     ).toBe("b");
     expect(
       providerCardRenderSpy.mock.calls[1][0].dragHandleProps?.attributes[
-      "data-dnd-id"
+        "data-dnd-id"
       ],
     ).toBe("a");
 

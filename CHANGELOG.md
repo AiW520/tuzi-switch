@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-07-14
+
+### Features
+
+- 新增 Codex 应用增强设置：保留官方登录材料，并将官方与第三方供应商的会话历史统一到受管共享桶。
+- 新增 Codex JSONL 与 `state_5.sqlite` 历史迁移、备份账本和关闭开关后的精确恢复能力。
+
+### Fixes
+
+- 修复 Codex 历史迁移默认值、官方桶识别、受管路由刷新及共享桶残留问题，避免升级或关闭统一历史后会话归属异常。
+- 收紧 Codex、Claude、Gemini 等供应商配置清理边界，并适配 Codex agent 最新凭据配置方式。
+- 将 Claude 兔子线路默认域名迁移到 `https://apius.tu-zi.com`，仅更新仍使用旧默认值的历史配置。
+- 修复 Linux `.deb` 包名由中文产品名生成时不符合 Debian 规范、导致安装失败的问题 (by @AiW520)。
+
+### Documentation
+
+- 补充 Codex 会话历史统一、供应商配置迁移与 Linux 安装包修复的交接文档、用户手册和人工验证说明。
+
 ## [1.1.31] - 2026-06-23
 
 ### Fixes

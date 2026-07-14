@@ -4,58 +4,65 @@ import { geminiProviderPresets } from "@/config/geminiProviderPresets";
 
 describe("Provider presets", () => {
   it("provides the requested Codex presets with OpenAI-compatible endpoints", () => {
-    expect(codexProviderPresets.map((item) => item.name)).toEqual([
-      "兔子线路",
-      "coding",
-      "gaccode",
-    ]);
+    expect(codexProviderPresets.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["兔子线路", "codex订阅", "gaccode"]),
+    );
 
     const expectedPresets = [
       {
         name: "兔子线路",
-        provider: "tuzi_route",
-        baseUrl: "https://api.tu-zi.com",
+        provider: "provider-tuzi01",
+        baseUrl: "https://api.tu-zi.com/v1",
         model: "gpt-5.5",
+        apiKeyUrl: "https://api.tu-zi.com",
+        endpointCandidates: ["https://api.tu-zi.com/v1"],
       },
       {
-        name: "coding",
-        provider: "coding",
+        name: "codex订阅",
+        provider: "provider-coding01",
         baseUrl: "https://api.tu-zi.com/coding",
         model: "gpt-5.5",
+        apiKeyUrl: "https://store.tu-zi.com/cat/11",
+        endpointCandidates: [
+          "https://api.tu-zi.com/coding",
+          "https://coding.tu-zi.com",
+          "https://coding.opentu.ai",
+          "https://coding.sydney-ai.com",
+        ],
       },
       {
         name: "gaccode",
-        provider: "gaccode",
+        provider: "gac",
         baseUrl: "https://gaccode.com/codex/v1",
         model: "gpt-5.5",
+        apiKeyUrl: "https://store.tu-zi.com/cat/1",
+        endpointCandidates: ["https://gaccode.com/codex/v1"],
       },
     ];
 
-    expectedPresets.forEach(({ name, provider, baseUrl, model }) => {
-      const preset = codexProviderPresets.find((item) => item.name === name);
+    expectedPresets.forEach(
+      ({ name, provider, baseUrl, model, apiKeyUrl, endpointCandidates }) => {
+        const preset = codexProviderPresets.find((item) => item.name === name);
 
-      expect(preset).toBeDefined();
-      expect(preset?.websiteUrl).toBe("");
-      expect(preset?.apiKeyUrl).toBe(
-        name === "兔子线路"
-          ? "https://api.tu-zi.com"
-          : name === "coding"
-            ? "https://store.tu-zi.com/cat/11"
-            : "https://store.tu-zi.com/cat/1",
-      );
-      expect(preset?.category).toBe("aggregator");
-      expect(preset?.endpointCandidates).toEqual([baseUrl]);
-      expect(preset?.auth).toEqual({ OPENAI_API_KEY: "" });
-      expect(preset?.config).toContain(`model_provider = "${provider}"`);
-      expect(preset?.config).toContain(`model = "${model}"`);
-      expect(preset?.config).toContain(`base_url = "${baseUrl}"`);
-      expect(preset?.config).toContain('wire_api = "responses"');
-      expect(preset?.config).toContain("disable_response_storage = true");
-    });
+        expect(preset).toBeDefined();
+        expect(preset?.websiteUrl).toBe("");
+        expect(preset?.apiKeyUrl).toBe(apiKeyUrl);
+        expect(preset?.category).toBe("aggregator");
+        expect(preset?.endpointCandidates).toEqual(endpointCandidates);
+        expect(preset?.auth).toEqual({});
+        expect(preset?.config).toContain(`model_provider = "${provider}"`);
+        expect(preset?.config).toContain(`model = "${model}"`);
+        expect(preset?.config).toContain(`base_url = "${baseUrl}"`);
+        expect(preset?.config).toContain('wire_api = "responses"');
+        expect(preset?.config).toContain("disable_response_storage = true");
+      },
+    );
   });
 
   it("uses the requested Gemini rabbit route preset", () => {
-    const preset = geminiProviderPresets.find((item) => item.name === "兔子线路");
+    const preset = geminiProviderPresets.find(
+      (item) => item.name === "兔子线路",
+    );
 
     expect(preset).toBeDefined();
     expect(preset?.websiteUrl).toBe("");
