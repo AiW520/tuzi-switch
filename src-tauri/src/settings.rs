@@ -76,6 +76,48 @@ impl VisibleApps {
     }
 }
 
+/// 开发任务缓存重定向设置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevelopmentCacheSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
+    #[serde(default = "default_dev_cache_retention_hours")]
+    pub retention_hours: u32,
+    #[serde(default = "default_true")]
+    pub route_temp: bool,
+    #[serde(default = "default_true")]
+    pub route_node: bool,
+    #[serde(default = "default_true")]
+    pub route_python: bool,
+    #[serde(default = "default_true")]
+    pub cleanup_on_session_end: bool,
+    /// 将缓存变量写入 Windows 用户环境，覆盖之后启动的终端和 IDE。
+    #[serde(default)]
+    pub global_mode: bool,
+}
+
+fn default_dev_cache_retention_hours() -> u32 {
+    24
+}
+
+impl Default for DevelopmentCacheSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            root_dir: None,
+            retention_hours: default_dev_cache_retention_hours(),
+            route_temp: true,
+            route_node: true,
+            route_python: true,
+            cleanup_on_session_end: true,
+            global_mode: false,
+        }
+    }
+}
+
 /// WebDAV 同步状态（持久化同步进度信息）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -363,6 +405,10 @@ pub struct AppSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_terminal: Option<String>,
 
+    /// 开发任务缓存重定向与清理设置。
+    #[serde(default)]
+    pub development_cache: DevelopmentCacheSettings,
+
     // ===== 本机自动迁移状态 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_migrations: Option<LocalMigrations>,
@@ -419,6 +465,7 @@ impl Default for AppSettings {
             backup_interval_hours: None,
             backup_retain_count: None,
             preferred_terminal: None,
+            development_cache: DevelopmentCacheSettings::default(),
             local_migrations: None,
         }
     }
@@ -476,6 +523,16 @@ impl AppSettings {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+
+        self.development_cache.root_dir = self
+            .development_cache
+            .root_dir
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        self.development_cache.retention_hours =
+            self.development_cache.retention_hours.clamp(1, 720);
 
         self.language = self
             .language

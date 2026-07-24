@@ -938,11 +938,29 @@ fn resolve_launch_cwd(cwd: Option<String>) -> Result<Option<PathBuf>, String> {
 /// 创建临时配置文件并启动 claude 终端
 /// 使用 --settings 参数传入提供商特定的 API 配置
 fn launch_terminal_with_env(
-    env_vars: Vec<(String, String)>,
+    mut env_vars: Vec<(String, String)>,
     provider_id: &str,
     cwd: Option<&Path>,
 ) -> Result<(), String> {
-    let temp_dir = std::env::temp_dir();
+    let cache_settings = crate::settings::get_settings().development_cache;
+    let cache_context = crate::dev_cache::prepare_launch_context(&cache_settings)?;
+    if let Some(context) = cache_context.as_ref() {
+        for (key, value) in &context.env_vars {
+            if let Some((_, existing)) = env_vars
+                .iter_mut()
+                .find(|(existing_key, _)| existing_key.eq_ignore_ascii_case(key))
+            {
+                *existing = value.clone();
+            } else {
+                env_vars.push((key.clone(), value.clone()));
+            }
+        }
+    }
+
+    let temp_dir = cache_context
+        .as_ref()
+        .map(|context| context.session_dir.clone())
+        .unwrap_or_else(std::env::temp_dir);
     let config_file = temp_dir.join(format!(
         "claude_{}_{}.json",
         provider_id,
@@ -954,24 +972,41 @@ fn launch_terminal_with_env(
 
     #[cfg(target_os = "macos")]
     {
-        launch_macos_terminal(&config_file, cwd)?;
-        Ok(())
+        let result = launch_macos_terminal(&config_file, cwd, cache_context.as_ref());
+        if result.is_err() {
+            cleanup_failed_cache_launch(cache_context.as_ref());
+        }
+        result
     }
 
     #[cfg(target_os = "linux")]
     {
-        launch_linux_terminal(&config_file, cwd)?;
-        Ok(())
+        let result = launch_linux_terminal(&config_file, cwd, cache_context.as_ref());
+        if result.is_err() {
+            cleanup_failed_cache_launch(cache_context.as_ref());
+        }
+        result
     }
 
     #[cfg(target_os = "windows")]
     {
-        launch_windows_terminal(&temp_dir, &config_file, cwd)?;
-        return Ok(());
+        let result = launch_windows_terminal(&temp_dir, &config_file, cwd, cache_context.as_ref());
+        if result.is_err() {
+            cleanup_failed_cache_launch(cache_context.as_ref());
+        }
+        return result;
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     Err("不支持的操作系统".to_string())
+}
+
+fn cleanup_failed_cache_launch(context: Option<&crate::dev_cache::LaunchCacheContext>) {
+    if let Some(context) = context {
+        if let Err(error) = std::fs::remove_dir_all(&context.session_dir) {
+            log::warn!("终端启动失败后清理缓存会话目录失败: {error}");
+        }
+    }
 }
 
 /// 写入 claude 配置文件
@@ -996,7 +1031,11 @@ fn write_claude_config(
 
 /// macOS: 根据用户首选终端启动
 #[cfg(target_os = "macos")]
-fn launch_macos_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> Result<(), String> {
+fn launch_macos_terminal(
+    config_file: &std::path::Path,
+    cwd: Option<&Path>,
+    cache_context: Option<&crate::dev_cache::LaunchCacheContext>,
+) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     let preferred = crate::settings::get_preferred_terminal();
@@ -1006,6 +1045,7 @@ fn launch_macos_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> R
     let script_file = temp_dir.join(format!("tuzi_switch_launcher_{}.sh", std::process::id()));
     let config_path = config_file.to_string_lossy();
     let cd_command = build_shell_cd_command(cwd);
+    let completion_command = build_shell_cache_completion_command(cache_context);
 
     // Write the shell script to a temp file
     let script_content = format!(
@@ -1015,11 +1055,13 @@ trap 'rm -f "{config_path}" "{script_file}"' EXIT
 echo "Using provider-specific claude config:"
 echo "{config_path}"
 claude --settings "{config_path}"
+{completion_command}
 exec bash --norc --noprofile
 "#,
         config_path = config_path,
         script_file = script_file.display(),
         cd_command = cd_command,
+        completion_command = completion_command,
     );
 
     std::fs::write(&script_file, &script_content).map_err(|e| format!("写入启动脚本失败: {e}"))?;
@@ -1233,7 +1275,11 @@ fn launch_macos_warp(script_file: &std::path::Path) -> Result<(), String> {
 
 /// Linux: 根据用户首选终端启动
 #[cfg(target_os = "linux")]
-fn launch_linux_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> Result<(), String> {
+fn launch_linux_terminal(
+    config_file: &std::path::Path,
+    cwd: Option<&Path>,
+    cache_context: Option<&crate::dev_cache::LaunchCacheContext>,
+) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
 
@@ -1256,6 +1302,7 @@ fn launch_linux_terminal(config_file: &std::path::Path, cwd: Option<&Path>) -> R
     let script_file = temp_dir.join(format!("tuzi_switch_launcher_{}.sh", std::process::id()));
     let config_path = config_file.to_string_lossy();
     let cd_command = build_shell_cd_command(cwd);
+    let completion_command = build_shell_cache_completion_command(cache_context);
 
     let script_content = format!(
         r#"#!/bin/bash
@@ -1264,11 +1311,13 @@ trap 'rm -f "{config_path}" "{script_file}"' EXIT
 echo "Using provider-specific claude config:"
 echo "{config_path}"
 claude --settings "{config_path}"
+{completion_command}
 exec bash --norc --noprofile
 "#,
         config_path = config_path,
         script_file = script_file.display(),
         cd_command = cd_command,
+        completion_command = completion_command,
     );
 
     std::fs::write(&script_file, &script_content).map_err(|e| format!("写入启动脚本失败: {e}"))?;
@@ -1348,6 +1397,7 @@ fn launch_windows_terminal(
     temp_dir: &std::path::Path,
     config_file: &std::path::Path,
     cwd: Option<&Path>,
+    cache_context: Option<&crate::dev_cache::LaunchCacheContext>,
 ) -> Result<(), String> {
     let preferred = crate::settings::get_preferred_terminal();
     let terminal = preferred.as_deref().unwrap_or("cmd");
@@ -1355,20 +1405,33 @@ fn launch_windows_terminal(
     let bat_file = temp_dir.join(format!("tuzi_switch_claude_{}.bat", std::process::id()));
     let config_path_for_batch = escape_windows_batch_value(&config_file.to_string_lossy());
     let cwd_command = build_windows_cwd_command(cwd);
+    let completion_command = cache_context
+        .map(|context| {
+            let marker = escape_windows_batch_value(&context.completion_marker.to_string_lossy());
+            format!("type nul > \"{marker}\"")
+        })
+        .unwrap_or_default();
+    let cleanup_command = cache_context
+        .map(|context| {
+            if context.cleanup_on_session_end {
+                let session = escape_windows_batch_value(&context.session_dir.to_string_lossy());
+                format!(
+                    "del \"%~f0\" >nul 2>&1\r\ncd /d \"%USERPROFILE%\" >nul 2>&1\r\nrmdir /s /q \"{session}\" >nul 2>&1"
+                )
+            } else {
+                "del \"%~f0\" >nul 2>&1".to_string()
+            }
+        })
+        .unwrap_or_else(|| "del \"%~f0\" >nul 2>&1".to_string());
 
     let content = format!(
-        "@echo off
-{cwd_command}
-echo Using provider-specific claude config:
-echo {}
-claude --settings \"{}\"
-del \"{}\" >nul 2>&1
-del \"%~f0\" >nul 2>&1
-",
+        "@echo off\r\n{cwd_command}echo Using provider-specific claude config:\r\necho {}\r\nclaude --settings \"{}\"\r\ndel \"{}\" >nul 2>&1\r\n{completion_command}\r\n{cleanup_command}\r\n",
         config_path_for_batch,
         config_path_for_batch,
         config_path_for_batch,
         cwd_command = cwd_command,
+        completion_command = completion_command,
+        cleanup_command = cleanup_command,
     );
 
     std::fs::write(&bat_file, &content).map_err(|e| format!("写入批处理文件失败: {e}"))?;
@@ -1407,6 +1470,22 @@ fn build_shell_cd_command(cwd: Option<&Path>) -> String {
         )
     })
     .unwrap_or_default()
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn build_shell_cache_completion_command(
+    context: Option<&crate::dev_cache::LaunchCacheContext>,
+) -> String {
+    let Some(context) = context else {
+        return String::new();
+    };
+    let marker = shell_single_quote(&context.completion_marker.to_string_lossy());
+    if context.cleanup_on_session_end {
+        let session = shell_single_quote(&context.session_dir.to_string_lossy());
+        format!("touch {marker}\nrm -rf -- {session}")
+    } else {
+        format!("touch {marker}")
+    }
 }
 
 fn shell_single_quote(value: &str) -> String {

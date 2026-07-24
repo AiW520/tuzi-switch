@@ -45,6 +45,74 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/get_skills_migration_result`, () =>
     success(null),
   ),
+  http.post(
+    `${TAURI_ENDPOINT}/validate_dev_cache_root`,
+    async ({ request }) => {
+      const { path = "" } = await withJson<{ path?: string }>(request);
+      return success(`${path}/tuzi-switch-cache`);
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/scan_dev_cache`, () =>
+    success({
+      enabled: false,
+      exists: false,
+      sizeBytes: 0,
+      fileCount: 0,
+      directoryCount: 0,
+      expiredSessionCount: 0,
+      expiredSessionBytes: 0,
+      categories: [],
+      warnings: [],
+    }),
+  ),
+  http.post(`${TAURI_ENDPOINT}/clean_dev_cache`, () =>
+    success({
+      removedBytes: 0,
+      removedFiles: 0,
+      removedDirectories: 0,
+      skippedItems: 0,
+      errors: [],
+    }),
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_dev_cache_global_status`, () =>
+    success({
+      supported: true,
+      enabled: false,
+      applied: false,
+      hasBackup: false,
+      hasConflict: false,
+      variables: [],
+      warnings: [],
+    }),
+  ),
+  http.post(`${TAURI_ENDPOINT}/open_dev_cache_directory`, () => success(true)),
+  http.post(`${TAURI_ENDPOINT}/get_installed_skills`, () => success([])),
+  http.post(`${TAURI_ENDPOINT}/get_codex_locale_status`, () =>
+    success({
+      installed: true,
+      version: "26.7.23",
+      chineseResourcesAvailable: true,
+      localeOverride: null,
+      chineseEnabled: false,
+      restartRequired: false,
+    }),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/set_codex_simplified_chinese`,
+    async ({ request }) => {
+      const { enabled = false } = await withJson<{ enabled?: boolean }>(
+        request,
+      );
+      return success({
+        installed: true,
+        version: "26.7.23",
+        chineseResourcesAvailable: true,
+        localeOverride: enabled ? "zh-CN" : null,
+        chineseEnabled: enabled,
+        restartRequired: true,
+      });
+    },
+  ),
   http.post(`${TAURI_ENDPOINT}/get_providers`, async ({ request }) => {
     const { app } = await withJson<{ app: AppId }>(request);
     return success(getProviders(app));
@@ -119,16 +187,19 @@ export const handlers = [
     return success(true);
   }),
 
-  http.post(`${TAURI_ENDPOINT}/clear_provider_live_config`, async ({ request }) => {
-    const { id, app } = await withJson<{ id: string; app: AppId }>(request);
-    if (app === "opencode" || app === "openclaw" || app === "hermes") {
-      setLiveProviderIds(
-        app,
-        getLiveProviderIds(app).filter((providerId) => providerId !== id),
-      );
-    }
-    return success(true);
-  }),
+  http.post(
+    `${TAURI_ENDPOINT}/clear_provider_live_config`,
+    async ({ request }) => {
+      const { id, app } = await withJson<{ id: string; app: AppId }>(request);
+      if (app === "opencode" || app === "openclaw" || app === "hermes") {
+        setLiveProviderIds(
+          app,
+          getLiveProviderIds(app).filter((providerId) => providerId !== id),
+        );
+      }
+      return success(true);
+    },
+  ),
 
   http.post(`${TAURI_ENDPOINT}/sync_claude_live_api_key`, () => success(true)),
 
@@ -142,6 +213,33 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/open_external`, () => success(true)),
 
   http.post(`${TAURI_ENDPOINT}/list_sessions`, () => success(listSessions())),
+
+  http.post(`${TAURI_ENDPOINT}/preview_codex_history_unification`, () =>
+    success({
+      totalSessions: 0,
+      activeSessions: 0,
+      archivedSessions: 0,
+      alreadyUnified: 0,
+      pendingMigration: 0,
+      metadataOnly: 0,
+      jsonlFiles: 0,
+      pendingJsonlFiles: 0,
+      stateRows: 0,
+      pendingStateRows: 0,
+      providerBuckets: [],
+      skippedFiles: 0,
+      issues: [],
+    }),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/unify_all_codex_history`, () =>
+    success({
+      migratedJsonlFiles: 0,
+      migratedStateRows: 0,
+      skippedFiles: 0,
+      issues: [],
+    }),
+  ),
 
   http.post(`${TAURI_ENDPOINT}/get_session_messages`, async ({ request }) => {
     const { providerId, sourcePath } = await withJson<{

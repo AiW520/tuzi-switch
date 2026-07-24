@@ -11,6 +11,8 @@ export { vscodeApi } from "./vscode";
 export { proxyApi } from "./proxy";
 export { openclawApi } from "./openclaw";
 export { sessionsApi } from "./sessions";
+export { codexLocaleApi } from "./codexLocale";
+export type { CodexLocaleStatus } from "./codexLocale";
 export { workspaceApi } from "./workspace";
 export * as capabilitiesApi from "@/lib/capabilities/client";
 export * as configApi from "./config";

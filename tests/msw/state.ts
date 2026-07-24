@@ -10,7 +10,10 @@ import type {
 type ProvidersByApp = Record<AppId, Record<string, Provider>>;
 type CurrentProviderState = Record<AppId, string>;
 type McpConfigState = Record<AppId, Record<string, McpServer>>;
-type LiveProviderIdsByApp = Record<"opencode" | "openclaw" | "hermes", string[]>;
+type LiveProviderIdsByApp = Record<
+  "opencode" | "openclaw" | "hermes",
+  string[]
+>;
 
 const createDefaultProviders = (): ProvidersByApp => ({
   claude: {
@@ -93,6 +96,15 @@ let settingsState: Settings = {
   enableClaudePluginIntegration: false,
   claudeConfigDir: "/default/claude",
   codexConfigDir: "/default/codex",
+  developmentCache: {
+    enabled: false,
+    retentionHours: 24,
+    routeTemp: true,
+    routeNode: true,
+    routePython: true,
+    cleanupOnSessionEnd: true,
+    globalMode: false,
+  },
   language: "zh",
 };
 let appConfigDirOverride: string | null = null;
@@ -152,14 +164,14 @@ let mcpConfigs: McpConfigState = {
       id: "sample",
       name: "Sample Claude Server",
       enabled: true,
-        apps: {
-          claude: true,
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
-          hermes: false,
-        },
+      apps: {
+        claude: true,
+        codex: false,
+        gemini: false,
+        opencode: false,
+        openclaw: false,
+        hermes: false,
+      },
       server: {
         type: "stdio",
         command: "claude-server",
@@ -172,14 +184,14 @@ let mcpConfigs: McpConfigState = {
       id: "httpServer",
       name: "HTTP Codex Server",
       enabled: false,
-        apps: {
-          claude: false,
-          codex: true,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
-          hermes: false,
-        },
+      apps: {
+        claude: false,
+        codex: true,
+        gemini: false,
+        opencode: false,
+        openclaw: false,
+        hermes: false,
+      },
       server: {
         type: "http",
         url: "http://localhost:3000",
@@ -211,6 +223,15 @@ export const resetProviderState = () => {
     enableClaudePluginIntegration: false,
     claudeConfigDir: "/default/claude",
     codexConfigDir: "/default/codex",
+    developmentCache: {
+      enabled: false,
+      retentionHours: 24,
+      routeTemp: true,
+      routeNode: true,
+      routePython: true,
+      cleanupOnSessionEnd: true,
+      globalMode: false,
+    },
     language: "zh",
   };
   appConfigDirOverride = null;
@@ -266,9 +287,9 @@ export const getProviders = (appType: AppId) =>
 
 export const getCurrentProviderId = (appType: AppId) => current[appType] ?? "";
 
-export const getLiveProviderIds = (appType: "opencode" | "openclaw" | "hermes") => [
-  ...liveProviderIds[appType],
-];
+export const getLiveProviderIds = (
+  appType: "opencode" | "openclaw" | "hermes",
+) => [...liveProviderIds[appType]];
 
 export const setLiveProviderIds = (
   appType: "opencode" | "openclaw" | "hermes",

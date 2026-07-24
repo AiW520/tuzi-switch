@@ -21,6 +21,17 @@ const sanitizeDir = (value?: string | null): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const defaultDevelopmentCache = {
+  enabled: false,
+  rootDir: undefined,
+  retentionHours: 24,
+  routeTemp: true,
+  routeNode: true,
+  routePython: true,
+  cleanupOnSessionEnd: true,
+  globalMode: false,
+};
+
 export interface UseSettingsFormResult {
   settings: SettingsFormState | null;
   isLoading: boolean;
@@ -95,6 +106,11 @@ export function useSettingsForm(): UseSettingsFormResult {
       geminiConfigDir: sanitizeDir(data.geminiConfigDir),
       opencodeConfigDir: sanitizeDir(data.opencodeConfigDir),
       openclawConfigDir: sanitizeDir(data.openclawConfigDir),
+      developmentCache: {
+        ...defaultDevelopmentCache,
+        ...data.developmentCache,
+        rootDir: sanitizeDir(data.developmentCache?.rootDir),
+      },
       language: normalizedLanguage,
     };
 
@@ -157,13 +173,17 @@ export function useSettingsForm(): UseSettingsFormResult {
         preserveCodexOfficialAuthOnSwitch:
           serverData.preserveCodexOfficialAuthOnSwitch ?? true,
         unifyCodexSessionHistory: serverData.unifyCodexSessionHistory ?? true,
-        unifyCodexMigrateExisting:
-          serverData.unifyCodexMigrateExisting ?? true,
+        unifyCodexMigrateExisting: serverData.unifyCodexMigrateExisting ?? true,
         claudeConfigDir: sanitizeDir(serverData.claudeConfigDir),
         codexConfigDir: sanitizeDir(serverData.codexConfigDir),
         geminiConfigDir: sanitizeDir(serverData.geminiConfigDir),
         opencodeConfigDir: sanitizeDir(serverData.opencodeConfigDir),
         openclawConfigDir: sanitizeDir(serverData.openclawConfigDir),
+        developmentCache: {
+          ...defaultDevelopmentCache,
+          ...serverData.developmentCache,
+          rootDir: sanitizeDir(serverData.developmentCache?.rootDir),
+        },
         language: normalizedLanguage,
       };
 

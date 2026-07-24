@@ -389,6 +389,18 @@ export interface Settings {
   // Windows: "cmd" | "powershell" | "wt"
   // Linux: "gnome-terminal" | "konsole" | "xfce4-terminal" | "alacritty" | "kitty" | "ghostty"
   preferredTerminal?: string;
+  developmentCache?: DevelopmentCacheSettings;
+}
+
+export interface DevelopmentCacheSettings {
+  enabled: boolean;
+  rootDir?: string;
+  retentionHours: number;
+  routeTemp: boolean;
+  routeNode: boolean;
+  routePython: boolean;
+  cleanupOnSessionEnd: boolean;
+  globalMode: boolean;
 }
 
 export interface SessionMeta {

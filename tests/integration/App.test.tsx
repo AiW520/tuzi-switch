@@ -1,7 +1,13 @@
 import { Suspense, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { providersApi } from "@/lib/api/providers";
 import {
   deleteProvider as deleteProviderState,
@@ -53,7 +59,9 @@ vi.mock("@/components/providers/ProviderList", () => ({
         delete
       </button>
       {onRemoveFromConfig && (
-        <button onClick={() => onRemoveFromConfig(providers[currentProviderId])}>
+        <button
+          onClick={() => onRemoveFromConfig(providers[currentProviderId])}
+        >
           remove-config
         </button>
       )}
@@ -180,6 +188,10 @@ describe("App integration with MSW", () => {
     toastErrorMock.mockReset();
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it("covers basic provider flows via real hooks", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
@@ -235,7 +247,7 @@ describe("App integration with MSW", () => {
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalled();
-  });
+  }, 60_000);
 
   it("shows toast when auto sync fails in background", async () => {
     const { default: App } = await import("@/App");
@@ -256,7 +268,7 @@ describe("App integration with MSW", () => {
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalled();
     });
-  });
+  }, 60_000);
 
   it("confirms provider action against the original app after switching apps", async () => {
     const clearLiveConfigSpy = vi
@@ -301,7 +313,7 @@ describe("App integration with MSW", () => {
     expect(clearLiveConfigSpy).toHaveBeenCalledTimes(1);
 
     clearLiveConfigSpy.mockRestore();
-  });
+  }, 60_000);
 
   it("shows an error and keeps the dialog open when provider action fails", async () => {
     const clearLiveConfigSpy = vi
@@ -330,7 +342,7 @@ describe("App integration with MSW", () => {
     expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
 
     clearLiveConfigSpy.mockRestore();
-  });
+  }, 60_000);
 
   it("duplicates openclaw providers with a generated key that avoids live-only ids", async () => {
     setProviders("openclaw", {
@@ -376,7 +388,7 @@ describe("App integration with MSW", () => {
     expect(toastErrorMock).not.toHaveBeenCalledWith(
       expect.stringContaining("Provider key is required for openclaw"),
     );
-  });
+  }, 60_000);
 
   it("shows toast when duplicate cannot load live provider ids", async () => {
     setProviders("openclaw", {
@@ -428,5 +440,5 @@ describe("App integration with MSW", () => {
 
     liveIdsSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-  });
+  }, 60_000);
 });

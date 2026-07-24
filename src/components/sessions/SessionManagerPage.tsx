@@ -15,6 +15,7 @@ import {
   FolderOpen,
   X,
   CheckSquare,
+  History,
 } from "lucide-react";
 import {
   useDeleteSessionMutation,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/query";
 import { sessionsApi } from "@/lib/api";
 import type { SessionMeta } from "@/types";
+import type { CodexHistoryUnificationPreview } from "@/lib/api/sessions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +87,10 @@ export function SessionManagerPage({ appId }: { appId: string }) {
   );
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [codexPreview, setCodexPreview] =
+    useState<CodexHistoryUnificationPreview | null>(null);
+  const [isScanningCodexHistory, setIsScanningCodexHistory] = useState(false);
+  const [isUnifyingCodexHistory, setIsUnifyingCodexHistory] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [search, setSearch] = useState("");
@@ -428,6 +434,96 @@ export function SessionManagerPage({ appId }: { appId: string }) {
     setSelectedSessionKeys(new Set());
   };
 
+  const handlePreviewCodexHistory = async () => {
+    if (isScanningCodexHistory || isUnifyingCodexHistory) return;
+    setIsScanningCodexHistory(true);
+    try {
+      const preview = await sessionsApi.previewCodexHistoryUnification();
+      if (preview.pendingMigration === 0) {
+        if (preview.issues.length > 0) {
+          toast.error(
+            t("sessionManager.codexHistoryPartialIssues", {
+              defaultValue: "有 {{count}} 项未能处理，请检查日志",
+              count: preview.issues.length,
+            }),
+            { description: preview.issues[0].message },
+          );
+        } else {
+          toast.success(
+            t("sessionManager.codexHistoryAlreadyUnified", {
+              defaultValue: "已获取全部 Codex 本地会话，无需迁移",
+            }),
+          );
+        }
+        await refetch();
+        return;
+      }
+      setCodexPreview(preview);
+    } catch (error) {
+      toast.error(
+        extractErrorMessage(error) ||
+          t("sessionManager.codexHistoryScanFailed", {
+            defaultValue: "扫描 Codex 本地会话失败",
+          }),
+      );
+    } finally {
+      setIsScanningCodexHistory(false);
+    }
+  };
+
+  const handleUnifyCodexHistory = async () => {
+    if (!codexPreview || isUnifyingCodexHistory) return;
+    setCodexPreview(null);
+    setIsUnifyingCodexHistory(true);
+    try {
+      const result = await sessionsApi.unifyAllCodexHistory();
+      if (result.skippedReason === "unify_toggle_off") {
+        toast.error(
+          t("sessionManager.codexHistoryToggleOff", {
+            defaultValue: "请先在设置中开启“统一 Codex 会话历史”",
+          }),
+        );
+        return;
+      }
+      if (result.skippedReason === "live_not_unified") {
+        toast.error(
+          t("sessionManager.codexHistoryLiveNotUnified", {
+            defaultValue:
+              "当前 Codex 配置尚未使用统一历史桶，请先重新应用当前供应商后再试",
+          }),
+        );
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      toast.success(
+        t("sessionManager.codexHistoryUnified", {
+          defaultValue:
+            "Codex 本地历史已统一：{{files}} 个会话文件，{{rows}} 条索引",
+          files: result.migratedJsonlFiles,
+          rows: result.migratedStateRows,
+        }),
+      );
+      if (result.issues.length > 0) {
+        toast.error(
+          t("sessionManager.codexHistoryPartialIssues", {
+            defaultValue: "有 {{count}} 项未能处理，请检查日志",
+            count: result.issues.length,
+          }),
+          { description: result.issues[0].message },
+        );
+      }
+    } catch (error) {
+      toast.error(
+        extractErrorMessage(error) ||
+          t("sessionManager.codexHistoryUnifyFailed", {
+            defaultValue: "统一 Codex 本地会话失败",
+          }),
+      );
+    } finally {
+      setIsUnifyingCodexHistory(false);
+    }
+  };
+
   return (
     <TooltipProvider>
       <div
@@ -435,6 +531,49 @@ export function SessionManagerPage({ appId }: { appId: string }) {
         onWheel={(e) => e.stopPropagation()}
       >
         <div className="flex-1 overflow-hidden flex flex-col gap-4">
+          {appId === "codex" && (
+            <div className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <History className="size-4 text-sky-500" />
+                  {t("sessionManager.codexAllHistoryTitle", {
+                    defaultValue: "Codex 本地全部会话",
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("sessionManager.codexAllHistoryDescription", {
+                    defaultValue:
+                      "扫描活动、归档和索引记录，并将旧供应商历史安全统一后显示。",
+                  })}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="shrink-0"
+                disabled={isScanningCodexHistory || isUnifyingCodexHistory}
+                onClick={() => void handlePreviewCodexHistory()}
+              >
+                <RefreshCw
+                  className={`mr-2 size-3.5 ${
+                    isScanningCodexHistory || isUnifyingCodexHistory
+                      ? "animate-spin"
+                      : ""
+                  }`}
+                />
+                {isScanningCodexHistory
+                  ? t("sessionManager.codexHistoryScanning", {
+                      defaultValue: "正在扫描...",
+                    })
+                  : isUnifyingCodexHistory
+                    ? t("sessionManager.codexHistoryUnifying", {
+                        defaultValue: "正在统一...",
+                      })
+                    : t("sessionManager.getAllCodexHistory", {
+                        defaultValue: "获取全部本地会话",
+                      })}
+              </Button>
+            </div>
+          )}
           {/* 主内容区域 - 左右分栏 */}
           <div className="flex-1 overflow-hidden grid gap-4 md:grid-cols-[320px_1fr]">
             {/* 左侧会话列表 */}
@@ -1074,6 +1213,40 @@ export function SessionManagerPage({ appId }: { appId: string }) {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={Boolean(codexPreview)}
+        title={t("sessionManager.codexHistoryConfirmTitle", {
+          defaultValue: "统一 Codex 本地会话",
+        })}
+        message={
+          codexPreview
+            ? `${t("sessionManager.codexHistoryConfirmMessage", {
+                defaultValue:
+                  "共发现 {{total}} 个 Codex 会话，其中 {{pending}} 个需要从旧供应商历史桶迁移。\n\n预计修改 {{files}} 个会话文件和 {{rows}} 条索引记录。迁移前会自动备份，是否继续？",
+                total: codexPreview.totalSessions,
+                pending: codexPreview.pendingMigration,
+                files: codexPreview.pendingJsonlFiles,
+                rows: codexPreview.pendingStateRows,
+              })}${
+                codexPreview.issues.length > 0
+                  ? `\n\n${t("sessionManager.codexHistoryPreviewIssues", {
+                      defaultValue: "另有 {{count}} 项记录需要检查。",
+                      count: codexPreview.issues.length,
+                    })}`
+                  : ""
+              }`
+            : ""
+        }
+        confirmText={t("sessionManager.codexHistoryConfirmAction", {
+          defaultValue: "备份并统一",
+        })}
+        cancelText={t("common.cancel", { defaultValue: "取消" })}
+        variant="info"
+        onConfirm={() => void handleUnifyCodexHistory()}
+        onCancel={() => {
+          if (!isUnifyingCodexHistory) setCodexPreview(null);
+        }}
+      />
       <ConfirmDialog
         isOpen={Boolean(deleteTargets)}
         title={

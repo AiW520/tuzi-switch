@@ -38,15 +38,44 @@ pub async fn save_settings(
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
     let existing = crate::settings::get_settings();
-    let merged = merge_settings_for_save(settings, &existing);
+    let mut merged = merge_settings_for_save(settings, &existing);
+    merged.development_cache.retention_hours =
+        merged.development_cache.retention_hours.clamp(1, 720);
+    if !merged.development_cache.enabled {
+        merged.development_cache.global_mode = false;
+    }
+    if merged.development_cache.enabled {
+        let root = merged
+            .development_cache
+            .root_dir
+            .as_deref()
+            .ok_or_else(|| "启用开发缓存前必须指定缓存目录".to_string())?;
+        crate::dev_cache::validate_configured_root(root)?;
+        crate::dev_cache::ensure_configured_root(root)?;
+    }
+    let development_cache_changed = merged.development_cache != existing.development_cache;
+    if development_cache_changed {
+        crate::dev_cache::sync_global_environment(
+            &existing.development_cache,
+            &merged.development_cache,
+        )?;
+    }
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
-    crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
+    if let Err(error) = crate::settings::update_settings(merged.clone()) {
+        if development_cache_changed {
+            rollback_development_cache_environment(&merged, &existing);
+        }
+        return Err(error.to_string());
+    }
 
     if unify_codex_changed {
         if let Err(err) = crate::services::provider::reapply_current_codex_live(state.inner()) {
             log::warn!("统一 Codex 会话历史开关变更后重写 live 配置失败，回滚设置: {err}");
+            if development_cache_changed {
+                rollback_development_cache_environment(&merged, &existing);
+            }
             if let Err(rollback_err) = crate::settings::update_settings(existing) {
                 log::error!("回滚统一会话开关设置失败: {rollback_err}");
             }
@@ -84,6 +113,18 @@ pub async fn save_settings(
         }
     }
     Ok(true)
+}
+
+fn rollback_development_cache_environment(
+    applied: &crate::settings::AppSettings,
+    target: &crate::settings::AppSettings,
+) {
+    if let Err(error) = crate::dev_cache::sync_global_environment(
+        &applied.development_cache,
+        &target.development_cache,
+    ) {
+        log::error!("回滚开发缓存环境变量失败: {error}");
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -124,6 +165,30 @@ pub async fn restore_codex_unified_history() -> Result<CodexUnifyHistoryRestoreR
         restored_state_rows: outcome.restored_state_rows,
         skipped_reason: outcome.skipped_reason,
     })
+}
+
+/// 只读扫描 Codex 本地全部活动、归档会话及 state DB，供确认弹窗展示。
+#[tauri::command]
+pub async fn preview_codex_history_unification(
+) -> Result<crate::codex_history_migration::CodexHistoryUnificationPreview, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::codex_history_migration::preview_codex_history_unification()
+    })
+    .await
+    .map_err(|e| format!("扫描 Codex 本地历史失败: {e}"))?
+    .map_err(|e| e.to_string())
+}
+
+/// 按预览时发现的全部非统一 provider 桶执行幂等归并。
+#[tauri::command]
+pub async fn unify_all_codex_history(
+) -> Result<crate::codex_history_migration::CodexHistoryUnificationOutcome, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::codex_history_migration::unify_all_codex_history()
+    })
+    .await
+    .map_err(|e| format!("统一 Codex 本地历史失败: {e}"))?
+    .map_err(|e| e.to_string())
 }
 
 /// 重启应用程序（当 app_config_dir 变更后使用）

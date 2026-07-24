@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${TUZI_SWITCH_REPO:-tuziapi/tuzi-switch}"
+REPO="${TUZI_SWITCH_REPO:-AiW520/tuzi-switch}"
 TAG="${TUZI_SWITCH_TAG:-latest}"
 TMP_DIR="$(mktemp -d)"
 

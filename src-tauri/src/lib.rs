@@ -7,11 +7,13 @@ mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
 mod codex_history_migration;
+mod codex_locale;
 mod codex_state_db;
 mod commands;
 mod config;
 mod database;
 mod deeplink;
+mod dev_cache;
 mod error;
 mod gemini_config;
 mod gemini_mcp;
@@ -1070,6 +1072,12 @@ pub fn run() {
 
                 initialize_common_config_snippets(&state);
 
+                // 仅回收兔子 Switch 自己登记的过期缓存会话。
+                tauri::async_runtime::spawn_blocking(|| {
+                    crate::dev_cache::reconcile_best_effort();
+                    crate::dev_cache::cleanup_stale_sessions_best_effort();
+                });
+
                 // 检查 settings 表中的代理状态，自动恢复代理服务
                 restore_proxy_state_on_startup(&state).await;
 
@@ -1232,10 +1240,19 @@ pub fn run() {
             commands::read_all_codex_env_keys,
             commands::save_codex_route,
             commands::read_live_provider_settings,
+            commands::get_codex_locale_status,
+            commands::set_codex_simplified_chinese,
             commands::get_settings,
             commands::save_settings,
+            commands::validate_dev_cache_root,
+            commands::scan_dev_cache,
+            commands::clean_dev_cache,
+            commands::get_dev_cache_global_status,
+            commands::open_dev_cache_directory,
             commands::has_codex_unify_history_backup,
             commands::restore_codex_unified_history,
+            commands::preview_codex_history_unification,
+            commands::unify_all_codex_history,
             commands::get_rectifier_config,
             commands::set_rectifier_config,
             commands::get_optimizer_config,

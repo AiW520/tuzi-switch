@@ -2,11 +2,13 @@
 
 mod auth;
 mod balance;
+mod codex_locale;
 mod codex_oauth;
 mod coding_plan;
 mod config;
 mod copilot;
 mod deeplink;
+mod dev_cache;
 mod env;
 mod failover;
 mod global_proxy;
@@ -35,11 +37,13 @@ mod workspace;
 
 pub use auth::*;
 pub use balance::*;
+pub use codex_locale::*;
 pub use codex_oauth::*;
 pub use coding_plan::*;
 pub use config::*;
 pub use copilot::*;
 pub use deeplink::*;
+pub use dev_cache::*;
 pub use env::*;
 pub use failover::*;
 pub use global_proxy::*;

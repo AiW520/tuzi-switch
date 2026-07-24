@@ -14,6 +14,7 @@ use toml_edit::DocumentMut;
 
 pub const CC_SWITCH_CODEX_MODEL_PROVIDER_ID: &str = "tuziswitch";
 pub const TUZI_SWITCH_CODEX_MODEL_CATALOG_FILENAME: &str = "tuzi-switch-model-catalog.json";
+pub const CODEX_SIMPLIFIED_CHINESE_LOCALE: &str = "zh-CN";
 const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 
 /// Reserved built-in provider IDs from OpenAI Codex's config/model-provider
@@ -31,6 +32,76 @@ const CODEX_RESERVED_MODEL_PROVIDER_IDS: &[&str] = &[
 const MANAGED_ENV_BEGIN: &str = "# >>> tuzi-switch codex env >>>";
 const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
 const CODEX_ENV_MANAGED_MARKER_PREFIX: &str = "# tuzi-switch managed env:";
+
+fn parse_codex_config_document(config_text: &str) -> Result<DocumentMut, AppError> {
+    if config_text.trim().is_empty() {
+        return Ok(DocumentMut::new());
+    }
+
+    config_text.parse::<DocumentMut>().map_err(|error| {
+        AppError::localized(
+            "codex.locale.invalid_config",
+            format!("Codex config.toml 无法解析：{error}"),
+            format!("Codex config.toml could not be parsed: {error}"),
+        )
+    })
+}
+
+pub fn codex_locale_override(config_text: &str) -> Result<Option<String>, AppError> {
+    let document = parse_codex_config_document(config_text)?;
+    Ok(document
+        .get("desktop")
+        .and_then(toml_edit::Item::as_table)
+        .and_then(|table| table.get("localeOverride"))
+        .and_then(toml_edit::Item::as_str)
+        .map(str::to_owned))
+}
+
+/// 仅更新 Codex 桌面端语言覆盖，保留其他配置、注释与字段。
+pub fn update_codex_locale_override(
+    config_text: &str,
+    locale: Option<&str>,
+) -> Result<String, AppError> {
+    let current = codex_locale_override(config_text)?;
+    if current.as_deref() == locale {
+        return Ok(config_text.to_string());
+    }
+
+    let mut document = parse_codex_config_document(config_text)?;
+    match locale {
+        Some(locale) => {
+            if !document.contains_key("desktop") {
+                document["desktop"] = toml_edit::Item::Table(toml_edit::Table::new());
+            }
+            let desktop = document["desktop"].as_table_mut().ok_or_else(|| {
+                AppError::localized(
+                    "codex.locale.invalid_desktop",
+                    "Codex config.toml 中的 [desktop] 配置格式不正确",
+                    "The [desktop] section in Codex config.toml is invalid",
+                )
+            })?;
+            desktop["localeOverride"] = toml_edit::value(locale);
+        }
+        None => {
+            if let Some(desktop) = document
+                .get_mut("desktop")
+                .and_then(toml_edit::Item::as_table_mut)
+            {
+                desktop.remove("localeOverride");
+            }
+        }
+    }
+
+    Ok(document.to_string())
+}
+
+fn preserve_codex_locale_override(
+    current_config: &str,
+    replacement_config: &str,
+) -> Result<String, AppError> {
+    let locale = codex_locale_override(current_config)?;
+    update_codex_locale_override(replacement_config, locale.as_deref())
+}
 
 fn is_valid_env_key_name(env_key: &str) -> bool {
     let mut chars = env_key.chars();
@@ -2113,9 +2184,14 @@ pub fn write_codex_live_atomic_with_stable_provider(
                 .get("config")
                 .and_then(|value| value.as_str())
                 .unwrap_or(config_text);
-            write_codex_live_atomic(auth, Some(config_text))
+            let replacement =
+                preserve_codex_locale_override(&read_codex_config_text()?, config_text)?;
+            write_codex_live_atomic(auth, Some(&replacement))
         }
-        None => write_codex_live_atomic(auth, None),
+        None => {
+            let replacement = preserve_codex_locale_override(&read_codex_config_text()?, "")?;
+            write_codex_live_atomic(auth, Some(&replacement))
+        }
     }
 }
 
@@ -2133,6 +2209,9 @@ pub fn write_codex_live_for_provider(
         None
     };
     let config_text_opt = unified_official_config.as_deref().or(config_text_opt);
+    let replacement =
+        preserve_codex_locale_override(&read_codex_config_text()?, config_text_opt.unwrap_or(""))?;
+    let config_text_opt = Some(replacement.as_str());
 
     let should_write_auth = (category == Some("official") && codex_auth_has_login_material(auth))
         || (category != Some("official")
@@ -2531,12 +2610,17 @@ pub fn write_codex_provider_live_exact_with_catalog(
         .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
         .transpose()?;
 
+    let replacement = preserve_codex_locale_override(
+        &read_codex_config_text()?,
+        prepared_config.as_deref().unwrap_or(""),
+    )?;
     match prepared_config.as_deref() {
         Some(config_text) => {
             let live_config = prepare_codex_provider_live_config(auth, config_text)?;
+            let live_config = preserve_codex_locale_override(&replacement, &live_config)?;
             write_codex_live_atomic(auth, Some(&live_config))
         }
-        None => write_codex_live_atomic(auth, None),
+        None => write_codex_live_atomic(auth, Some(&replacement)),
     }
 }
 
@@ -2658,9 +2742,7 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+    use serial_test::serial;
 
     #[test]
     fn codex_env_section_reads_and_upserts_custom_env_keys() {
@@ -2680,6 +2762,51 @@ mod tests {
             "# Codex\nexport CUSTOM_API_KEY='new'\n# tuzi-switch managed env: CUSTOM_API_KEY\n"
         ));
         assert_eq!(replaced.matches("export CUSTOM_API_KEY=").count(), 1);
+    }
+
+    #[test]
+    fn codex_locale_override_creates_desktop_section() {
+        let updated = update_codex_locale_override(
+            "model = \"gpt-5\"\n",
+            Some(CODEX_SIMPLIFIED_CHINESE_LOCALE),
+        )
+        .unwrap();
+
+        assert_eq!(
+            codex_locale_override(&updated).unwrap().as_deref(),
+            Some(CODEX_SIMPLIFIED_CHINESE_LOCALE)
+        );
+        assert!(updated.contains("model = \"gpt-5\""));
+    }
+
+    #[test]
+    fn codex_locale_override_preserves_other_desktop_fields() {
+        let source = "[desktop]\nfollowUpQueueMode = \"queue\"\n";
+        let updated =
+            update_codex_locale_override(source, Some(CODEX_SIMPLIFIED_CHINESE_LOCALE)).unwrap();
+
+        assert!(updated.contains("followUpQueueMode = \"queue\""));
+        assert!(updated.contains("localeOverride = \"zh-CN\""));
+    }
+
+    #[test]
+    fn clearing_codex_locale_override_only_removes_that_key() {
+        let source = "[desktop]\nfollowUpQueueMode = \"queue\"\nlocaleOverride = \"zh-CN\"\n";
+        let updated = update_codex_locale_override(source, None).unwrap();
+
+        assert!(updated.contains("[desktop]"));
+        assert!(updated.contains("followUpQueueMode = \"queue\""));
+        assert!(!updated.contains("localeOverride"));
+    }
+
+    #[test]
+    fn provider_replacement_preserves_codex_locale_override() {
+        let current = "[desktop]\nlocaleOverride = \"zh-CN\"\n";
+        let replacement = "model = \"gpt-5\"\n";
+        let updated = preserve_codex_locale_override(current, replacement).unwrap();
+
+        assert!(updated.contains("model = \"gpt-5\""));
+        assert!(updated.contains("localeOverride = \"zh-CN\""));
     }
 
     #[test]
@@ -2765,8 +2892,8 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
+    #[serial]
     fn linux_write_managed_env_key_uses_current_shell_rc_file() {
-        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_shell = std::env::var_os("SHELL");
@@ -2798,8 +2925,8 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "macos")]
+    #[serial]
     fn macos_write_managed_env_key_uses_zshrc() {
-        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_shell = std::env::var_os("SHELL");
@@ -2835,8 +2962,8 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn read_managed_env_key_prefers_codex_dotenv_copy() {
-        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
 
@@ -2865,8 +2992,8 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remove_managed_env_key_clears_codex_dotenv_copy() {
-        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
 
@@ -3430,8 +3557,8 @@ model = "gpt-5"
     }
 
     #[test]
+    #[serial]
     fn third_party_live_write_keeps_existing_auth_cache() {
-        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
 

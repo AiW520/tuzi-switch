@@ -8,6 +8,7 @@ import {
   Cloud,
   ScrollText,
   HardDriveDownload,
+  HardDrive,
   FlaskConical,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +46,8 @@ import { UsageDashboard } from "@/components/usage/UsageDashboard";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
+import { CodexLocaleSettings } from "@/components/settings/CodexLocaleSettings";
+import { DevelopmentCacheSettings } from "@/components/settings/DevelopmentCacheSettings";
 import { useInstalledSkills } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
@@ -233,6 +236,7 @@ export function SettingsPage({
                       value={settings.language}
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
+                    <CodexLocaleSettings />
                     <ThemeSettings />
                     <AppVisibilitySettings
                       settings={settings}
@@ -338,6 +342,33 @@ export function SettingsPage({
                             onDirectoryChange={updateDirectory}
                             onBrowseDirectory={browseDirectory}
                             onResetDirectory={resetDirectory}
+                          />
+                        </AccordionContent>
+                      </AccordionItem>
+
+                      <AccordionItem
+                        value="devCache"
+                        className="rounded-xl glass-card overflow-hidden"
+                      >
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                          <div className="flex items-center gap-3">
+                            <HardDrive className="h-5 w-5 text-violet-500" />
+                            <div className="text-left">
+                              <h3 className="text-base font-semibold">
+                                {t("settings.advanced.devCache.title")}
+                              </h3>
+                              <p className="text-sm text-muted-foreground font-normal">
+                                {t("settings.advanced.devCache.description")}
+                              </p>
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                          <DevelopmentCacheSettings
+                            value={settings.developmentCache}
+                            onChange={(developmentCache) =>
+                              handleAutoSave({ developmentCache })
+                            }
                           />
                         </AccordionContent>
                       </AccordionItem>

@@ -16,6 +16,7 @@ use crate::settings::{
 };
 use chrono::{Local, Utc};
 use rusqlite::{backup::Backup, params_from_iter, Connection};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -32,6 +33,9 @@ const OFFICIAL_UNIFY_MIGRATION_NAME: &str = "codex-official-history-unify-v1";
 const OFFICIAL_UNIFY_RESTORE_BACKUP_NAME: &str = "codex-official-history-unify-restore-v1";
 /// SQLite 变量上限保守值，IN 列表按此分块。
 const STATE_DB_ID_CHUNK: usize = 500;
+/// 防止损坏的 JSONL 单行导致扫描或迁移瞬时占用过多内存。
+const MAX_CODEX_JSONL_LINE_BYTES: usize = 16 * 1024 * 1024;
+const ALL_HISTORY_UNIFY_MIGRATION_NAME: &str = "codex-all-history-unify-v1";
 
 /// 串行化官方历史的迁移与还原：开启迁移（启动重试 + 设置保存后台任务）和
 /// 关闭还原可能在毫秒级先后被触发，对同一批 jsonl / state DB 双向改写。
@@ -114,6 +118,495 @@ pub struct CodexHistoryProviderBucketMigrationOutcome {
 pub struct CodexProviderTemplateBucketMigrationOutcome {
     pub migrated_provider_ids: Vec<String>,
     pub skipped_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryIssue {
+    pub source_kind: String,
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryProviderBucketPreview {
+    pub provider_id: String,
+    pub sessions: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryUnificationPreview {
+    pub total_sessions: usize,
+    pub active_sessions: usize,
+    pub archived_sessions: usize,
+    pub already_unified: usize,
+    pub pending_migration: usize,
+    pub metadata_only: usize,
+    pub jsonl_files: usize,
+    pub pending_jsonl_files: usize,
+    pub state_rows: usize,
+    pub pending_state_rows: usize,
+    pub provider_buckets: Vec<CodexHistoryProviderBucketPreview>,
+    pub skipped_files: usize,
+    pub issues: Vec<CodexHistoryIssue>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryUnificationOutcome {
+    pub migrated_jsonl_files: usize,
+    pub migrated_state_rows: usize,
+    pub skipped_files: usize,
+    pub issues: Vec<CodexHistoryIssue>,
+    pub skipped_reason: Option<String>,
+}
+
+#[derive(Default)]
+struct CodexHistorySessionScan {
+    jsonl_ids: HashSet<String>,
+    active_ids: HashSet<String>,
+    archived_ids: HashSet<String>,
+    unified_ids: HashSet<String>,
+    pending_ids: HashSet<String>,
+    state_ids: HashSet<String>,
+    provider_sessions: BTreeMap<String, HashSet<String>>,
+    source_provider_ids: BTreeSet<String>,
+    jsonl_files: usize,
+    pending_jsonl_files: usize,
+    state_rows: usize,
+    pending_state_rows: usize,
+    issues: Vec<CodexHistoryIssue>,
+}
+
+/// 只读扫描 Codex 的活动/归档 JSONL 和所有候选 state DB。
+/// 不读取消息正文，也不会写入设置、账本或任何 Codex 文件。
+pub fn preview_codex_history_unification() -> Result<CodexHistoryUnificationPreview, AppError> {
+    let codex_dir = get_codex_config_dir();
+    let config_text = read_codex_config_text().unwrap_or_default();
+    let scan = scan_codex_history(&codex_dir, &config_text);
+    Ok(scan.into_preview())
+}
+
+/// 将本地 Codex 历史的所有已知 provider 桶归并到稳定的 `tuziswitch` 桶。
+/// 执行前再次只读扫描，因此重复点击是幂等的；统一开关关闭时不会暗改设置。
+pub fn unify_all_codex_history() -> Result<CodexHistoryUnificationOutcome, AppError> {
+    if !crate::settings::unify_codex_session_history() {
+        return Ok(CodexHistoryUnificationOutcome {
+            skipped_reason: Some("unify_toggle_off".to_string()),
+            ..Default::default()
+        });
+    }
+
+    let _op_guard = lock_codex_official_history_op();
+    let codex_dir = get_codex_config_dir();
+    let config_text = read_codex_config_text().unwrap_or_default();
+    // 只有当前 live 配置实际使用统一桶时才允许搬迁。否则历史会被迁入
+    // 当前 Codex Resume 看不见的桶，表现为“点击后历史消失”。
+    if !codex_config_text_routes_custom(&config_text) {
+        return Ok(CodexHistoryUnificationOutcome {
+            skipped_reason: Some("live_not_unified".to_string()),
+            ..Default::default()
+        });
+    }
+    let scan = scan_codex_history(&codex_dir, &config_text);
+    if scan.source_provider_ids.is_empty() {
+        return Ok(CodexHistoryUnificationOutcome {
+            skipped_reason: Some("already_unified".to_string()),
+            skipped_files: scan.issues.len(),
+            issues: scan.issues,
+            ..Default::default()
+        });
+    }
+
+    let backup_root = migration_backup_root(ALL_HISTORY_UNIFY_MIGRATION_NAME);
+    let mut outcome = CodexHistoryUnificationOutcome {
+        skipped_files: scan.issues.len(),
+        issues: scan.issues,
+        ..Default::default()
+    };
+    // 逐文件处理，单个损坏/被占用文件不会阻断其它历史迁移。
+    let source_ids: HashSet<String> = scan.source_provider_ids.iter().cloned().collect();
+    let mut files = Vec::new();
+    collect_jsonl_files(&codex_dir.join("sessions"), &mut files, 0, 8);
+    collect_jsonl_files(&codex_dir.join("archived_sessions"), &mut files, 0, 4);
+    for path in files {
+        match rewrite_codex_session_file_for_provider_bucket(
+            &path,
+            &codex_dir,
+            &source_ids,
+            &backup_root,
+        ) {
+            Ok(true) => outcome.migrated_jsonl_files += 1,
+            Ok(false) => {}
+            Err(err) => {
+                outcome.skipped_files += 1;
+                outcome.issues.push(CodexHistoryIssue {
+                    source_kind: "jsonl".to_string(),
+                    path: path.display().to_string(),
+                    message: err.to_string(),
+                });
+            }
+        }
+    }
+
+    for db_path in codex_state_db_paths(&codex_dir, &config_text) {
+        match migrate_codex_state_db_provider_bucket(
+            &db_path,
+            &codex_dir,
+            &scan.source_provider_ids,
+            &backup_root,
+        ) {
+            Ok(changed) => outcome.migrated_state_rows += changed,
+            Err(err) => {
+                outcome.skipped_files += 1;
+                outcome.issues.push(CodexHistoryIssue {
+                    source_kind: "stateDb".to_string(),
+                    path: db_path.display().to_string(),
+                    message: err.to_string(),
+                });
+            }
+        }
+    }
+
+    if outcome.migrated_jsonl_files == 0 && outcome.migrated_state_rows == 0 {
+        outcome.skipped_reason = Some(if outcome.issues.is_empty() {
+            "already_unified".to_string()
+        } else {
+            "nothing_migrated".to_string()
+        });
+    }
+    Ok(outcome)
+}
+
+fn scan_codex_history(codex_dir: &Path, config_text: &str) -> CodexHistorySessionScan {
+    let mut scan = CodexHistorySessionScan::default();
+    scan_jsonl_root(&codex_dir.join("sessions"), "active", &mut scan, 0, 8);
+    scan_jsonl_root(
+        &codex_dir.join("archived_sessions"),
+        "archived",
+        &mut scan,
+        0,
+        4,
+    );
+
+    for db_path in codex_state_db_paths(codex_dir, config_text) {
+        scan_state_db(&db_path, &mut scan);
+    }
+    scan
+}
+
+fn scan_jsonl_root(
+    root: &Path,
+    source_kind: &str,
+    scan: &mut CodexHistorySessionScan,
+    depth: u8,
+    max_depth: u8,
+) {
+    if depth > max_depth || !root.is_dir() {
+        return;
+    }
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(err) => {
+            scan.issues.push(CodexHistoryIssue {
+                source_kind: source_kind.to_string(),
+                path: root.display().to_string(),
+                message: err.to_string(),
+            });
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                scan.issues.push(CodexHistoryIssue {
+                    source_kind: source_kind.to_string(),
+                    path: root.display().to_string(),
+                    message: err.to_string(),
+                });
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path.is_dir() {
+            scan_jsonl_root(&path, source_kind, scan, depth + 1, max_depth);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+            scan.jsonl_files += 1;
+            match read_codex_session_meta(&path) {
+                Ok(Some((session_id, provider_id))) => {
+                    scan.jsonl_ids.insert(session_id.clone());
+                    if source_kind == "active" {
+                        scan.active_ids.insert(session_id.clone());
+                    } else {
+                        scan.archived_ids.insert(session_id.clone());
+                    }
+                    if let Some(provider_id) = provider_id {
+                        record_provider(
+                            &mut scan.provider_sessions,
+                            &mut scan.source_provider_ids,
+                            &session_id,
+                            &provider_id,
+                        );
+                        if provider_id == CC_SWITCH_CODEX_MODEL_PROVIDER_ID {
+                            scan.unified_ids.insert(session_id);
+                        } else {
+                            scan.pending_ids.insert(session_id);
+                            scan.pending_jsonl_files += 1;
+                        }
+                    } else {
+                        scan.issues.push(CodexHistoryIssue {
+                            source_kind: source_kind.to_string(),
+                            path: path.display().to_string(),
+                            message: "session_meta 缺少 model_provider，无法安全改写".to_string(),
+                        });
+                    }
+                }
+                Ok(None) => scan.issues.push(CodexHistoryIssue {
+                    source_kind: source_kind.to_string(),
+                    path: path.display().to_string(),
+                    message: "未找到有效 session_meta".to_string(),
+                }),
+                Err(err) => scan.issues.push(CodexHistoryIssue {
+                    source_kind: source_kind.to_string(),
+                    path: path.display().to_string(),
+                    message: err.to_string(),
+                }),
+            }
+        }
+    }
+}
+
+fn read_codex_session_meta(path: &Path) -> Result<Option<(String, Option<String>)>, AppError> {
+    let file = fs::File::open(path).map_err(|e| AppError::io(path, e))?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    loop {
+        let read = read_bounded_utf8_line(&mut reader, &mut line, path)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        if !line.contains("session_meta") {
+            continue;
+        }
+        let body = line.trim_end_matches(['\r', '\n']);
+        let value: Value = match serde_json::from_str(body) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if value.get("type").and_then(Value::as_str) != Some("session_meta") {
+            continue;
+        }
+        let Some(payload) = value.get("payload") else {
+            continue;
+        };
+        let Some(session_id) = payload.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let provider_id = payload
+            .get("model_provider")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        return Ok(Some((session_id.to_string(), provider_id)));
+    }
+}
+
+fn read_bounded_utf8_line<R: BufRead>(
+    reader: &mut R,
+    line: &mut String,
+    path: &Path,
+) -> Result<usize, AppError> {
+    line.clear();
+    let mut bytes = Vec::with_capacity(4096);
+    loop {
+        let buffer = reader.fill_buf().map_err(|e| AppError::io(path, e))?;
+        if buffer.is_empty() {
+            break;
+        }
+        let consumed = buffer
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|index| index + 1)
+            .unwrap_or(buffer.len());
+        if bytes.len().saturating_add(consumed) > MAX_CODEX_JSONL_LINE_BYTES {
+            return Err(AppError::Message(format!(
+                "Codex JSONL 单行超过 {} MiB 限制: {}",
+                MAX_CODEX_JSONL_LINE_BYTES / (1024 * 1024),
+                path.display()
+            )));
+        }
+        bytes.extend_from_slice(&buffer[..consumed]);
+        reader.consume(consumed);
+        if bytes.last() == Some(&b'\n') {
+            break;
+        }
+    }
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    *line = String::from_utf8(bytes).map_err(|err| {
+        AppError::Message(format!(
+            "Codex JSONL 不是有效 UTF-8 ({}): {err}",
+            path.display()
+        ))
+    })?;
+    Ok(line.len())
+}
+
+fn record_provider(
+    provider_sessions: &mut BTreeMap<String, HashSet<String>>,
+    source_provider_ids: &mut BTreeSet<String>,
+    session_id: &str,
+    provider_id: &str,
+) {
+    let provider_id = provider_id.trim();
+    if provider_id.is_empty() {
+        return;
+    }
+    provider_sessions
+        .entry(provider_id.to_string())
+        .or_default()
+        .insert(session_id.to_string());
+    if provider_id != CC_SWITCH_CODEX_MODEL_PROVIDER_ID {
+        source_provider_ids.insert(provider_id.to_string());
+    }
+}
+
+fn scan_state_db(path: &Path, scan: &mut CodexHistorySessionScan) {
+    if !path.exists() {
+        return;
+    }
+    let conn = match Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        Ok(conn) => conn,
+        Err(err) => {
+            scan.issues.push(CodexHistoryIssue {
+                source_kind: "stateDb".to_string(),
+                path: path.display().to_string(),
+                message: err.to_string(),
+            });
+            return;
+        }
+    };
+    if let Err(err) = conn.busy_timeout(Duration::from_secs(5)) {
+        scan.issues.push(CodexHistoryIssue {
+            source_kind: "stateDb".to_string(),
+            path: path.display().to_string(),
+            message: err.to_string(),
+        });
+        return;
+    }
+    if !Database::table_exists(&conn, "threads").unwrap_or(false)
+        || !Database::has_column(&conn, "threads", "model_provider").unwrap_or(false)
+    {
+        return;
+    }
+    let mut stmt = match conn.prepare("SELECT id, model_provider FROM threads WHERE id IS NOT NULL")
+    {
+        Ok(stmt) => stmt,
+        Err(err) => {
+            scan.issues.push(CodexHistoryIssue {
+                source_kind: "stateDb".to_string(),
+                path: path.display().to_string(),
+                message: err.to_string(),
+            });
+            return;
+        }
+    };
+    let rows = match stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+    }) {
+        Ok(rows) => rows,
+        Err(err) => {
+            scan.issues.push(CodexHistoryIssue {
+                source_kind: "stateDb".to_string(),
+                path: path.display().to_string(),
+                message: err.to_string(),
+            });
+            return;
+        }
+    };
+    for row in rows {
+        let (session_id, provider_id) = match row {
+            Ok(row) => row,
+            Err(err) => {
+                scan.issues.push(CodexHistoryIssue {
+                    source_kind: "stateDb".to_string(),
+                    path: path.display().to_string(),
+                    message: err.to_string(),
+                });
+                continue;
+            }
+        };
+        if scan.state_ids.insert(session_id.clone()) {
+            scan.state_rows += 1;
+        }
+        if let Some(provider_id) = provider_id {
+            if provider_id == CC_SWITCH_CODEX_MODEL_PROVIDER_ID {
+                scan.unified_ids.insert(session_id.clone());
+            } else {
+                scan.pending_ids.insert(session_id.clone());
+                scan.pending_state_rows += 1;
+            }
+            record_provider(
+                &mut scan.provider_sessions,
+                &mut scan.source_provider_ids,
+                &session_id,
+                &provider_id,
+            );
+        }
+    }
+}
+
+impl CodexHistorySessionScan {
+    fn into_preview(self) -> CodexHistoryUnificationPreview {
+        let CodexHistorySessionScan {
+            jsonl_ids,
+            active_ids,
+            archived_ids,
+            unified_ids,
+            pending_ids,
+            state_ids,
+            provider_sessions,
+            jsonl_files,
+            pending_jsonl_files,
+            state_rows,
+            pending_state_rows,
+            issues,
+            ..
+        } = self;
+        let mut provider_buckets = provider_sessions
+            .into_iter()
+            .map(
+                |(provider_id, sessions)| CodexHistoryProviderBucketPreview {
+                    provider_id,
+                    sessions: sessions.len(),
+                },
+            )
+            .collect::<Vec<_>>();
+        provider_buckets.sort_by(|a, b| a.provider_id.cmp(&b.provider_id));
+        let total_ids = jsonl_ids.union(&state_ids).count();
+        let metadata_only = state_ids.difference(&jsonl_ids).count();
+        let already_unified = unified_ids.difference(&pending_ids).count();
+        CodexHistoryUnificationPreview {
+            total_sessions: total_ids,
+            active_sessions: active_ids.len(),
+            archived_sessions: archived_ids.len(),
+            already_unified,
+            pending_migration: pending_ids.len(),
+            metadata_only,
+            jsonl_files,
+            pending_jsonl_files,
+            state_rows,
+            pending_state_rows,
+            provider_buckets,
+            skipped_files: issues.len(),
+            issues,
+        }
+    }
 }
 
 pub fn maybe_migrate_codex_third_party_history_provider_bucket(
@@ -1190,9 +1683,7 @@ fn rewrite_codex_session_file_lines(
         let mut line = String::new();
         loop {
             line.clear();
-            let read = reader
-                .read_line(&mut line)
-                .map_err(|e| AppError::io(path, e))?;
+            let read = read_bounded_utf8_line(&mut reader, &mut line, path)?;
             if read == 0 {
                 break;
             }
@@ -1339,16 +1830,18 @@ fn codex_state_db_has_provider_ids(
         return Ok(false);
     }
 
-    let placeholders = placeholders(source_provider_ids.len());
-    let count_sql =
-        format!("SELECT COUNT(*) FROM threads WHERE model_provider IN ({placeholders})");
-    let matching_rows: i64 = conn
-        .query_row(
-            &count_sql,
-            params_from_iter(source_provider_ids.iter()),
-            |row| row.get(0),
-        )
-        .map_err(|e| AppError::Database(format!("统计 Codex state DB 待迁移行失败: {e}")))?;
+    let provider_ids = source_provider_ids.iter().cloned().collect::<Vec<_>>();
+    let mut matching_rows = 0_i64;
+    for chunk in provider_ids.chunks(STATE_DB_ID_CHUNK) {
+        let placeholders = placeholders(chunk.len());
+        let count_sql =
+            format!("SELECT COUNT(*) FROM threads WHERE model_provider IN ({placeholders})");
+        matching_rows += conn
+            .query_row(&count_sql, params_from_iter(chunk.iter()), |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|e| AppError::Database(format!("统计 Codex state DB 待迁移行失败: {e}")))?;
+    }
     Ok(matching_rows > 0)
 }
 
@@ -1373,16 +1866,18 @@ fn migrate_codex_state_db_provider_bucket(
         return Ok(0);
     }
 
-    let placeholders = placeholders(source_provider_ids.len());
-    let count_sql =
-        format!("SELECT COUNT(*) FROM threads WHERE model_provider IN ({placeholders})");
-    let matching_rows: i64 = conn
-        .query_row(
-            &count_sql,
-            params_from_iter(source_provider_ids.iter()),
-            |row| row.get(0),
-        )
-        .map_err(|e| AppError::Database(format!("统计 Codex state DB 待迁移行失败: {e}")))?;
+    let provider_ids = source_provider_ids.iter().cloned().collect::<Vec<_>>();
+    let mut matching_rows = 0_i64;
+    for chunk in provider_ids.chunks(STATE_DB_ID_CHUNK) {
+        let placeholders = placeholders(chunk.len());
+        let count_sql =
+            format!("SELECT COUNT(*) FROM threads WHERE model_provider IN ({placeholders})");
+        matching_rows += conn
+            .query_row(&count_sql, params_from_iter(chunk.iter()), |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|e| AppError::Database(format!("统计 Codex state DB 待迁移行失败: {e}")))?;
+    }
     log::info!(
         "Codex state DB migration candidate rows: path={}, rows={}, sources={:?}",
         db_path.display(),
@@ -1395,17 +1890,22 @@ fn migrate_codex_state_db_provider_bucket(
 
     backup_codex_state_db(db_path, codex_dir, backup_root, &conn)?;
 
-    let update_sql =
-        format!("UPDATE threads SET model_provider = ? WHERE model_provider IN ({placeholders})");
-    let mut values = Vec::with_capacity(source_provider_ids.len() + 1);
-    values.push(CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string());
-    values.extend(source_provider_ids.iter().cloned());
     let tx = conn
         .transaction()
         .map_err(|e| AppError::Database(format!("开启 Codex state DB 迁移事务失败: {e}")))?;
-    let changed = tx
-        .execute(&update_sql, params_from_iter(values.iter()))
-        .map_err(|e| AppError::Database(format!("迁移 Codex state DB provider 失败: {e}")))?;
+    let mut changed = 0;
+    for chunk in provider_ids.chunks(STATE_DB_ID_CHUNK) {
+        let placeholders = placeholders(chunk.len());
+        let update_sql = format!(
+            "UPDATE threads SET model_provider = ? WHERE model_provider IN ({placeholders})"
+        );
+        let mut values = Vec::with_capacity(chunk.len() + 1);
+        values.push(CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string());
+        values.extend(chunk.iter().cloned());
+        changed += tx
+            .execute(&update_sql, params_from_iter(values.iter()))
+            .map_err(|e| AppError::Database(format!("迁移 Codex state DB provider 失败: {e}")))?;
+    }
     log::info!(
         "Codex state DB migration changed rows: path={}, rows={}",
         db_path.display(),
@@ -1557,6 +2057,107 @@ mod tests {
 
     fn source_ids(values: &[&str]) -> BTreeSet<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn previews_all_codex_history_with_unknown_provider_and_metadata_only_thread() {
+        let dir = tempdir().expect("tempdir");
+        let active_dir = dir.path().join("sessions");
+        let archived_dir = dir.path().join("archived_sessions");
+        fs::create_dir_all(&active_dir).expect("create active dir");
+        fs::create_dir_all(&archived_dir).expect("create archived dir");
+        fs::write(
+            active_dir.join("active.jsonl"),
+            "{\"type\":\"session_meta\",\"payload\":{\"id\":\"active-id\",\"model_provider\":\"unknown-relay\"}}\n",
+        )
+        .expect("write active session");
+        fs::write(
+            archived_dir.join("archived.jsonl"),
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"archived-id\",\"model_provider\":\"{}\"}}}}\n",
+                CC_SWITCH_CODEX_MODEL_PROVIDER_ID
+            ),
+        )
+        .expect("write archived session");
+
+        let state_path = dir.path().join(CODEX_STATE_DB_FILENAME);
+        let conn = Connection::open(&state_path).expect("open state db");
+        conn.execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT NOT NULL);\
+             INSERT INTO threads (id, model_provider) VALUES\
+               ('active-id', 'unknown-relay'),\
+               ('archived-id', 'tuziswitch'),\
+               ('metadata-only-id', 'legacy-provider');",
+        )
+        .expect("seed state db");
+        drop(conn);
+
+        let preview = scan_codex_history(dir.path(), "").into_preview();
+        assert_eq!(preview.total_sessions, 3);
+        assert_eq!(preview.active_sessions, 1);
+        assert_eq!(preview.archived_sessions, 1);
+        assert_eq!(preview.already_unified, 1);
+        assert_eq!(preview.pending_migration, 2);
+        assert_eq!(preview.metadata_only, 1);
+        assert_eq!(preview.pending_jsonl_files, 1);
+        assert_eq!(preview.pending_state_rows, 2);
+        assert!(preview
+            .provider_buckets
+            .iter()
+            .any(|bucket| bucket.provider_id == "unknown-relay"));
+        assert!(preview.issues.is_empty());
+    }
+
+    #[test]
+    fn dynamically_discovered_unknown_provider_migration_is_idempotent() {
+        let dir = tempdir().expect("tempdir");
+        let sessions_dir = dir.path().join("sessions");
+        fs::create_dir_all(&sessions_dir).expect("create sessions dir");
+        let session_path = sessions_dir.join("unknown.jsonl");
+        fs::write(
+            &session_path,
+            "{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\",\"model_provider\":\"unknown-relay\"}}\n",
+        )
+        .expect("write session");
+        let state_path = dir.path().join(CODEX_STATE_DB_FILENAME);
+        let conn = Connection::open(&state_path).expect("open state db");
+        conn.execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT NOT NULL);\
+             INSERT INTO threads (id, model_provider) VALUES ('s1', 'unknown-relay');",
+        )
+        .expect("seed state db");
+        drop(conn);
+
+        let scan = scan_codex_history(dir.path(), "");
+        assert_eq!(scan.source_provider_ids, source_ids(&["unknown-relay"]));
+        let sources = scan.source_provider_ids.clone();
+        let hash_sources = sources.iter().cloned().collect::<HashSet<_>>();
+        let backup = dir.path().join("backups");
+        assert!(rewrite_codex_session_file_for_provider_bucket(
+            &session_path,
+            dir.path(),
+            &hash_sources,
+            &backup,
+        )
+        .expect("migrate jsonl"));
+        assert_eq!(
+            migrate_codex_state_db_provider_bucket(&state_path, dir.path(), &sources, &backup,)
+                .expect("migrate state db"),
+            1
+        );
+
+        assert!(!rewrite_codex_session_file_for_provider_bucket(
+            &session_path,
+            dir.path(),
+            &hash_sources,
+            &backup,
+        )
+        .expect("rerun jsonl migration"));
+        assert_eq!(
+            migrate_codex_state_db_provider_bucket(&state_path, dir.path(), &sources, &backup,)
+                .expect("rerun state migration"),
+            0
+        );
     }
 
     #[test]
@@ -2402,7 +3003,8 @@ base_url = "https://proxy.example/v1"
         let env_sqlite_home = dir.path().join("env-sqlite-home");
         let config_sqlite_home = dir.path().join("config-sqlite-home");
         let _guard = EnvVarGuard::set("CODEX_SQLITE_HOME", &env_sqlite_home);
-        let config_text = format!("sqlite_home = \"{}\"\n", config_sqlite_home.display());
+        // Use a TOML literal string so Windows backslashes are not parsed as escapes.
+        let config_text = format!("sqlite_home = '{}'\n", config_sqlite_home.display());
 
         let paths = codex_state_db_paths(&codex_dir, &config_text);
 

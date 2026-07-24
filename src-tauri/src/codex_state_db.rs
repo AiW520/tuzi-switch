@@ -87,7 +87,9 @@ mod tests {
     fn includes_config_sqlite_home() {
         let temp = tempdir().expect("tempdir");
         let sqlite_home = temp.path().join("sqlite-home");
-        let config_text = format!("sqlite_home = \"{}\"\n", sqlite_home.display());
+        // Windows paths contain backslashes, which are escapes in TOML basic strings.
+        // A literal string preserves the path verbatim on every supported platform.
+        let config_text = format!("sqlite_home = '{}'\n", sqlite_home.display());
 
         let paths = codex_state_db_paths(temp.path(), &config_text);
 

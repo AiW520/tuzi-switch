@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-07-24
+
+### Features
+
+- 新增开发缓存管家，可将会话临时目录及 npm、pnpm、Yarn、pip、uv 缓存路由到指定磁盘。
+- Windows 新增用户级全局缓存模式，支持原值备份、冲突检测、事务回滚和关闭后精确恢复。
+- 新增 Codex 简体中文界面开关及本地全部会话扫描、统一与恢复能力。
+
+### Fixes
+
+- 修复缓存目录越界、符号链接、重解析点及全局环境变量被第三方修改时的误清理风险。
+- 修复 OpenClaw 会话索引测试在 Windows 路径下生成无效 JSON 的问题。
+- 发布链路改为使用当前 GitHub 仓库地址，并支持首次创建更新清单分支。
+
 ## [1.2.0] - 2026-07-14
 
 ### Features

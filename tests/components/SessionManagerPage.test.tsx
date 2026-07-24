@@ -87,8 +87,8 @@ const openSearch = () => {
 };
 
 const closeSearch = () => {
-  const closeButton = Array.from(screen.getAllByRole("button")).find(
-    (button) => button.querySelector(".lucide-x"),
+  const closeButton = Array.from(screen.getAllByRole("button")).find((button) =>
+    button.querySelector(".lucide-x"),
   );
 
   if (!closeButton) {
@@ -166,6 +166,78 @@ describe("SessionManagerPage", () => {
     expect(screen.queryByText("Alpha Session")).not.toBeInTheDocument();
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalled();
+  });
+
+  it("previews and confirms Codex history unification", async () => {
+    const previewSpy = vi
+      .spyOn(sessionsApi, "previewCodexHistoryUnification")
+      .mockResolvedValueOnce({
+        totalSessions: 8,
+        activeSessions: 6,
+        archivedSessions: 2,
+        alreadyUnified: 5,
+        pendingMigration: 3,
+        metadataOnly: 0,
+        jsonlFiles: 8,
+        pendingJsonlFiles: 2,
+        stateRows: 8,
+        pendingStateRows: 3,
+        providerBuckets: [{ providerId: "openai", sessions: 3 }],
+        skippedFiles: 0,
+        issues: [],
+      });
+    const unifySpy = vi
+      .spyOn(sessionsApi, "unifyAllCodexHistory")
+      .mockResolvedValueOnce({
+        migratedJsonlFiles: 2,
+        migratedStateRows: 3,
+        skippedFiles: 0,
+        issues: [],
+      });
+
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /获取全部本地会话/i }));
+
+    const dialog = await screen.findByTestId("confirm-dialog");
+    expect(within(dialog).getByText(/共发现 8 个 Codex 会话/)).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /备份并统一/i }),
+    );
+
+    await waitFor(() => expect(unifySpy).toHaveBeenCalledTimes(1));
+    expect(toastSuccessMock).toHaveBeenCalled();
+    previewSpy.mockRestore();
+    unifySpy.mockRestore();
+  });
+
+  it("refreshes without migration when Codex history is already unified", async () => {
+    const previewSpy = vi
+      .spyOn(sessionsApi, "previewCodexHistoryUnification")
+      .mockResolvedValueOnce({
+        totalSessions: 8,
+        activeSessions: 6,
+        archivedSessions: 2,
+        alreadyUnified: 8,
+        pendingMigration: 0,
+        metadataOnly: 0,
+        jsonlFiles: 8,
+        pendingJsonlFiles: 0,
+        stateRows: 8,
+        pendingStateRows: 0,
+        providerBuckets: [{ providerId: "tuziswitch", sessions: 8 }],
+        skippedFiles: 0,
+        issues: [],
+      });
+    const unifySpy = vi.spyOn(sessionsApi, "unifyAllCodexHistory");
+
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /获取全部本地会话/i }));
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
+    expect(unifySpy).not.toHaveBeenCalled();
+    previewSpy.mockRestore();
+    unifySpy.mockRestore();
   });
 
   it("removes a deleted session from filtered search results", async () => {

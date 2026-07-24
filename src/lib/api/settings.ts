@@ -39,6 +39,53 @@ export interface CodexUnifyHistoryRestoreResult {
   skippedReason?: string;
 }
 
+export interface DevCacheCategoryStat {
+  id: "sessions" | "shared" | "projects" | string;
+  sizeBytes: number;
+  fileCount: number;
+  directoryCount: number;
+}
+
+export interface DevCacheScanResult {
+  enabled: boolean;
+  configuredRoot?: string;
+  managedRoot?: string;
+  exists: boolean;
+  sizeBytes: number;
+  fileCount: number;
+  directoryCount: number;
+  expiredSessionCount: number;
+  expiredSessionBytes: number;
+  categories: DevCacheCategoryStat[];
+  warnings: string[];
+}
+
+export interface DevCacheCleanResult {
+  removedBytes: number;
+  removedFiles: number;
+  removedDirectories: number;
+  skippedItems: number;
+  errors: string[];
+}
+
+export interface DevCacheGlobalVariableStatus {
+  name: string;
+  expected?: string;
+  current?: string;
+  state: "managed" | "conflict" | "stale" | "untracked" | "notApplied" | string;
+}
+
+export interface DevCacheGlobalStatus {
+  supported: boolean;
+  enabled: boolean;
+  applied: boolean;
+  hasBackup: boolean;
+  hasConflict: boolean;
+  managedRoot?: string;
+  variables: DevCacheGlobalVariableStatus[];
+  warnings: string[];
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -94,6 +141,26 @@ export const settingsApi = {
 
   async selectConfigDirectory(defaultPath?: string): Promise<string | null> {
     return await invoke("pick_directory", { defaultPath });
+  },
+
+  async validateDevCacheRoot(path: string): Promise<string> {
+    return await invoke("validate_dev_cache_root", { path });
+  },
+
+  async scanDevCache(): Promise<DevCacheScanResult> {
+    return await invoke("scan_dev_cache");
+  },
+
+  async cleanDevCache(includeShared: boolean): Promise<DevCacheCleanResult> {
+    return await invoke("clean_dev_cache", { includeShared });
+  },
+
+  async getDevCacheGlobalStatus(): Promise<DevCacheGlobalStatus> {
+    return await invoke("get_dev_cache_global_status");
+  },
+
+  async openDevCacheDirectory(): Promise<boolean> {
+    return await invoke("open_dev_cache_directory");
   },
 
   async getClaudeCodeConfigPath(): Promise<string> {

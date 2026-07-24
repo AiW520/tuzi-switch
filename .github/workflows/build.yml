@@ -294,13 +294,13 @@ jobs:
           ### macOS / Linux 一键安装
 
           \`\`\`bash
-          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | bash
+          curl -fsSL https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${TAG}/scripts/install_tuzi_switch.sh | bash
           \`\`\`
 
           或指定版本：
 
           \`\`\`bash
-          curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@${TAG}/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=${TAG} bash
+          curl -fsSL https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${TAG}/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=${TAG} bash
           \`\`\`
 
           ### Windows
@@ -338,7 +338,7 @@ jobs:
 
           const tag = process.env.TAG;
           const version = tag.replace(/^v/, "");
-          const baseUrl = `https://github.com/tuziapi/tuzi-switch/releases/download/${tag}`;
+          const baseUrl = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}`;
           const hasSignature = (name) => fs.existsSync(`dist/${name}.sig`);
           const signature = (name) => fs.readFileSync(`dist/${name}.sig`, "utf8").trim();
           const platforms = {};
@@ -402,21 +402,28 @@ jobs:
         run: |
           set -euo pipefail
           WORKTREE="$(mktemp -d)"
-          git clone --branch release-manifest --single-branch \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORKTREE"
+          if git ls-remote --exit-code --heads \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            release-manifest >/dev/null 2>&1; then
+            git clone --branch release-manifest --single-branch \
+              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORKTREE"
+          else
+            git init "$WORKTREE"
+            git -C "$WORKTREE" checkout --orphan release-manifest
+          fi
           cp latest.json "$WORKTREE/latest.json"
           cd "$WORKTREE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add latest.json
           git commit -m "发布更新清单 ${{ needs.create-release.outputs.tag }}"
-          git push origin release-manifest
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:release-manifest
       - name: Purge jsDelivr cache
         if: hashFiles('latest.json') != ''
         shell: bash
         run: |
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-manifest/latest.json" || true
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@${{ needs.create-release.outputs.tag }}/scripts/install_tuzi_switch.sh" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release-manifest/latest.json" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${{ needs.create-release.outputs.tag }}/scripts/install_tuzi_switch.sh" || true
 
   publish-web:
     needs: [create-release]
@@ -485,7 +492,7 @@ jobs:
             },
             pubDate: new Date().toISOString(),
             archive: {
-              url: `https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/versions/${tag}/web.tar.gz`,
+              url: `https://cdn.jsdelivr.net/gh/${process.env.GITHUB_REPOSITORY}@release-web/versions/${tag}/web.tar.gz`,
               sha256,
               signature,
             },
@@ -518,7 +525,7 @@ jobs:
         if: steps.build-web-assets.outputs.skip != 'true'
         shell: bash
         run: |
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/latest.json" || true
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz" || true
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz.sig" || true
-          curl -fsS "https://purge.jsdelivr.net/gh/tuziapi/tuzi-switch@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz.sha256" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release-web/latest.json" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz.sig" || true
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release-web/versions/${{ needs.create-release.outputs.tag }}/web.tar.gz.sha256" || true
