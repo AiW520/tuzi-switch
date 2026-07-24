@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-07-24
+
+### Fixes
+
+- 基于已核验的最新 `main` 重新发布补丁版本，确保安装包与当前主分支代码一致。
+
 ## [1.2.0] - 2026-07-14
 
 ### Features
