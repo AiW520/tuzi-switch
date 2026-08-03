@@ -128,6 +128,30 @@ fn parse_provider_deeplink(
     let config_format = params.get("configFormat").cloned();
     let config_url = params.get("configUrl").cloned();
     let enabled = params.get("enabled").and_then(|v| v.parse::<bool>().ok());
+    let ticket = match params.get("ticket") {
+        Some(value)
+            if app == "codex"
+                && value.len() == 64
+                && value.chars().all(|c| c.is_ascii_hexdigit()) =>
+        {
+            Some(format!("codex-ticket:{value}"))
+        }
+        Some(_) => {
+            return Err(AppError::InvalidInput(
+                "Invalid Codex configuration ticket".to_string(),
+            ));
+        }
+        None => None,
+    };
+    let ticket_url = match (params.get("ticketUrl"), ticket.is_some()) {
+        (Some(value), true) => Some(format!("codex-ticket-url:{value}")),
+        (Some(_), false) => {
+            return Err(AppError::InvalidInput(
+                "A ticketUrl requires a valid Codex configuration ticket".to_string(),
+            ));
+        }
+        (None, _) => None,
+    };
 
     // Extract usage script fields (v3.9+)
     let usage_enabled = params
@@ -169,9 +193,9 @@ fn parse_provider_deeplink(
         usage_enabled,
         usage_script,
         usage_api_key,
-        usage_base_url,
+        usage_base_url: ticket_url.or(usage_base_url),
         usage_access_token,
-        usage_user_id,
+        usage_user_id: ticket.or(usage_user_id),
         usage_auto_interval,
     })
 }

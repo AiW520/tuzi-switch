@@ -7,6 +7,7 @@
   ],
   "permissions": [
     "core:default",
+    "deep-link:allow-get-current",
     "opener:default",
     "updater:default",
     "core:window:allow-set-skip-taskbar",
