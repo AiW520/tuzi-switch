@@ -125,3 +125,31 @@ fn deeplink_import_codex_provider_does_not_invent_homepage() {
 
     assert!(provider.website_url.is_none());
 }
+
+#[test]
+fn deeplink_import_codex_provider_escapes_toml_strings() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let url = "tuziswitch://v1/import?resource=provider&app=codex&name=Escaped&endpoint=https%3A%2F%2Fapi.tu-zi.com%2Fcoding&apiKey=sk-test&model=gpt%22%0Amalicious%3Dtrue";
+    let request = parse_deeplink_url(url).expect("parse deeplink url");
+    let db = Arc::new(Database::memory().expect("create memory db"));
+    let state = AppState::new(db.clone());
+
+    let provider_id =
+        import_provider_from_deeplink(&state, request).expect("import escaped Codex provider");
+    let providers = db.get_all_providers("codex").expect("get providers");
+    let config = providers
+        .get(&provider_id)
+        .and_then(|provider| provider.settings_config.get("config"))
+        .and_then(serde_json::Value::as_str)
+        .expect("stored Codex config");
+    let parsed: toml::Value = toml::from_str(config).expect("generated config remains valid TOML");
+
+    assert_eq!(
+        parsed.get("model").and_then(toml::Value::as_str),
+        Some("gpt\"\nmalicious=true")
+    );
+    assert!(parsed.get("malicious").is_none());
+}

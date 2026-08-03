@@ -333,17 +333,19 @@ fn build_codex_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
         .trim()
         .trim_end_matches('/')
         .to_string();
+    let model_value = toml::Value::String(model_name).to_string();
+    let endpoint_value = toml::Value::String(endpoint).to_string();
 
     // Build config.toml content
     let config_toml = format!(
         r#"model_provider = "{clean_provider_name}"
-model = "{model_name}"
+model = {model_value}
 model_reasoning_effort = "high"
 disable_response_storage = true
 
 [model_providers.{clean_provider_name}]
 name = "{clean_provider_name}"
-base_url = "{endpoint}"
+base_url = {endpoint_value}
 wire_api = "responses"
 requires_openai_auth = false
 "#
