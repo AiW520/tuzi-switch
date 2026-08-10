@@ -174,6 +174,30 @@ describe("DeepLinkImportDialog provider editable fields", () => {
     );
   });
 
+  it("票据导入会说明安全获取 Key，且不在界面展示票据值", async () => {
+    const ticketValue = `codex-ticket:${"a".repeat(64)}`;
+    const ticketRequest: DeepLinkImportRequest = {
+      ...request,
+      apiKey: undefined,
+      enabled: true,
+      usageUserId: ticketValue,
+      usageBaseUrl:
+        "codex-ticket-url:https://store.tu-zi.com/portal/api/codexImport/exchange",
+    };
+    await openDialog(ticketRequest);
+
+    expect(screen.getByText("deeplink.codexTicketApiKeyPending")).toBeTruthy();
+    expect(screen.getByText("deeplink.codexTicketNotice")).toBeTruthy();
+    expect(screen.queryByText(ticketValue)).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "deeplink.codexTicketImport" }),
+    );
+    await waitFor(() =>
+      expect(mocks.importFromDeeplink).toHaveBeenCalledWith(ticketRequest),
+    );
+  });
+
   it("供应商名称为空时禁止导入", async () => {
     await openDialog({ ...request, name: " " });
 

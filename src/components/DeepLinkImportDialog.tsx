@@ -303,6 +303,9 @@ export function DeepLinkImportDialog() {
     request?.apiKey && request.apiKey.length > 4
       ? `${request.apiKey.substring(0, 4)}${"*".repeat(20)}`
       : "****";
+  const isCodexTicketImport =
+    request?.app === "codex" &&
+    request.usageUserId?.startsWith("codex-ticket:");
 
   // Check if config file is present
   const hasConfigFile = !!(request?.config || request?.configUrl);
@@ -524,13 +527,15 @@ export function DeepLinkImportDialog() {
                     </div>
                   </div>
 
-                  {/* API Key (masked) */}
+                  {/* API Key */}
                   <div className="grid grid-cols-3 items-center gap-4">
                     <div className="font-medium text-sm text-muted-foreground">
                       {t("deeplink.apiKey")}
                     </div>
                     <div className="col-span-2 text-sm font-mono text-muted-foreground">
-                      {maskedApiKey}
+                      {isCodexTicketImport
+                        ? t("deeplink.codexTicketApiKeyPending")
+                        : maskedApiKey}
                     </div>
                   </div>
 
@@ -842,7 +847,9 @@ export function DeepLinkImportDialog() {
 
                   {/* Warning */}
                   <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 p-3 text-sm text-yellow-800 dark:text-yellow-200">
-                    {t("deeplink.warning")}
+                    {isCodexTicketImport
+                      ? t("deeplink.codexTicketNotice")
+                      : t("deeplink.warning")}
                   </div>
                 </>
               )}
@@ -864,7 +871,11 @@ export function DeepLinkImportDialog() {
                     !request.name?.trim())
                 }
               >
-                {isImporting ? t("deeplink.importing") : t("deeplink.import")}
+                {isImporting
+                  ? t("deeplink.importing")
+                  : isCodexTicketImport
+                    ? t("deeplink.codexTicketImport")
+                    : t("deeplink.import")}
               </Button>
             </DialogFooter>
           </>
