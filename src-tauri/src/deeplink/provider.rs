@@ -51,6 +51,10 @@ pub fn import_provider_from_deeplink(
         ));
     }
 
+    // Parse app type before optional metadata so Codex imports can omit a homepage.
+    let app_type = AppType::from_str(&app_str)
+        .map_err(|_| AppError::InvalidInput(format!("Invalid app type: {app_str}")))?;
+
     // Get endpoint: supports comma-separated multiple URLs (first is primary)
     let endpoint_str = merged_request.endpoint.as_ref().ok_or_else(|| {
         AppError::InvalidInput("Endpoint is required (either in URL or config file)".to_string())
@@ -67,22 +71,25 @@ pub fn import_provider_from_deeplink(
         .first()
         .ok_or_else(|| AppError::InvalidInput("Endpoint cannot be empty".to_string()))?;
 
-    // Auto-infer homepage from endpoint if not provided
-    if merged_request
-        .homepage
-        .as_ref()
-        .is_none_or(|s| s.is_empty())
+    // Codex does not require a provider homepage. Only infer it for applications
+    // whose existing import UI expects one, so ticket imports do not invent a URL.
+    if !matches!(app_type, AppType::Codex)
+        && merged_request
+            .homepage
+            .as_ref()
+            .is_none_or(|s| s.is_empty())
     {
         merged_request.homepage = infer_homepage_from_endpoint(primary_endpoint);
     }
 
-    let homepage = merged_request.homepage.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Homepage is required (either in URL or config file)".to_string())
-    })?;
-
-    if homepage.is_empty() {
+    if !matches!(app_type, AppType::Codex)
+        && merged_request
+            .homepage
+            .as_ref()
+            .is_none_or(|homepage| homepage.is_empty())
+    {
         return Err(AppError::InvalidInput(
-            "Homepage cannot be empty".to_string(),
+            "Homepage is required (either in URL or config file)".to_string(),
         ));
     }
 
@@ -90,10 +97,6 @@ pub fn import_provider_from_deeplink(
         .name
         .clone()
         .ok_or_else(|| AppError::InvalidInput("Missing 'name' field for provider".to_string()))?;
-
-    // Parse app type
-    let app_type = AppType::from_str(&app_str)
-        .map_err(|_| AppError::InvalidInput(format!("Invalid app type: {app_str}")))?;
 
     // Build provider configuration based on app type
     let mut provider = build_provider_from_request(&app_type, &merged_request)?;
@@ -330,17 +333,19 @@ fn build_codex_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
         .trim()
         .trim_end_matches('/')
         .to_string();
+    let model_value = toml::Value::String(model_name).to_string();
+    let endpoint_value = toml::Value::String(endpoint).to_string();
 
     // Build config.toml content
     let config_toml = format!(
         r#"model_provider = "{clean_provider_name}"
-model = "{model_name}"
+model = {model_value}
 model_reasoning_effort = "high"
 disable_response_storage = true
 
 [model_providers.{clean_provider_name}]
 name = "{clean_provider_name}"
-base_url = "{endpoint}"
+base_url = {endpoint_value}
 wire_api = "responses"
 requires_openai_auth = false
 "#

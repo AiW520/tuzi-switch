@@ -71,6 +71,14 @@ export type ImportResult =
 
 export const deeplinkApi = {
   /**
+   * Read URLs that launched the current app instance.
+   * This closes the cold-start race before React event listeners are ready.
+   */
+  getCurrentUrls: async (): Promise<string[] | null> => {
+    return invoke("plugin:deep-link|get_current");
+  },
+
+  /**
    * Parse a deep link URL
    * @param url The tuziswitch:// URL to parse
    * @returns Parsed deep link request

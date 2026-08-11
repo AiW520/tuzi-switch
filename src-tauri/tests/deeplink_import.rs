@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use tuzi_switch_lib::{import_provider_from_deeplink, parse_deeplink_url, AppState, Database};
+use tuzi_switch_lib::{
+    get_codex_config_path, import_provider_from_deeplink, parse_deeplink_url, AppState, AppType,
+    Database,
+};
 
 #[path = "support.rs"]
 mod support;
@@ -48,7 +51,7 @@ fn deeplink_import_codex_provider_builds_auth_and_config() {
     reset_test_fs();
     let _home = ensure_test_home();
 
-    let url = "tuziswitch://v1/import?resource=provider&app=codex&name=DeepLink%20Codex&homepage=https%3A%2F%2Fopenai.example&endpoint=https%3A%2F%2Fapi.openai.example%2Fv1&apiKey=sk-test-codex-key&model=gpt-4o&icon=openai";
+    let url = "tuziswitch://v1/import?resource=provider&app=codex&name=DeepLink%20Codex&endpoint=https%3A%2F%2Fapi.tu-zi.com%2Fcoding&apiKey=sk-test-codex-key&model=gpt-5.6-sol&icon=openai&enabled=true";
     let request = parse_deeplink_url(url).expect("parse deeplink url");
 
     let db = Arc::new(Database::memory().expect("create memory db"));
@@ -63,7 +66,7 @@ fn deeplink_import_codex_provider_builds_auth_and_config() {
         .expect("provider created via deeplink");
 
     assert_eq!(provider.name, request.name.clone().unwrap());
-    assert_eq!(provider.website_url.as_deref(), request.homepage.as_deref());
+    assert!(provider.website_url.is_none());
     assert_eq!(provider.icon.as_deref(), Some("openai"));
     let auth_value = provider
         .settings_config
@@ -80,7 +83,73 @@ fn deeplink_import_codex_provider_builds_auth_and_config() {
         "config.toml content should contain endpoint"
     );
     assert!(
-        config_text.contains("model = \"gpt-4o\""),
+        config_text.contains("model = \"gpt-5.6-sol\""),
         "config.toml content should contain model setting"
     );
+
+    let current_provider = db
+        .get_current_provider(AppType::Codex.as_str())
+        .expect("get current Codex provider");
+    assert_eq!(current_provider.as_deref(), Some(provider_id.as_str()));
+
+    let live_config = std::fs::read_to_string(get_codex_config_path())
+        .expect("enabled deep-link import should write Codex config.toml");
+    assert!(live_config.contains("https://api.tu-zi.com/coding"));
+    assert!(live_config.contains("model = \"gpt-5.6-sol\""));
+
+    let managed_env = std::fs::read_to_string(_home.join(".codex").join(".env"))
+        .expect("enabled ticket import should persist the managed Codex API key");
+    assert!(
+        managed_env.lines().any(|line| {
+            line.starts_with("CODING") && line.ends_with("_CODEX_API_KEY=sk-test-codex-key")
+        }),
+        "ticket import should use the existing managed env-key architecture"
+    );
+}
+
+#[test]
+fn deeplink_import_codex_provider_does_not_invent_homepage() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let url = "tuziswitch://v1/import?resource=provider&app=codex&name=Codex%20No%20Homepage&endpoint=https%3A%2F%2Fapi.tu-zi.com%2Fcoding&apiKey=sk-test-codex-key&model=gpt-5.6-sol";
+    let request = parse_deeplink_url(url).expect("parse deeplink url");
+    let db = Arc::new(Database::memory().expect("create memory db"));
+    let state = AppState::new(db.clone());
+
+    let provider_id = import_provider_from_deeplink(&state, request)
+        .expect("import Codex provider without homepage");
+    let providers = db.get_all_providers("codex").expect("get providers");
+    let provider = providers.get(&provider_id).expect("provider created");
+
+    assert!(provider.website_url.is_none());
+}
+
+#[test]
+fn deeplink_import_codex_provider_escapes_toml_strings() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let url = "tuziswitch://v1/import?resource=provider&app=codex&name=Escaped&endpoint=https%3A%2F%2Fapi.tu-zi.com%2Fcoding&apiKey=sk-test&model=gpt%22%0Amalicious%3Dtrue";
+    let request = parse_deeplink_url(url).expect("parse deeplink url");
+    let db = Arc::new(Database::memory().expect("create memory db"));
+    let state = AppState::new(db.clone());
+
+    let provider_id =
+        import_provider_from_deeplink(&state, request).expect("import escaped Codex provider");
+    let providers = db.get_all_providers("codex").expect("get providers");
+    let config = providers
+        .get(&provider_id)
+        .and_then(|provider| provider.settings_config.get("config"))
+        .and_then(serde_json::Value::as_str)
+        .expect("stored Codex config");
+    let parsed: toml::Value = toml::from_str(config).expect("generated config remains valid TOML");
+
+    assert_eq!(
+        parsed.get("model").and_then(toml::Value::as_str),
+        Some("gpt\"\nmalicious=true")
+    );
+    assert!(parsed.get("malicious").is_none());
 }
