@@ -1613,6 +1613,7 @@ function ProviderFormFull({
               modelReasoningEffort: "high",
               profileName: values.name.trim(),
               providerId,
+              configText: normalizedCodexConfig,
             },
           );
           if (savedRoute?.config) {

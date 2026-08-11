@@ -472,15 +472,33 @@ fn save_codex_route_inner(
     modelReasoningEffort: String,
     profileName: Option<String>,
     providerId: Option<String>,
+    configText: Option<String>,
 ) -> Result<SaveCodexRouteResult, String> {
-    let route_draft = codex_config::save_route_to_config(
-        "",
-        &routeId,
-        &baseUrl,
-        &envKey,
-        &model,
-        &modelReasoningEffort,
-    )
+    let source_config = configText
+        .as_deref()
+        .map(str::trim)
+        .filter(|config| !config.is_empty());
+
+    let route_draft = if let Some(config) = source_config {
+        codex_config::save_route_to_config_with_provider_config(
+            config,
+            &routeId,
+            &baseUrl,
+            &envKey,
+            &model,
+            &modelReasoningEffort,
+            Some(config),
+        )
+    } else {
+        codex_config::save_route_to_config(
+            "",
+            &routeId,
+            &baseUrl,
+            &envKey,
+            &model,
+            &modelReasoningEffort,
+        )
+    }
     .map_err(|e| e.to_string())?;
     let route_draft = codex_config::switch_codex_profile(
         &route_draft,
@@ -579,6 +597,7 @@ pub fn save_codex_route(
     modelReasoningEffort: String,
     profileName: Option<String>,
     providerId: Option<String>,
+    configText: Option<String>,
 ) -> Result<SaveCodexRouteResult, String> {
     save_codex_route_inner(
         state.inner(),
@@ -590,6 +609,7 @@ pub fn save_codex_route(
         modelReasoningEffort,
         profileName,
         providerId,
+        configText,
     )
 }
 
@@ -605,6 +625,7 @@ pub fn save_codex_route_test_hook(
     modelReasoningEffort: String,
     profileName: Option<String>,
     providerId: Option<String>,
+    configText: Option<String>,
 ) -> Result<SaveCodexRouteResult, String> {
     save_codex_route_inner(
         state,
@@ -616,5 +637,6 @@ pub fn save_codex_route_test_hook(
         modelReasoningEffort,
         profileName,
         providerId,
+        configText,
     )
 }

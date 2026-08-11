@@ -748,6 +748,7 @@ requires_openai_auth = false
         "high".to_string(),
         Some("兔子线路-我的配置".to_string()),
         None,
+        None,
     )
     .expect("save codex route");
     assert_eq!(saved_route.route_id, "provider-tuzi01");
@@ -777,6 +778,65 @@ requires_openai_auth = false
     assert!(
         zshrc.contains("export TUZI01_CODEX_API_KEY='sk-test'"),
         "save_codex_route should create the matching managed env key"
+    );
+}
+
+#[test]
+fn save_codex_route_preserves_edited_codex_config_text() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let edited_config = r#"model_provider = "tuzi"
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://old.example/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+request_max_retries = 7
+
+[projects."/tmp/work"]
+trust_level = "trusted"
+"#;
+
+    let state = create_test_state().expect("create test state");
+
+    let saved_route = save_codex_route_test_hook(
+        &state,
+        "tuzi".to_string(),
+        "https://api.tu-zi.com/v1".to_string(),
+        "TUZI_CODEX_API_KEY".to_string(),
+        "sk-test".to_string(),
+        "gpt-5.5".to_string(),
+        "high".to_string(),
+        Some("兔子线路-我的配置".to_string()),
+        None,
+        Some(edited_config.to_string()),
+    )
+    .expect("save codex route");
+
+    assert!(
+        saved_route.config.contains("approval_policy = \"never\""),
+        "returned config should preserve user-edited top-level fields"
+    );
+    assert!(
+        saved_route.config.contains("request_max_retries = 7"),
+        "returned config should preserve user-edited provider fields"
+    );
+    assert!(
+        saved_route.config.contains("[projects.\"/tmp/work\"]"),
+        "returned config should preserve unrelated user sections"
+    );
+    assert!(
+        saved_route
+            .config
+            .contains("base_url = \"https://api.tu-zi.com/v1\""),
+        "managed route fields should still be updated"
     );
 }
 
