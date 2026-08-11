@@ -40,6 +40,29 @@ fn ticket_url_allowed(url: &reqwest::Url) -> bool {
     false
 }
 
+fn apply_ticket_request_overrides(
+    resolved: &mut DeepLinkImportRequest,
+    requested: &DeepLinkImportRequest,
+) {
+    if requested
+        .name
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        resolved.name.clone_from(&requested.name);
+    }
+    if requested
+        .model
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        resolved.model.clone_from(&requested.model);
+    }
+    if requested.enabled.is_some() {
+        resolved.enabled = requested.enabled;
+    }
+}
+
 async fn exchange_ticket(request: DeepLinkImportRequest) -> Result<DeepLinkImportRequest, String> {
     let Some(ticket) = request
         .usage_user_id
@@ -64,8 +87,6 @@ async fn exchange_ticket(request: DeepLinkImportRequest) -> Result<DeepLinkImpor
     if !ticket_url_allowed(&url) {
         return Err("配置票据地址不在客户端安全白名单中".to_string());
     }
-    let requested_name = request.name.clone();
-    let requested_model = request.model.clone();
     let response = reqwest::Client::builder()
         // 票据只能发送到上面校验过的固定主机；禁止 307/308 把 POST
         // 与一次性票据原样转发到重定向目标。
@@ -115,24 +136,14 @@ async fn exchange_ticket(request: DeepLinkImportRequest) -> Result<DeepLinkImpor
     if resolved.resource != "provider" || resolved.app.as_deref() != Some("codex") {
         return Err("配置服务返回的资源类型无效".to_string());
     }
-    if requested_name
-        .as_deref()
-        .is_some_and(|v| !v.trim().is_empty())
-    {
-        resolved.name = requested_name;
-    }
-    if requested_model
-        .as_deref()
-        .is_some_and(|v| !v.trim().is_empty())
-    {
-        resolved.model = requested_model;
-    }
+    apply_ticket_request_overrides(&mut resolved, &request);
     Ok(resolved)
 }
 
 #[cfg(test)]
 mod ticket_url_tests {
-    use super::ticket_url_allowed;
+    use super::{apply_ticket_request_overrides, ticket_url_allowed};
+    use crate::deeplink::DeepLinkImportRequest;
 
     #[test]
     fn accepts_only_the_exact_production_exchange_endpoint() {
@@ -176,6 +187,28 @@ mod ticket_url_tests {
             assert!(
                 !ticket_url_allowed(&reqwest::Url::parse(value).unwrap()),
                 "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_enabled_choice_overrides_ticket_response() {
+        for requested_enabled in [Some(true), Some(false), None] {
+            let requested = DeepLinkImportRequest {
+                enabled: requested_enabled,
+                ..Default::default()
+            };
+            let mut resolved = DeepLinkImportRequest {
+                enabled: requested_enabled.map(|value| !value).or(Some(false)),
+                ..Default::default()
+            };
+
+            apply_ticket_request_overrides(&mut resolved, &requested);
+
+            assert_eq!(
+                resolved.enabled,
+                requested_enabled.or(Some(false)),
+                "requested enabled value should take precedence when specified"
             );
         }
     }
