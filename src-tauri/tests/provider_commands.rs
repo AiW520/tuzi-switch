@@ -804,6 +804,23 @@ request_max_retries = 7
 trust_level = "trusted"
 "#;
 
+    let existing_live_config = r#"model_provider = "existing"
+model = "gpt-5.5"
+approval_policy = "on-request"
+
+[model_providers.existing]
+name = "existing"
+base_url = "https://existing.example/v1"
+env_key = "EXISTING_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+
+[projects."/tmp/work"]
+trust_level = "untrusted"
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_live_config))
+        .expect("seed existing live config");
+
     let state = create_test_state().expect("create test state");
 
     let saved_route = save_codex_route_test_hook(
@@ -837,6 +854,39 @@ trust_level = "trusted"
             .config
             .contains("base_url = \"https://api.tu-zi.com/v1\""),
         "managed route fields should still be updated"
+    );
+
+    let live_config =
+        std::fs::read_to_string(get_codex_config_path()).expect("read updated live config");
+    assert!(
+        live_config.contains("approval_policy = \"never\""),
+        "live config should preserve user-edited top-level fields"
+    );
+    assert!(
+        live_config.contains("[projects.\"/tmp/work\"]"),
+        "live config should preserve user-edited unrelated sections"
+    );
+    assert!(
+        live_config.contains("trust_level = \"trusted\""),
+        "live config should apply edited values over existing values"
+    );
+    assert!(
+        live_config.contains("[model_providers.existing]"),
+        "live config should preserve other registered provider routes"
+    );
+
+    let home = std::env::var("HOME").expect("HOME should be set by ensure_test_home");
+    let profile_path = std::path::Path::new(&home)
+        .join(".codex")
+        .join("兔子线路-我的配置.config.toml");
+    let profile_config = std::fs::read_to_string(profile_path).expect("read saved profile config");
+    assert!(
+        profile_config.contains("approval_policy = \"never\""),
+        "profile config should preserve user-edited top-level fields"
+    );
+    assert!(
+        profile_config.contains("[projects.\"/tmp/work\"]"),
+        "profile config should preserve user-edited unrelated sections"
     );
 }
 

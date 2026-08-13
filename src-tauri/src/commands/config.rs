@@ -9,6 +9,7 @@ use crate::codex_config;
 use crate::config::{self, get_claude_settings_path, ConfigStatus};
 use crate::settings;
 use crate::store::AppState;
+use toml_edit::{DocumentMut, Item};
 
 #[tauri::command]
 pub async fn get_claude_config_status() -> Result<ConfigStatus, String> {
@@ -453,6 +454,38 @@ fn codex_active_provider_field(config_text: &str, field: &str) -> Option<String>
         .map(ToString::to_string)
 }
 
+fn merge_codex_config_edits(existing: &str, edited: &str) -> Result<String, String> {
+    fn merge_item(target: &mut Item, source: &Item) {
+        if let (Some(target_table), Some(source_table)) =
+            (target.as_table_like_mut(), source.as_table_like())
+        {
+            for (key, source_item) in source_table.iter() {
+                match target_table.get_mut(key) {
+                    Some(target_item) => merge_item(target_item, source_item),
+                    None => {
+                        target_table.insert(key, source_item.clone());
+                    }
+                }
+            }
+        } else {
+            *target = source.clone();
+        }
+    }
+
+    let mut target = if existing.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        existing
+            .parse::<DocumentMut>()
+            .map_err(|e| format!("Invalid existing Codex config.toml: {e}"))?
+    };
+    let source = edited
+        .parse::<DocumentMut>()
+        .map_err(|e| format!("Invalid edited Codex config.toml: {e}"))?;
+    merge_item(target.as_item_mut(), source.as_item());
+    Ok(target.to_string())
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveCodexRouteResult {
@@ -550,8 +583,13 @@ fn save_codex_route_inner(
 
     // Write route section to config.toml
     let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
+    let existing_with_edits = if source_config.is_some() {
+        merge_codex_config_edits(&existing, normalized_config)?
+    } else {
+        existing
+    };
     let updated = codex_config::save_route_to_config_with_provider_config(
-        &existing,
+        &existing_with_edits,
         &normalized_route_id,
         &normalized_base_url,
         &normalized_env_key,
