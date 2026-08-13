@@ -748,6 +748,7 @@ requires_openai_auth = false
         "high".to_string(),
         Some("兔子线路-我的配置".to_string()),
         None,
+        None,
     )
     .expect("save codex route");
     assert_eq!(saved_route.route_id, "provider-tuzi01");
@@ -777,6 +778,115 @@ requires_openai_auth = false
     assert!(
         zshrc.contains("export TUZI01_CODEX_API_KEY='sk-test'"),
         "save_codex_route should create the matching managed env key"
+    );
+}
+
+#[test]
+fn save_codex_route_preserves_edited_codex_config_text() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let edited_config = r#"model_provider = "tuzi"
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+
+[model_providers.tuzi]
+name = "tuzi"
+base_url = "https://old.example/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+request_max_retries = 7
+
+[projects."/tmp/work"]
+trust_level = "trusted"
+"#;
+
+    let existing_live_config = r#"model_provider = "existing"
+model = "gpt-5.5"
+approval_policy = "on-request"
+
+[model_providers.existing]
+name = "existing"
+base_url = "https://existing.example/v1"
+env_key = "EXISTING_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+
+[projects."/tmp/work"]
+trust_level = "untrusted"
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_live_config))
+        .expect("seed existing live config");
+
+    let state = create_test_state().expect("create test state");
+
+    let saved_route = save_codex_route_test_hook(
+        &state,
+        "tuzi".to_string(),
+        "https://api.tu-zi.com/v1".to_string(),
+        "TUZI_CODEX_API_KEY".to_string(),
+        "sk-test".to_string(),
+        "gpt-5.5".to_string(),
+        "high".to_string(),
+        Some("兔子线路-我的配置".to_string()),
+        None,
+        Some(edited_config.to_string()),
+    )
+    .expect("save codex route");
+
+    assert!(
+        saved_route.config.contains("approval_policy = \"never\""),
+        "returned config should preserve user-edited top-level fields"
+    );
+    assert!(
+        saved_route.config.contains("request_max_retries = 7"),
+        "returned config should preserve user-edited provider fields"
+    );
+    assert!(
+        saved_route.config.contains("[projects.\"/tmp/work\"]"),
+        "returned config should preserve unrelated user sections"
+    );
+    assert!(
+        saved_route
+            .config
+            .contains("base_url = \"https://api.tu-zi.com/v1\""),
+        "managed route fields should still be updated"
+    );
+
+    let live_config =
+        std::fs::read_to_string(get_codex_config_path()).expect("read updated live config");
+    assert!(
+        live_config.contains("approval_policy = \"never\""),
+        "live config should preserve user-edited top-level fields"
+    );
+    assert!(
+        live_config.contains("[projects.\"/tmp/work\"]"),
+        "live config should preserve user-edited unrelated sections"
+    );
+    assert!(
+        live_config.contains("trust_level = \"trusted\""),
+        "live config should apply edited values over existing values"
+    );
+    assert!(
+        live_config.contains("[model_providers.existing]"),
+        "live config should preserve other registered provider routes"
+    );
+
+    let home = std::env::var("HOME").expect("HOME should be set by ensure_test_home");
+    let profile_path = std::path::Path::new(&home)
+        .join(".codex")
+        .join("兔子线路-我的配置.config.toml");
+    let profile_config = std::fs::read_to_string(profile_path).expect("read saved profile config");
+    assert!(
+        profile_config.contains("approval_policy = \"never\""),
+        "profile config should preserve user-edited top-level fields"
+    );
+    assert!(
+        profile_config.contains("[projects.\"/tmp/work\"]"),
+        "profile config should preserve user-edited unrelated sections"
     );
 }
 
