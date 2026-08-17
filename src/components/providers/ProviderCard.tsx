@@ -195,6 +195,7 @@ export function ProviderCard({
   // Load API key from shell rc for Codex providers
   const [envKeyValue, setEnvKeyValue] = useState<string | null>(null);
   useEffect(() => {
+    let cancelled = false;
     if (appId !== "codex") {
       setEnvKeyValue(null);
       return;
@@ -208,11 +209,18 @@ export function ProviderCard({
     }
     const timer = setTimeout(() => {
       invoke<string | null>("read_codex_env_key", { envKey: envKeyName })
-        .then((val) => setEnvKeyValue(val || null))
-        .catch(() => setEnvKeyValue(null));
+        .then((val) => {
+          if (!cancelled) setEnvKeyValue(val || null);
+        })
+        .catch(() => {
+          if (!cancelled) setEnvKeyValue(null);
+        });
     }, 100);
-    return () => clearTimeout(timer);
-  }, [appId, provider.id, provider.settingsConfig]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [appId, provider.id, provider.settingsConfig, isCurrent]);
 
   const isOfficialBlockedByProxy =
     isProxyTakeover && (provider.category === "official" || isOfficial);

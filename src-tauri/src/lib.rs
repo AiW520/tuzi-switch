@@ -603,9 +603,21 @@ pub fn run() {
 
             {
                 if crate::settings::unify_codex_session_history() {
-                    if let Err(e) = crate::services::provider::reapply_current_codex_live(&app_state)
-                    {
-                        log::warn!("✗ Failed to reapply Codex unified live config on startup: {e}");
+                    match crate::codex_history_migration::ensure_codex_history_anchor() {
+                        Ok(_) => {
+                            if let Err(e) =
+                                crate::services::provider::reapply_current_codex_live(&app_state)
+                            {
+                                log::warn!(
+                                    "✗ Failed to reapply Codex unified live config on startup: {e}"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "✗ Failed to resolve fixed Codex history anchor; live config was not changed: {e}"
+                            );
+                        }
                     }
                 }
 
@@ -1227,6 +1239,7 @@ pub fn run() {
             commands::get_settings,
             commands::get_codex_image_compat_status,
             commands::save_settings,
+            commands::get_codex_history_anchor_status,
             commands::has_codex_unify_history_backup,
             commands::restore_codex_unified_history,
             commands::get_rectifier_config,

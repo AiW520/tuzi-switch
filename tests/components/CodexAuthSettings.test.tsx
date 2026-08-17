@@ -5,12 +5,23 @@ import type { SettingsFormState } from "@/hooks/useSettings";
 import type { CodexImageCompatStatus } from "@/lib/api/settings";
 
 const refetchMock = vi.fn();
+const anchorRefetchMock = vi.fn();
 let status: CodexImageCompatStatus;
 
 vi.mock("@/lib/query", () => ({
   useCodexImageCompatStatusQuery: () => ({
     data: status,
     refetch: refetchMock,
+  }),
+  useCodexHistoryAnchorStatusQuery: () => ({
+    data: {
+      providerId: "custom",
+      source: "config/read:user:/Users/test/.codex/config.toml",
+      configDir: "/Users/test/.codex",
+      cwd: "/Users/test/project",
+      resolvedAt: "2026-08-17T00:00:00Z",
+    },
+    refetch: anchorRefetchMock,
   }),
 }));
 
@@ -23,10 +34,21 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { reason?: string }) =>
-      key === "settings.codexImageRenderCompatNotReady"
-        ? `未就绪：${options?.reason}`
-        : key,
+    t: (
+      key: string,
+      options?: { reason?: string; providerId?: string; cwd?: string },
+    ) => {
+      if (key === "settings.codexImageRenderCompatNotReady") {
+        return `未就绪：${options?.reason}`;
+      }
+      if (key === "settings.codexHistoryAnchor.active") {
+        return `当前统一会话桶：${options?.providerId}`;
+      }
+      if (key === "settings.codexHistoryAnchor.resolvedFrom") {
+        return `解析目录：${options?.cwd}`;
+      }
+      return key;
+    },
   }),
 }));
 
@@ -61,6 +83,7 @@ describe("CodexAuthSettings 图片兼容模式", () => {
   beforeEach(() => {
     status = baseStatus();
     refetchMock.mockResolvedValue(undefined);
+    anchorRefetchMock.mockResolvedValue(undefined);
   });
 
   it("默认开启并展示实际生效配置，不显示 Key 明文", () => {
@@ -147,5 +170,16 @@ describe("CodexAuthSettings 图片兼容模式", () => {
       }),
     );
     expect(refetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("展示 Codex 实际固定的统一会话桶", () => {
+    renderSettings({ unifyCodexSessionHistory: true });
+
+    expect(screen.getByTestId("codex-history-anchor-status")).toHaveTextContent(
+      "custom",
+    );
+    expect(screen.getByTestId("codex-history-anchor-status")).toHaveTextContent(
+      "/Users/test/project",
+    );
   });
 });

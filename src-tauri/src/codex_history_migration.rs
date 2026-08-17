@@ -5,14 +5,14 @@
 
 use crate::codex_config::{
     codex_custom_provider_anchor_id, get_codex_config_dir, read_codex_config_text,
-    CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
+    CC_SWITCH_CODEX_MODEL_PROVIDER_ID, DEFAULT_CODEX_MODEL_PROVIDER_ID,
 };
 use crate::codex_state_db::codex_state_db_paths;
 use crate::config::{atomic_write, copy_file, get_app_config_dir};
 use crate::database::Database;
 use crate::error::AppError;
 use crate::settings::{
-    CodexOfficialHistoryUnifyMigration, CodexProviderTemplateMigration,
+    CodexHistoryAnchor, CodexOfficialHistoryUnifyMigration, CodexProviderTemplateMigration,
     CodexThirdPartyHistoryProviderBucketMigration,
 };
 use chrono::{Local, Utc};
@@ -301,6 +301,7 @@ pub fn maybe_migrate_codex_official_history_to_unified_bucket(
     }
     let _op_guard = lock_codex_official_history_op();
     let codex_dir = get_codex_config_dir();
+    let target_provider_id = current_codex_history_anchor_id();
     // marker 绑定迁移时的 Codex 目录：切换 codex_config_dir 后旧 marker 不再
     // 挡住新目录的迁移（迁移幂等，重跑无害）。
     let codex_dir_key = canonical_dir_string(&codex_dir);
@@ -316,7 +317,10 @@ pub fn maybe_migrate_codex_official_history_to_unified_bucket(
     // 路由（注入只进备份）。这些状态下新会话仍落 "openai" 桶，迁移只会把
     // 历史搬进当前 live 看不见的桶里。开关与迁移意愿保持不动，待 live 真正
     // 统一后（下次切换 / 接管释放后的启动重试）再迁。
-    if !codex_config_text_routes_custom(&read_codex_config_text().unwrap_or_default()) {
+    if !codex_config_text_routes_anchor(
+        &read_codex_config_text().unwrap_or_default(),
+        &target_provider_id,
+    ) {
         return Ok(CodexHistoryProviderBucketMigrationOutcome {
             skipped_reason: Some("live_not_unified".to_string()),
             ..Default::default()
@@ -333,13 +337,13 @@ pub fn maybe_migrate_codex_official_history_to_unified_bucket(
     let migrated_jsonl_files = migrate_codex_jsonl_files(
         &codex_dir,
         &source_provider_ids,
-        CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
+        &target_provider_id,
         &backup_root,
     )?;
     let migrated_state_rows = migrate_codex_state_dbs(
         &codex_dir,
         &source_provider_ids,
-        CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
+        &target_provider_id,
         &backup_root,
     )?;
     // 备份代际记录来源目录，restore 据此只取当前目录的账本。
@@ -358,7 +362,7 @@ pub fn maybe_migrate_codex_official_history_to_unified_bucket(
     let marker_written = crate::settings::mark_codex_official_history_unify_migrated_if_enabled(
         CodexOfficialHistoryUnifyMigration {
             completed_at: Utc::now().to_rfc3339(),
-            target_provider_id: CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string(),
+            target_provider_id,
             migrated_jsonl_files,
             migrated_state_rows,
             codex_config_dir: Some(codex_dir_key),
@@ -376,25 +380,27 @@ pub fn maybe_migrate_codex_official_history_to_unified_bucket(
 
 /// live config.toml 是否路由到共享 custom 桶（会话分桶只看这个实态：
 /// base_url / 接管与否都不影响 session_meta 记录的 model_provider）。
-fn codex_config_text_routes_custom(config_text: &str) -> bool {
+fn codex_config_text_routes_anchor(config_text: &str, anchor_id: &str) -> bool {
     config_text
         .parse::<DocumentMut>()
         .ok()
         .and_then(|doc| {
             doc.get("model_provider")
                 .and_then(|item| item.as_str())
-                .map(|id| id.trim() == CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
+                .map(|id| id.trim() == anchor_id)
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+fn codex_config_text_routes_custom(config_text: &str) -> bool {
+    codex_config_text_routes_anchor(config_text, CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
 }
 
 /// 目录的规范化字符串形式，用作 marker / 备份代际的目录身份。
 /// canonicalize 失败（目录尚不存在等）时退回原始路径字符串。
 fn canonical_dir_string(dir: &Path) -> String {
-    fs::canonicalize(dir)
-        .unwrap_or_else(|_| dir.to_path_buf())
-        .to_string_lossy()
-        .to_string()
+    crate::settings::local_path_identity(dir)
 }
 
 /// 在备份代际根目录写入 meta.json，记录这批备份来自哪个 Codex 目录。
@@ -480,6 +486,12 @@ fn restore_codex_official_history_inner(
     restore_backup_root: &Path,
     config_text: &str,
 ) -> Result<CodexOfficialHistoryRestoreOutcome, AppError> {
+    let unified_provider_ids: BTreeSet<String> = [
+        current_codex_history_anchor_id(),
+        CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string(),
+    ]
+    .into_iter()
+    .collect();
     let codex_dir_key = canonical_dir_string(codex_dir);
     let (official_sessions, official_threads) =
         collect_official_ledger(ledger_parent, &codex_dir_key)?;
@@ -496,7 +508,11 @@ fn restore_codex_official_history_inner(
     let mut restored_jsonl_files = 0;
     for file_path in files {
         if rewrite_codex_session_file_lines(&file_path, codex_dir, restore_backup_root, |line| {
-            rewrite_codex_session_meta_line_for_restore(line, &official_sessions)
+            rewrite_codex_session_meta_line_for_restore(
+                line,
+                &official_sessions,
+                &unified_provider_ids,
+            )
         })? {
             restored_jsonl_files += 1;
         }
@@ -508,6 +524,7 @@ fn restore_codex_official_history_inner(
             &db_path,
             codex_dir,
             &official_threads,
+            &unified_provider_ids,
             restore_backup_root,
         )?;
     }
@@ -678,6 +695,7 @@ fn collect_files_with_extension(
 fn rewrite_codex_session_meta_line_for_restore(
     line: &str,
     official_sessions: &HashMap<String, String>,
+    unified_provider_ids: &BTreeSet<String>,
 ) -> Option<String> {
     if !line.contains("\"session_meta\"") || !line.contains("\"model_provider\"") {
         return None;
@@ -687,7 +705,7 @@ fn rewrite_codex_session_meta_line_for_restore(
         return None;
     }
     let payload = value.get_mut("payload")?.as_object_mut()?;
-    if payload.get("model_provider")?.as_str()? != CC_SWITCH_CODEX_MODEL_PROVIDER_ID {
+    if !unified_provider_ids.contains(payload.get("model_provider")?.as_str()?) {
         return None;
     }
     let session_id = payload.get("id")?.as_str()?;
@@ -703,6 +721,7 @@ fn restore_codex_state_db_official_threads(
     db_path: &Path,
     codex_dir: &Path,
     official_threads: &BTreeMap<String, String>,
+    unified_provider_ids: &BTreeSet<String>,
     backup_root: &Path,
 ) -> Result<usize, AppError> {
     if !db_path.exists() || official_threads.is_empty() {
@@ -720,22 +739,26 @@ fn restore_codex_state_db_official_threads(
         return Ok(0);
     }
 
-    let ids: Vec<&String> = official_threads.keys().collect();
     let mut matching_rows: i64 = 0;
-    for chunk in ids.chunks(STATE_DB_ID_CHUNK) {
-        let placeholders = placeholders(chunk.len());
-        let count_sql = format!(
-            "SELECT COUNT(*) FROM threads WHERE model_provider = ? AND id IN ({placeholders})"
-        );
-        let mut values = Vec::with_capacity(chunk.len() + 1);
-        values.push(CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string());
-        values.extend(chunk.iter().map(|id| (*id).clone()));
-        let count: i64 = conn
-            .query_row(&count_sql, params_from_iter(values.iter()), |row| {
-                row.get(0)
-            })
-            .map_err(|e| AppError::Database(format!("统计 Codex state DB 待还原行失败: {e}")))?;
-        matching_rows += count;
+    let ids: Vec<&String> = official_threads.keys().collect();
+    for unified_provider_id in unified_provider_ids {
+        for chunk in ids.chunks(STATE_DB_ID_CHUNK) {
+            let placeholders = placeholders(chunk.len());
+            let count_sql = format!(
+                "SELECT COUNT(*) FROM threads WHERE model_provider = ? AND id IN ({placeholders})"
+            );
+            let mut values = Vec::with_capacity(chunk.len() + 1);
+            values.push(unified_provider_id.clone());
+            values.extend(chunk.iter().map(|id| (*id).clone()));
+            let count: i64 = conn
+                .query_row(&count_sql, params_from_iter(values.iter()), |row| {
+                    row.get(0)
+                })
+                .map_err(|e| {
+                    AppError::Database(format!("统计 Codex state DB 待还原行失败: {e}"))
+                })?;
+            matching_rows += count;
+        }
     }
     if matching_rows == 0 {
         return Ok(0);
@@ -755,20 +778,22 @@ fn restore_codex_state_db_official_threads(
             .iter()
             .filter_map(|(id, provider)| (provider == original_provider).then_some(id))
             .collect();
-        for chunk in provider_ids.chunks(STATE_DB_ID_CHUNK) {
-            let placeholders = placeholders(chunk.len());
-            let update_sql = format!(
-                "UPDATE threads SET model_provider = ? WHERE model_provider = ? AND id IN ({placeholders})"
-            );
-            let mut values = Vec::with_capacity(chunk.len() + 2);
-            values.push(original_provider.to_string());
-            values.push(CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string());
-            values.extend(chunk.iter().map(|id| (*id).clone()));
-            changed += tx
-                .execute(&update_sql, params_from_iter(values.iter()))
-                .map_err(|e| {
-                    AppError::Database(format!("还原 Codex state DB provider 失败: {e}"))
-                })?;
+        for unified_provider_id in unified_provider_ids {
+            for chunk in provider_ids.chunks(STATE_DB_ID_CHUNK) {
+                let placeholders = placeholders(chunk.len());
+                let update_sql = format!(
+                    "UPDATE threads SET model_provider = ? WHERE model_provider = ? AND id IN ({placeholders})"
+                );
+                let mut values = Vec::with_capacity(chunk.len() + 2);
+                values.push(original_provider.to_string());
+                values.push(unified_provider_id.clone());
+                values.extend(chunk.iter().map(|id| (*id).clone()));
+                changed += tx
+                    .execute(&update_sql, params_from_iter(values.iter()))
+                    .map_err(|e| {
+                        AppError::Database(format!("还原 Codex state DB provider 失败: {e}"))
+                    })?;
+            }
         }
     }
     tx.commit()
@@ -776,11 +801,103 @@ fn restore_codex_state_db_official_threads(
     Ok(changed)
 }
 
-fn current_codex_history_anchor_id() -> String {
-    read_codex_config_text()
+fn latest_codex_history_cwd() -> Option<PathBuf> {
+    let codex_dir = get_codex_config_dir();
+    let config_text = read_codex_config_text().unwrap_or_default();
+    let mut latest: Option<(i64, PathBuf)> = None;
+
+    for db_path in codex_state_db_paths(&codex_dir, &config_text) {
+        let Ok(conn) =
+            Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        else {
+            continue;
+        };
+        if !Database::table_exists(&conn, "threads").unwrap_or(false)
+            || !Database::has_column(&conn, "threads", "cwd").unwrap_or(false)
+        {
+            continue;
+        }
+        let row = conn.query_row(
+            "SELECT COALESCE(updated_at_ms, updated_at * 1000), cwd \
+             FROM threads WHERE TRIM(cwd) <> '' \
+             ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    PathBuf::from(row.get::<_, String>(1)?),
+                ))
+            },
+        );
+        let Ok((updated_at, cwd)) = row else {
+            continue;
+        };
+        if latest
+            .as_ref()
+            .is_none_or(|(current_updated_at, _)| updated_at > *current_updated_at)
+        {
+            latest = Some((updated_at, cwd));
+        }
+    }
+
+    latest.map(|(_, cwd)| cwd)
+}
+
+pub fn ensure_codex_history_anchor() -> Result<String, AppError> {
+    let codex_dir = get_codex_config_dir();
+    let codex_dir_key = canonical_dir_string(&codex_dir);
+    if let Some(anchor) = crate::settings::get_codex_history_anchor_for_dir(&codex_dir_key) {
+        return Ok(anchor.provider_id);
+    }
+
+    let cwd = latest_codex_history_cwd().or_else(|| codex_dir.parent().map(Path::to_path_buf));
+    let effective = match crate::codex_config::read_codex_effective_model_provider(cwd.as_deref()) {
+        Ok(provider) => provider,
+        Err(error) => {
+            log::warn!("Codex config/read 无法解析有效 model_provider，将使用安全回退: {error}");
+            None
+        }
+    };
+    let live_anchor = read_codex_config_text()
         .ok()
-        .and_then(|config| codex_custom_provider_anchor_id(&config))
-        .unwrap_or_else(|| CC_SWITCH_CODEX_MODEL_PROVIDER_ID.to_string())
+        .and_then(|config| codex_custom_provider_anchor_id(&config));
+
+    let (provider_id, source, resolved_cwd) = if let Some(effective) = effective {
+        (effective.provider_id, effective.source, effective.cwd)
+    } else if let Some(provider_id) = live_anchor {
+        (
+            provider_id,
+            "fallback:user-config".to_string(),
+            cwd.as_ref().map(|path| path.to_string_lossy().to_string()),
+        )
+    } else {
+        (
+            DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string(),
+            "fallback:fresh-install".to_string(),
+            cwd.as_ref().map(|path| path.to_string_lossy().to_string()),
+        )
+    };
+
+    crate::settings::set_codex_history_anchor(CodexHistoryAnchor {
+        provider_id: provider_id.clone(),
+        codex_config_dir: codex_dir_key,
+        resolved_at: Utc::now().to_rfc3339(),
+        source,
+        cwd: resolved_cwd,
+    })?;
+    log::info!("Codex unified history anchor fixed at '{provider_id}'");
+    Ok(provider_id)
+}
+
+fn current_codex_history_anchor_id() -> String {
+    let codex_dir = get_codex_config_dir();
+    crate::settings::get_codex_history_anchor_id_for_path(&codex_dir)
+        .or_else(|| {
+            read_codex_config_text()
+                .ok()
+                .and_then(|config| codex_custom_provider_anchor_id(&config))
+        })
+        .unwrap_or_else(|| DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string())
 }
 
 fn migrate_codex_provider_templates_to_anchor(

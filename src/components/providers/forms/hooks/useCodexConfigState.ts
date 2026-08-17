@@ -130,6 +130,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
   // 初始化 Codex 配置（编辑模式）
   useEffect(() => {
     if (!initialData) return;
+    let cancelled = false;
 
     const config = initialData.settingsConfig;
     if (typeof config === "object" && config !== null) {
@@ -191,12 +192,15 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       if (resolvedEnvKey) {
         invoke<string | null>("read_codex_env_key", { envKey: resolvedEnvKey })
           .then((key) => {
+            if (cancelled) return;
             if (key) setCodexApiKey(key);
             else if (migratedLegacyToken.migratedApiKey) {
               setCodexApiKey(migratedLegacyToken.migratedApiKey);
             } else setCodexApiKey("");
           })
-          .catch(() => setCodexApiKey(""));
+          .catch(() => {
+            if (!cancelled) setCodexApiKey("");
+          });
       } else {
         // Legacy provider without envKey
         const auth = migratedLegacyToken.auth;
@@ -205,6 +209,10 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
         }
       }
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialData]);
 
   // 与 TOML 配置保持基础 URL 同步

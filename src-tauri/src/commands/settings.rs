@@ -88,6 +88,24 @@ pub async fn save_settings(
     let codex_dir_changed = old_codex_home != new_codex_home;
     let image_state_changed = image_compat_changed || codex_dir_changed;
 
+    if unify_codex_enabled && (unify_codex_changed || codex_dir_changed) {
+        if let Err(err) = crate::codex_history_migration::ensure_codex_history_anchor() {
+            log::warn!("无法确定 Codex 统一会话桶，回滚设置: {err}");
+            let rollback_errors = rollback_settings_and_image_compat(
+                state.inner(),
+                &existing,
+                &new_codex_home,
+                codex_dir_changed,
+                false,
+            )
+            .await;
+            return Err(append_rollback_errors(
+                format!("无法确定 Codex 统一会话桶: {err}"),
+                rollback_errors,
+            ));
+        }
+    }
+
     if codex_dir_changed {
         if let Err(err) =
             crate::services::codex_image_compat::cleanup_managed_artifacts_at(&old_codex_home)
@@ -186,6 +204,39 @@ pub struct CodexUnifyHistoryRestoreResult {
 #[tauri::command]
 pub async fn has_codex_unify_history_backup() -> Result<bool, String> {
     Ok(crate::codex_history_migration::has_codex_official_history_unify_backup())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryAnchorStatus {
+    pub provider_id: String,
+    pub source: String,
+    pub config_dir: String,
+    pub cwd: Option<String>,
+    pub resolved_at: String,
+}
+
+#[tauri::command]
+pub async fn get_codex_history_anchor_status() -> Result<CodexHistoryAnchorStatus, String> {
+    tauri::async_runtime::spawn_blocking(
+        crate::codex_history_migration::ensure_codex_history_anchor,
+    )
+    .await
+    .map_err(|error| format!("解析 Codex 统一会话桶任务失败: {error}"))?
+    .map_err(|error| format!("无法确定 Codex 统一会话桶: {error}"))?;
+
+    let config_dir =
+        crate::settings::local_path_identity(&crate::codex_config::get_codex_config_dir());
+    let anchor = crate::settings::get_codex_history_anchor_for_dir(&config_dir)
+        .ok_or_else(|| "Codex 统一会话桶尚未写入本机设置".to_string())?;
+
+    Ok(CodexHistoryAnchorStatus {
+        provider_id: anchor.provider_id,
+        source: anchor.source,
+        config_dir: anchor.codex_config_dir,
+        cwd: anchor.cwd,
+        resolved_at: anchor.resolved_at,
+    })
 }
 
 #[tauri::command]

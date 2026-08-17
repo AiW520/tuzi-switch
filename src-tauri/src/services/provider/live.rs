@@ -1327,7 +1327,7 @@ pub(crate) fn sync_current_provider_for_app_to_live(
         }
     }
 
-    McpService::sync_all_enabled(state)?;
+    McpService::sync_enabled_for_app(state, app_type)?;
 
     Ok(())
 }

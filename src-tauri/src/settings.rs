@@ -183,12 +183,25 @@ impl WebDavSyncSettings {
 #[serde(rename_all = "camelCase")]
 pub struct LocalMigrations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_history_anchor_v1: Option<CodexHistoryAnchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_third_party_history_provider_bucket_v1:
         Option<CodexThirdPartyHistoryProviderBucketMigration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_provider_template_v1: Option<CodexProviderTemplateMigration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_official_history_unify_v1: Option<CodexOfficialHistoryUnifyMigration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexHistoryAnchor {
+    pub provider_id: String,
+    pub codex_config_dir: String,
+    pub resolved_at: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -627,6 +640,35 @@ pub fn mark_codex_third_party_history_provider_bucket_migrated(
             .local_migrations
             .get_or_insert_with(Default::default);
         migrations.codex_third_party_history_provider_bucket_v1 = Some(migration);
+    })
+}
+
+pub fn local_path_identity(path: &std::path::Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string()
+}
+
+pub fn get_codex_history_anchor_for_dir(codex_config_dir: &str) -> Option<CodexHistoryAnchor> {
+    get_settings()
+        .local_migrations
+        .as_ref()
+        .and_then(|migrations| migrations.codex_history_anchor_v1.as_ref())
+        .filter(|anchor| anchor.codex_config_dir == codex_config_dir)
+        .cloned()
+}
+
+pub fn get_codex_history_anchor_id_for_path(path: &std::path::Path) -> Option<String> {
+    get_codex_history_anchor_for_dir(&local_path_identity(path)).map(|anchor| anchor.provider_id)
+}
+
+pub fn set_codex_history_anchor(anchor: CodexHistoryAnchor) -> Result<(), AppError> {
+    mutate_settings(|settings| {
+        settings
+            .local_migrations
+            .get_or_insert_with(Default::default)
+            .codex_history_anchor_v1 = Some(anchor);
     })
 }
 

@@ -39,6 +39,14 @@ export interface CodexUnifyHistoryRestoreResult {
   skippedReason?: string;
 }
 
+export interface CodexHistoryAnchorStatus {
+  providerId: string;
+  source: string;
+  configDir: string;
+  cwd: string | null;
+  resolvedAt: string;
+}
+
 export type CodexImageCompatReadinessReason =
   | "disabled"
   | "no_provider"
@@ -75,6 +83,10 @@ export const settingsApi = {
 
   async getCodexImageCompatStatus(): Promise<CodexImageCompatStatus> {
     return await invoke("get_codex_image_compat_status");
+  },
+
+  async getCodexHistoryAnchorStatus(): Promise<CodexHistoryAnchorStatus> {
+    return await invoke("get_codex_history_anchor_status");
   },
 
   async hasCodexUnifyHistoryBackup(): Promise<boolean> {

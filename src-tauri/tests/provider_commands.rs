@@ -1168,6 +1168,131 @@ command = "say"
 }
 
 #[test]
+fn repeated_codex_switches_preserve_each_provider_api_key() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    fn settings(route: &str, env_key: &str, base_url: &str) -> serde_json::Value {
+        json!({
+            "auth": {},
+            "env": { "envKey": env_key },
+            "config": format!(r#"model_provider = "{route}"
+model = "gpt-5.5"
+
+[model_providers.{route}]
+name = "{route}"
+base_url = "{base_url}"
+env_key = "{env_key}"
+wire_api = "responses"
+requires_openai_auth = false
+"#)
+        })
+    }
+
+    let routes = [
+        (
+            "provider-a",
+            "PROVIDER_A_CODEX_API_KEY",
+            "sk-provider-a",
+            "https://same.example/v1",
+        ),
+        (
+            "provider-b",
+            "PROVIDER_B_CODEX_API_KEY",
+            "sk-provider-b",
+            "https://same.example/v1",
+        ),
+        (
+            "provider-c",
+            "PROVIDER_C_CODEX_API_KEY",
+            "sk-provider-c",
+            "https://different.example/v1",
+        ),
+    ];
+
+    let mut config = MultiAppConfig::default();
+    let manager = config
+        .get_manager_mut(&AppType::Codex)
+        .expect("codex manager");
+    manager.current = "provider-a".to_string();
+    for (route, env_key, _, base_url) in routes {
+        manager.providers.insert(
+            route.to_string(),
+            Provider::with_id(
+                route.to_string(),
+                route.to_string(),
+                settings(route, env_key, base_url),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+    for (_, env_key, token, _) in routes {
+        write_codex_env_key(env_key.to_string(), token.to_string()).expect("seed provider key");
+    }
+    let initial = settings(
+        "provider-a",
+        "PROVIDER_A_CODEX_API_KEY",
+        "https://same.example/v1",
+    );
+    write_codex_live_atomic(
+        &json!({}),
+        initial.get("config").and_then(serde_json::Value::as_str),
+    )
+    .expect("seed provider A live config");
+
+    for target in [
+        "provider-b",
+        "provider-c",
+        "provider-a",
+        "provider-b",
+        "provider-a",
+        "provider-c",
+        "provider-a",
+    ] {
+        switch_provider_test_hook(&state, AppType::Codex, target)
+            .unwrap_or_else(|error| panic!("switch to {target}: {error}"));
+
+        let keys = read_all_codex_env_keys().expect("read managed keys");
+        for (_, env_key, token, _) in routes {
+            assert_eq!(
+                keys.get(env_key).map(String::as_str),
+                Some(token),
+                "switching to {target} must not overwrite {env_key}"
+            );
+        }
+
+        let (_, target_env_key, _, target_base_url) = routes
+            .iter()
+            .find(|(route, _, _, _)| *route == target)
+            .expect("target route");
+        let live = std::fs::read_to_string(get_codex_config_path()).expect("read live config");
+        assert!(
+            live.contains("model_provider = \"provider-a\""),
+            "the session-history provider id should remain stable"
+        );
+        assert!(live.contains(&format!("base_url = \"{target_base_url}\"")));
+        assert!(live.contains(&format!("env_key = \"{target_env_key}\"")));
+    }
+
+    let providers = state
+        .db
+        .get_all_providers(AppType::Codex.as_str())
+        .expect("read providers");
+    for (route, env_key, _, _) in routes {
+        let stored = providers[route].settings_config["config"]
+            .as_str()
+            .expect("stored provider config");
+        assert!(
+            stored.contains(&format!("env_key = \"{env_key}\"")),
+            "backfill must restore the provider-specific env_key for {route}"
+        );
+    }
+}
+
+#[test]
 fn switch_provider_missing_provider_returns_error() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

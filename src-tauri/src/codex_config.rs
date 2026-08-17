@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::process::Stdio;
+use std::sync::{mpsc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::config::{
     atomic_write, delete_file, get_app_config_dir, get_home_dir, read_json_file,
@@ -36,6 +38,13 @@ const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
 const CODEX_ENV_MANAGED_MARKER_PREFIX: &str = "# tuzi-switch managed env:";
 const MAX_MANAGED_ENV_FILE_BYTES: u64 = 256 * 1024;
 static MANAGED_ENV_FILE_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodexEffectiveModelProvider {
+    pub provider_id: String,
+    pub source: String,
+    pub cwd: Option<String>,
+}
 
 fn is_valid_env_key_name(env_key: &str) -> bool {
     let mut chars = env_key.chars();
@@ -264,6 +273,204 @@ pub fn get_codex_version() -> Option<(u32, u32, u32)> {
     } else {
         None
     }
+}
+
+fn codex_app_server_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    // The desktop bundle is the closest match for the Codex process whose
+    // effective configuration the user sees. Prefer it over a possibly older
+    // CLI on PATH.
+    #[cfg(target_os = "macos")]
+    candidates.push(PathBuf::from(
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+    ));
+
+    candidates.push(PathBuf::from("codex"));
+    let home = get_home_dir();
+    for path in [
+        home.join(".local/bin/codex"),
+        home.join(".npm-global/bin/codex"),
+        home.join(".volta/bin/codex"),
+    ] {
+        if !candidates.contains(&path) {
+            candidates.push(path);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    for path in [
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/local/bin/codex"),
+    ] {
+        if !candidates.contains(&path) {
+            candidates.push(path);
+        }
+    }
+
+    candidates
+}
+
+fn parse_codex_effective_model_provider_response(
+    response: &Value,
+    cwd: Option<&Path>,
+) -> Option<CodexEffectiveModelProvider> {
+    let result = response.get("result")?;
+    let provider_id = result.pointer("/config/model_provider")?.as_str()?.trim();
+    if provider_id.is_empty() || !is_custom_codex_model_provider_id(provider_id) {
+        return None;
+    }
+    let provider_exists = result
+        .pointer("/config/model_providers")
+        .and_then(Value::as_object)
+        .is_some_and(|providers| providers.contains_key(provider_id));
+    if !provider_exists {
+        return None;
+    }
+
+    let origin = result.pointer("/origins/model_provider/name");
+    let source_type = origin
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or("effective");
+    let source_detail = origin
+        .and_then(|value| value.get("file"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            origin
+                .and_then(|value| value.get("profile"))
+                .and_then(Value::as_str)
+        });
+    let source = source_detail
+        .map(|detail| format!("config/read:{source_type}:{detail}"))
+        .unwrap_or_else(|| format!("config/read:{source_type}"));
+
+    Some(CodexEffectiveModelProvider {
+        provider_id: provider_id.to_string(),
+        source,
+        cwd: cwd.map(|path| path.to_string_lossy().to_string()),
+    })
+}
+
+fn read_codex_effective_model_provider_with_executable(
+    executable: &Path,
+    cwd: Option<&Path>,
+) -> Result<Option<CodexEffectiveModelProvider>, AppError> {
+    let mut command = Command::new(executable);
+    command
+        .args(["app-server", "--listen", "stdio://"])
+        .env("CODEX_HOME", get_codex_config_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = command.spawn().map_err(|error| {
+        AppError::Message(format!(
+            "无法启动 Codex config/read（{}）: {error}",
+            executable.display()
+        ))
+    })?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Message("Codex config/read 缺少 stdout".to_string()))?;
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let result = (|| -> Result<Option<CodexEffectiveModelProvider>, AppError> {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| AppError::Message("Codex config/read 缺少 stdin".to_string()))?;
+        let cwd_value = cwd
+            .map(|path| Value::String(path.to_string_lossy().to_string()))
+            .unwrap_or(Value::Null);
+        for request in [
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": { "name": "tuzi-switch", "version": env!("CARGO_PKG_VERSION") },
+                    "capabilities": { "experimentalApi": true }
+                }
+            }),
+            json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "config/read",
+                "params": { "cwd": cwd_value, "includeLayers": true }
+            }),
+        ] {
+            serde_json::to_writer(&mut *stdin, &request)
+                .map_err(|error| AppError::JsonSerialize { source: error })?;
+            stdin
+                .write_all(b"\n")
+                .map_err(|error| AppError::io(executable, error))?;
+        }
+        stdin
+            .flush()
+            .map_err(|error| AppError::io(executable, error))?;
+
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(AppError::Message("Codex config/read 超时".to_string()));
+            }
+            let line = receiver.recv_timeout(remaining).map_err(|error| {
+                AppError::Message(format!("Codex config/read 未返回有效结果: {error}"))
+            })?;
+            let line = line.map_err(|error| AppError::io(executable, error))?;
+            let Ok(response) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if response.get("id").and_then(Value::as_i64) != Some(2) {
+                continue;
+            }
+            if let Some(error) = response.get("error") {
+                return Err(AppError::Message(format!(
+                    "Codex config/read 返回错误: {error}"
+                )));
+            }
+            return Ok(parse_codex_effective_model_provider_response(
+                &response, cwd,
+            ));
+        }
+    })();
+
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+/// Ask Codex itself for the effective provider after all config layers for `cwd`
+/// are merged. This deliberately does not claim to inspect an already-running
+/// process, whose startup-only CLI overrides and cached config are private to it.
+pub fn read_codex_effective_model_provider(
+    cwd: Option<&Path>,
+) -> Result<Option<CodexEffectiveModelProvider>, AppError> {
+    let mut errors = Vec::new();
+    for executable in codex_app_server_candidates() {
+        if executable.is_absolute() && !executable.is_file() {
+            continue;
+        }
+        match read_codex_effective_model_provider_with_executable(&executable, cwd) {
+            Ok(provider) => return Ok(provider),
+            Err(error) => errors.push(format!("{}: {error}", executable.display())),
+        }
+    }
+    Err(AppError::Message(format!(
+        "无法通过 Codex config/read 解析有效配置: {}",
+        errors.join("；")
+    )))
 }
 
 /// Check if Codex CLI version is >= 0.134.0 (new profile format)
@@ -1768,12 +1975,47 @@ fn table_matches_codex_unified_official_provider(table: &toml_edit::Table) -> bo
         && table.get("wire_api").and_then(|item| item.as_str()) == Some("responses")
 }
 
-pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, AppError> {
+pub fn configured_codex_history_anchor_id() -> String {
+    crate::settings::get_codex_history_anchor_id_for_path(&get_codex_config_dir())
+        .or_else(|| {
+            read_codex_config_text()
+                .ok()
+                .and_then(|config| codex_custom_provider_anchor_id(&config))
+        })
+        .unwrap_or_else(|| DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string())
+}
+
+fn validate_codex_config_routes_history_anchor(config_text: &str) -> Result<(), AppError> {
+    if !crate::settings::unify_codex_session_history() || config_text.trim().is_empty() {
+        return Ok(());
+    }
+    let anchor_id = configured_codex_history_anchor_id();
+    let doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|error| AppError::Message(format!("Invalid Codex config.toml: {error}")))?;
+    let active_id = active_codex_model_provider_id(&doc);
+    let has_anchor_table = doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+        .is_some_and(|providers| providers.contains_key(anchor_id.as_str()));
+    if active_id.as_deref() != Some(anchor_id.as_str()) || !has_anchor_table {
+        return Err(AppError::Config(format!(
+            "Codex 统一会话桶校验失败：期望 model_provider='{anchor_id}'，实际为 {:?}",
+            active_id
+        )));
+    }
+    Ok(())
+}
+
+fn inject_codex_unified_session_bucket_with_id(
+    config_text: &str,
+    anchor_id: &str,
+) -> Result<String, AppError> {
     let mut doc = config_text
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
 
-    if active_codex_model_provider_id(&doc).as_deref() == Some(CC_SWITCH_CODEX_MODEL_PROVIDER_ID) {
+    if active_codex_model_provider_id(&doc).as_deref() == Some(anchor_id) {
         return Ok(config_text.to_string());
     }
 
@@ -1791,33 +2033,27 @@ pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, 
         let Some(provider_table) = model_providers.remove(active_provider_id.as_str()) else {
             return Ok(config_text.to_string());
         };
-        // tuziswitch 是本应用管理的共享历史桶。旧版本可能已留下同名路由，
-        // 切换供应商时必须用当前激活路由刷新它，否则开关虽开启，live 仍停在旧桶。
-        model_providers[CC_SWITCH_CODEX_MODEL_PROVIDER_ID] = provider_table;
-        rewrite_codex_profile_model_provider_refs(
-            &mut doc,
-            &active_provider_id,
-            CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
-        );
-        doc["model_provider"] = toml_edit::value(CC_SWITCH_CODEX_MODEL_PROVIDER_ID);
+        model_providers[anchor_id] = provider_table;
+        rewrite_codex_profile_model_provider_refs(&mut doc, &active_provider_id, anchor_id);
+        doc["model_provider"] = toml_edit::value(anchor_id);
         return Ok(doc.to_string());
     }
 
     let existing_unified_conflicts = doc
         .get("model_providers")
         .and_then(|item| item.as_table())
-        .and_then(|providers| providers.get(CC_SWITCH_CODEX_MODEL_PROVIDER_ID))
+        .and_then(|providers| providers.get(anchor_id))
         .and_then(|item| item.as_table())
         .is_some_and(|table| !table_matches_codex_unified_official_provider(table));
     if existing_unified_conflicts {
         log::warn!(
             "官方 Codex 配置已存在自定义 [model_providers.{}]，跳过统一会话路由注入以避免激活未知路由",
-            CC_SWITCH_CODEX_MODEL_PROVIDER_ID
+            anchor_id
         );
         return Ok(config_text.to_string());
     }
 
-    doc["model_provider"] = toml_edit::value(CC_SWITCH_CODEX_MODEL_PROVIDER_ID);
+    doc["model_provider"] = toml_edit::value(anchor_id);
 
     if doc.get("model_providers").is_none() {
         let mut parent = toml_edit::Table::new();
@@ -1825,14 +2061,18 @@ pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, 
         doc["model_providers"] = toml_edit::Item::Table(parent);
     }
     if let Some(providers) = doc["model_providers"].as_table_mut() {
-        if !providers.contains_key(CC_SWITCH_CODEX_MODEL_PROVIDER_ID) {
+        if !providers.contains_key(anchor_id) {
             providers.insert(
-                CC_SWITCH_CODEX_MODEL_PROVIDER_ID,
+                anchor_id,
                 toml_edit::Item::Table(codex_unified_official_provider_table()),
             );
         }
     }
     Ok(doc.to_string())
+}
+
+pub fn inject_codex_unified_session_bucket(config_text: &str) -> Result<String, AppError> {
+    inject_codex_unified_session_bucket_with_id(config_text, &configured_codex_history_anchor_id())
 }
 
 #[allow(dead_code)]
@@ -1844,15 +2084,14 @@ pub fn strip_codex_unified_session_bucket(config_text: &str) -> Result<String, A
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
 
-    if doc.get("model_provider").and_then(|item| item.as_str())
-        != Some(CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
-    {
+    let anchor_id = configured_codex_history_anchor_id();
+    if doc.get("model_provider").and_then(|item| item.as_str()) != Some(anchor_id.as_str()) {
         return Ok(config_text.to_string());
     }
     let matches_injected = doc
         .get("model_providers")
         .and_then(|item| item.as_table())
-        .and_then(|providers| providers.get(CC_SWITCH_CODEX_MODEL_PROVIDER_ID))
+        .and_then(|providers| providers.get(anchor_id.as_str()))
         .and_then(|item| item.as_table())
         .is_some_and(table_matches_codex_unified_official_provider);
     if !matches_injected {
@@ -1863,7 +2102,7 @@ pub fn strip_codex_unified_session_bucket(config_text: &str) -> Result<String, A
     let providers_empty = doc["model_providers"]
         .as_table_mut()
         .map(|providers| {
-            providers.remove(CC_SWITCH_CODEX_MODEL_PROVIDER_ID);
+            providers.remove(anchor_id.as_str());
             providers.is_empty()
         })
         .unwrap_or(false);
@@ -1931,7 +2170,6 @@ fn prepare_codex_provider_live_config_with_env_reader(
 struct CodexProviderAnchor {
     id: String,
     name: Option<String>,
-    env_key: Option<String>,
 }
 
 fn codex_provider_anchor_from_config(config_text: &str) -> Option<CodexProviderAnchor> {
@@ -1953,10 +2191,6 @@ fn codex_provider_anchor_from_config(config_text: &str) -> Option<CodexProviderA
             .get("name")
             .and_then(|item| item.as_str())
             .map(str::to_string),
-        env_key: provider_table
-            .get("env_key")
-            .and_then(|item| item.as_str())
-            .map(str::to_string),
     })
 }
 
@@ -1966,9 +2200,6 @@ fn apply_codex_provider_anchor_fields(
 ) {
     if let Some(name) = anchor.name.as_deref() {
         provider_table["name"] = toml_edit::value(name);
-    }
-    if let Some(env_key) = anchor.env_key.as_deref() {
-        provider_table["env_key"] = toml_edit::value(env_key);
     }
 }
 
@@ -1995,9 +2226,22 @@ fn codex_model_provider_id_with_table_from_config(
     Ok(has_provider_table.then_some(provider_id))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn normalize_codex_live_config_model_provider_with_anchors<'a>(
     config_text: &str,
     anchor_config_texts: impl IntoIterator<Item = &'a str>,
+) -> Result<String, AppError> {
+    normalize_codex_live_config_model_provider_with_preferred_anchor(
+        config_text,
+        anchor_config_texts,
+        None,
+    )
+}
+
+fn normalize_codex_live_config_model_provider_with_preferred_anchor<'a>(
+    config_text: &str,
+    anchor_config_texts: impl IntoIterator<Item = &'a str>,
+    preferred_anchor_id: Option<&str>,
 ) -> Result<String, AppError> {
     if config_text.trim().is_empty() {
         return Ok(config_text.to_string());
@@ -2008,7 +2252,61 @@ fn normalize_codex_live_config_model_provider_with_anchors<'a>(
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
 
     let Some(source_provider_id) = active_codex_model_provider_id(&doc) else {
-        return Ok(config_text.to_string());
+        let Some(anchor_id) = preferred_anchor_id else {
+            return Ok(config_text.to_string());
+        };
+        if !is_custom_codex_model_provider_id(anchor_id) {
+            return Ok(config_text.to_string());
+        }
+
+        let mut provider_table = toml_edit::Table::new();
+        provider_table["name"] = toml_edit::value(anchor_id);
+        for field in [
+            "base_url",
+            "env_key",
+            "wire_api",
+            "requires_openai_auth",
+            "supports_websockets",
+            "experimental_bearer_token",
+            "request_max_retries",
+            "stream_max_retries",
+            "stream_idle_timeout_ms",
+            "query_params",
+            "http_headers",
+            "env_http_headers",
+        ] {
+            if let Some(value) = doc.as_table_mut().remove(field) {
+                provider_table.insert(field, value);
+            }
+        }
+        if !provider_table.contains_key("wire_api") {
+            provider_table["wire_api"] = toml_edit::value("responses");
+        }
+        if !provider_table.contains_key("requires_openai_auth") {
+            provider_table["requires_openai_auth"] = toml_edit::value(true);
+        }
+
+        if doc.get("model_providers").is_none() {
+            let mut providers = toml_edit::Table::new();
+            providers.set_implicit(true);
+            doc["model_providers"] = toml_edit::Item::Table(providers);
+        }
+        let providers = doc
+            .get_mut("model_providers")
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| AppError::Config("Codex model_providers 必须是表".to_string()))?;
+        if let Some(existing) = providers
+            .get_mut(anchor_id)
+            .and_then(|item| item.as_table_mut())
+        {
+            for (field, value) in provider_table.iter() {
+                existing.insert(field, value.clone());
+            }
+        } else {
+            providers.insert(anchor_id, toml_edit::Item::Table(provider_table));
+        }
+        doc["model_provider"] = toml_edit::value(anchor_id);
+        return Ok(doc.to_string());
     };
 
     let has_source_provider_table = doc
@@ -2020,9 +2318,24 @@ fn normalize_codex_live_config_model_provider_with_anchors<'a>(
         return Ok(config_text.to_string());
     }
 
-    let stable_anchor = anchor_config_texts
-        .into_iter()
-        .find_map(codex_provider_anchor_from_config)
+    let anchor_configs: Vec<&str> = anchor_config_texts.into_iter().collect();
+    let preferred_anchor = preferred_anchor_id.map(|preferred_id| {
+        anchor_configs
+            .iter()
+            .find_map(|config| {
+                codex_provider_anchor_from_config(config).filter(|anchor| anchor.id == preferred_id)
+            })
+            .unwrap_or_else(|| CodexProviderAnchor {
+                id: preferred_id.to_string(),
+                name: Some(preferred_id.to_string()),
+            })
+    });
+    let stable_anchor = preferred_anchor
+        .or_else(|| {
+            anchor_configs
+                .iter()
+                .find_map(|config| codex_provider_anchor_from_config(config))
+        })
         .or_else(|| {
             is_custom_codex_model_provider_id(&source_provider_id)
                 .then(|| codex_provider_anchor_from_config(config_text))
@@ -2031,7 +2344,6 @@ fn normalize_codex_live_config_model_provider_with_anchors<'a>(
         .unwrap_or_else(|| CodexProviderAnchor {
             id: DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string(),
             name: Some(DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string()),
-            env_key: None,
         });
     let stable_provider_id = stable_anchor.id.as_str();
 
@@ -2148,8 +2460,18 @@ pub fn normalize_codex_settings_config_model_provider(
     let anchors = anchor_config_text
         .into_iter()
         .chain(current_config_text.as_deref());
-    let normalized =
-        normalize_codex_live_config_model_provider_with_anchors(&config_text, anchors)?;
+    let preferred_anchor_id = crate::settings::get_codex_history_anchor_id_for_path(
+        &get_codex_config_dir(),
+    )
+    .or_else(|| {
+        crate::settings::unify_codex_session_history()
+            .then(|| DEFAULT_CODEX_MODEL_PROVIDER_ID.to_string())
+    });
+    let normalized = normalize_codex_live_config_model_provider_with_preferred_anchor(
+        &config_text,
+        anchors,
+        preferred_anchor_id.as_deref(),
+    )?;
 
     if let Some(obj) = settings.as_object_mut() {
         obj.insert("config".to_string(), Value::String(normalized));
@@ -2424,6 +2746,9 @@ pub fn write_codex_live_atomic_with_stable_provider(
     auth: &Value,
     config_text_opt: Option<&str>,
 ) -> Result<(), AppError> {
+    if config_text_opt.is_some() && crate::settings::unify_codex_session_history() {
+        crate::codex_history_migration::ensure_codex_history_anchor()?;
+    }
     match config_text_opt {
         Some(config_text) => {
             let mut settings = serde_json::Map::new();
@@ -2434,6 +2759,7 @@ pub fn write_codex_live_atomic_with_stable_provider(
                 .get("config")
                 .and_then(|value| value.as_str())
                 .unwrap_or(config_text);
+            validate_codex_config_routes_history_anchor(config_text)?;
             write_codex_live_atomic(auth, Some(config_text))
         }
         None => write_codex_live_atomic(auth, None),
@@ -2462,6 +2788,9 @@ pub fn write_codex_live_for_provider(
 
     if should_write_auth {
         if category == Some("official") {
+            if let Some(config_text) = config_text_opt {
+                validate_codex_config_routes_history_anchor(config_text)?;
+            }
             return write_codex_live_atomic(auth, config_text_opt);
         }
         return write_codex_live_atomic_with_stable_provider(auth, config_text_opt);
@@ -2470,8 +2799,8 @@ pub fn write_codex_live_for_provider(
     let Some(config_text) = config_text_opt else {
         return write_codex_live_config_atomic(None);
     };
-    let provider_env_token =
-        extract_codex_env_key(config_text).and_then(|env_key| read_managed_env_key(&env_key));
+    let provider_env_key = extract_codex_env_key(config_text);
+    let provider_env_token = provider_env_key.as_deref().and_then(read_managed_env_key);
 
     let mut settings = serde_json::Map::new();
     settings.insert("config".to_string(), Value::String(config_text.to_string()));
@@ -2485,10 +2814,19 @@ pub fn write_codex_live_for_provider(
         .unwrap_or(config_text);
     if let Some(token) = provider_env_token {
         if let Some(active_env_key) = extract_codex_env_key(normalized_config) {
-            write_managed_env_key(&active_env_key, &token)?;
+            if provider_env_key.as_deref() == Some(active_env_key.as_str()) {
+                write_managed_env_key(&active_env_key, &token)?;
+            } else {
+                log::warn!(
+                    "Skipped Codex API key copy from {:?} to '{}' while normalizing model_provider",
+                    provider_env_key,
+                    active_env_key
+                );
+            }
         }
     }
     let live_config = prepare_codex_provider_live_config(auth, normalized_config)?;
+    validate_codex_config_routes_history_anchor(&live_config)?;
     write_codex_live_config_atomic(Some(&live_config))
 }
 
@@ -3091,6 +3429,143 @@ mod tests {
     static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
+    fn effective_provider_parser_uses_codex_resolved_top_level_value() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "config": {
+                    "model_provider": "custom",
+                    "model_providers": {
+                        "tuziswitch": { "base_url": "https://old.example/v1" },
+                        "custom": { "base_url": "https://active.example/v1" }
+                    }
+                },
+                "origins": {
+                    "model_provider": {
+                        "name": {
+                            "type": "user",
+                            "file": "/Users/test/.codex/config.toml"
+                        }
+                    }
+                }
+            }
+        });
+        let cwd = Path::new("/Users/test/project");
+
+        let parsed = parse_codex_effective_model_provider_response(&response, Some(cwd))
+            .expect("effective custom provider");
+
+        assert_eq!(parsed.provider_id, "custom");
+        assert_eq!(
+            parsed.source,
+            "config/read:user:/Users/test/.codex/config.toml"
+        );
+        assert_eq!(parsed.cwd.as_deref(), Some("/Users/test/project"));
+    }
+
+    #[test]
+    fn effective_provider_parser_rejects_reserved_or_incomplete_routes() {
+        let reserved = json!({
+            "result": {
+                "config": {
+                    "model_provider": "openai",
+                    "model_providers": { "openai": {} }
+                }
+            }
+        });
+        let missing_table = json!({
+            "result": {
+                "config": {
+                    "model_provider": "custom",
+                    "model_providers": { "other": {} }
+                }
+            }
+        });
+
+        assert!(parse_codex_effective_model_provider_response(&reserved, None).is_none());
+        assert!(parse_codex_effective_model_provider_response(&missing_table, None).is_none());
+    }
+
+    #[test]
+    fn persisted_history_anchor_overrides_other_available_provider_tables() {
+        let target = r#"model_provider = "vendor_beta"
+
+[model_providers.vendor_beta]
+name = "Vendor Beta"
+base_url = "https://beta.example/v1"
+env_key = "BETA_API_KEY"
+
+[model_providers.custom]
+name = "Stale Custom"
+base_url = "https://stale.example/v1"
+"#;
+
+        let normalized = normalize_codex_live_config_model_provider_with_preferred_anchor(
+            target,
+            std::iter::empty::<&str>(),
+            Some("session_anchor"),
+        )
+        .expect("normalize to persisted anchor");
+        let parsed: toml::Value = toml::from_str(&normalized).expect("parse normalized config");
+
+        assert_eq!(
+            parsed
+                .get("model_provider")
+                .and_then(|value| value.as_str()),
+            Some("session_anchor")
+        );
+        let anchor = parsed
+            .get("model_providers")
+            .and_then(|value| value.get("session_anchor"))
+            .expect("persisted anchor table");
+        assert_eq!(
+            anchor.get("base_url").and_then(|value| value.as_str()),
+            Some("https://beta.example/v1")
+        );
+        assert_eq!(
+            anchor.get("env_key").and_then(|value| value.as_str()),
+            Some("BETA_API_KEY")
+        );
+    }
+
+    #[test]
+    fn legacy_top_level_route_is_upgraded_to_the_persisted_anchor() {
+        let legacy = r#"model = "gpt-5.5"
+base_url = "https://legacy.example/v1"
+wire_api = "responses"
+"#;
+
+        let normalized = normalize_codex_live_config_model_provider_with_preferred_anchor(
+            legacy,
+            std::iter::empty::<&str>(),
+            Some("custom"),
+        )
+        .expect("upgrade legacy route");
+        let parsed: toml::Value = toml::from_str(&normalized).expect("parse upgraded config");
+
+        assert_eq!(
+            parsed
+                .get("model_provider")
+                .and_then(|value| value.as_str()),
+            Some("custom")
+        );
+        assert_eq!(
+            parsed.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.5")
+        );
+        assert!(parsed.get("base_url").is_none());
+        assert_eq!(
+            parsed
+                .get("model_providers")
+                .and_then(|value| value.get("custom"))
+                .and_then(|value| value.get("base_url"))
+                .and_then(|value| value.as_str()),
+            Some("https://legacy.example/v1")
+        );
+    }
+
+    #[test]
     fn codex_env_section_reads_and_upserts_custom_env_keys() {
         let input = "# Codex\nexport CUSTOM_API_KEY=old\n#export OPENAI_BASE_URL=https://api.example\n\n# Other\nexport OTHER_KEY=value\n";
 
@@ -3345,12 +3820,12 @@ base_url = "https://existing.example/v1"
             parsed
                 .get("model_provider")
                 .and_then(|value| value.as_str()),
-            Some("tuziswitch")
+            Some("custom")
         );
         assert_eq!(
             parsed
                 .get("model_providers")
-                .and_then(|value| value.get("tuziswitch"))
+                .and_then(|value| value.get("custom"))
                 .and_then(|value| value.get("base_url"))
                 .and_then(|value| value.as_str()),
             Some("https://rightcode.example/v1")
@@ -3688,7 +4163,7 @@ wire_api = "responses"
     }
 
     #[test]
-    fn normalize_live_config_preserves_existing_anchor_name_and_env_key() {
+    fn normalize_live_config_preserves_anchor_name_and_target_env_key() {
         let anchor = r#"model_provider = "existing_route"
 
 [model_providers.existing_route]
@@ -3726,7 +4201,7 @@ wire_api = "responses"
         );
         assert_eq!(
             provider.get("env_key").and_then(|value| value.as_str()),
-            Some("EXISTING_CODEX_API_KEY")
+            Some("OTHER_CODEX_API_KEY")
         );
         assert_eq!(
             provider.get("base_url").and_then(|value| value.as_str()),

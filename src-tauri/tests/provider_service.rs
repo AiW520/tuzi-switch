@@ -925,6 +925,8 @@ requires_openai_auth = false
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key("RIGHTCODE_API_KEY".to_string(), "rightcode-key".to_string())
+        .expect("seed previous provider env key");
     write_codex_env_key(
         "AIHUBMIX_API_KEY".to_string(),
         "real-provider-key".to_string(),
@@ -969,17 +971,22 @@ requires_openai_auth = false
             .get("rightcode")
             .and_then(|v| v.get("env_key"))
             .and_then(|v| v.as_str()),
-        Some("RIGHTCODE_API_KEY"),
-        "stable provider env_key should be preserved"
+        Some("AIHUBMIX_API_KEY"),
+        "the stable provider id must use the selected supplier's env_key"
     );
     let shell_rc = std::fs::read_to_string(home.join(".zshrc")).expect("read managed env rc");
     assert!(
-        shell_rc.contains("export RIGHTCODE_API_KEY='real-provider-key'"),
-        "selected provider env key should be mapped through the stable anchor env_key"
+        shell_rc.contains("export AIHUBMIX_API_KEY='real-provider-key'"),
+        "the selected supplier token must stay under its own env_key"
     );
     assert!(
-        !shell_rc.contains("export RIGHTCODE_API_KEY='fresh-key'"),
-        "stored auth must not overwrite the stable anchor env_key"
+        shell_rc.contains("export RIGHTCODE_API_KEY='rightcode-key'"),
+        "switching must preserve the previous supplier token under its own env_key"
+    );
+    assert!(
+        !shell_rc.contains("export RIGHTCODE_API_KEY='real-provider-key'")
+            && !shell_rc.contains("export AIHUBMIX_API_KEY='fresh-key'"),
+        "neither selected nor stored credentials may cross provider env keys"
     );
 
     let providers = state

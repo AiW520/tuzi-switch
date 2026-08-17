@@ -45,6 +45,9 @@ use usage::validate_usage_script;
 /// 统一会话开关变更后，立即按新开关状态重写当前 Codex 供应商的
 /// live 配置，使开关即时生效（无需等下一次切换）。
 pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
+    if crate::settings::unify_codex_session_history() {
+        crate::codex_history_migration::ensure_codex_history_anchor()?;
+    }
     let current_id = ProviderService::current(state, AppType::Codex)?;
     if current_id.is_empty() {
         return Ok(false);
@@ -445,7 +448,7 @@ wire_api = "responses"
             reapply_current_codex_live(state).expect("reapply unified live");
             let unified_live = crate::codex_config::read_codex_config_text()
                 .expect("read unified Codex live config");
-            assert!(unified_live.contains("model_provider = \"tuziswitch\""));
+            assert!(unified_live.contains("model_provider = \"custom\""));
 
             crate::settings::update_settings(crate::settings::AppSettings {
                 unify_codex_session_history: false,
@@ -461,7 +464,7 @@ wire_api = "responses"
                 "live config should return to the provider's own bucket: {stripped_live}"
             );
             assert!(
-                !stripped_live.contains("model_provider = \"tuziswitch\""),
+                !stripped_live.contains("model_provider = \"custom\""),
                 "live config must not stay on the shared bucket after disabling"
             );
 
@@ -480,7 +483,7 @@ wire_api = "responses"
                 "stored provider config should stay on its original bucket"
             );
             assert!(
-                !saved_config.contains("model_provider = \"tuziswitch\""),
+                !saved_config.contains("model_provider = \"custom\""),
                 "stored provider config must not be polluted by live-only injection"
             );
         });
@@ -1188,10 +1191,6 @@ impl ProviderService {
         // Save to database
         state.db.save_provider(app_type.as_str(), &provider)?;
 
-        if matches!(app_type, AppType::Codex) {
-            ensure_codex_provider_registered(&provider)?;
-        }
-
         // Additive mode apps (OpenCode, OpenClaw): optionally write to live config.
         if app_type.is_additive_mode() {
             // OMO / OMO Slim providers use exclusive mode and write to dedicated config file.
@@ -1211,6 +1210,11 @@ impl ProviderService {
 
         // For other apps: Check if sync is needed (if this is current provider, or no current provider)
         let current = state.db.get_current_provider(app_type.as_str())?;
+        // 当前 Codex 供应商会在 write_live_with_common_config 中完成线路注册与
+        // profile 写入；这里只为非当前供应商预注册，避免首次保存重复落盘。
+        if matches!(app_type, AppType::Codex) && current.is_some() {
+            ensure_codex_provider_registered(&provider)?;
+        }
         if current.is_none() {
             // No current provider, set as current and sync
             state
@@ -1382,14 +1386,16 @@ impl ProviderService {
         // Save to database
         state.db.save_provider(app_type.as_str(), &provider)?;
 
-        if matches!(app_type, AppType::Codex) {
-            ensure_codex_provider_registered(&provider)?;
-        }
-
         // For other apps: Check if this is current provider (use effective current, not just DB)
         let effective_current =
             crate::settings::get_effective_current_provider(&state.db, &app_type)?;
         let is_current = effective_current.as_deref() == Some(provider.id.as_str());
+
+        // 非当前 Codex 供应商仍需预注册到配置中，便于之后切换；当前供应商
+        // 会在下方 live 写入时完成同一操作，不重复写 config/profile 文件。
+        if matches!(app_type, AppType::Codex) && !is_current {
+            ensure_codex_provider_registered(&provider)?;
+        }
 
         if is_current {
             // 如果 Claude 代理接管处于激活状态，并且代理服务正在运行：
@@ -1424,8 +1430,13 @@ impl ProviderService {
                 }
             } else {
                 write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
-                // Sync MCP
-                McpService::sync_all_enabled(state)?;
+                // 重写目标应用的 live 后只重投影该应用的 MCP。此时数据库和
+                // live 已保存成功，MCP 失败降级为警告并由后续同步自愈。
+                if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+                    log::warn!(
+                        "保存供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}"
+                    );
+                }
             }
         }
 
@@ -1769,7 +1780,12 @@ impl ProviderService {
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
         Self::validate_provider_settings(&app_type, provider)?;
 
-        Self::validate_provider_settings(&app_type, provider)?;
+        // Startup normally resolves this once. Keep the write boundary
+        // self-contained as well so an early/manual switch can never fall back
+        // to a different history bucket before startup initialization finishes.
+        if matches!(app_type, AppType::Codex) && crate::settings::unify_codex_session_history() {
+            crate::codex_history_migration::ensure_codex_history_anchor()?;
+        }
 
         // OMO ↔ OMO Slim are mutually exclusive; activating one removes the other's config file.
         if matches!(app_type, AppType::OpenCode) {
@@ -1891,8 +1907,11 @@ impl ProviderService {
             }
         }
 
-        // Sync MCP
-        McpService::sync_all_enabled(state)?;
+        // 切换只重写了目标应用的 live，不扫描或改写无关应用配置。
+        // 到这里当前供应商和 live 均已落盘，MCP 投影失败只记录警告。
+        if let Err(err) = McpService::sync_enabled_for_app(state, &app_type) {
+            log::warn!("切换供应商后重投影 {app_type:?} MCP 失败（将在下次同步时自愈）: {err}");
+        }
 
         Self::reconcile_codex_image_compat_after_change(state, &app_type);
 
