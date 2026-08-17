@@ -298,6 +298,12 @@ pub(crate) fn normalize_codex_managed_provider_for_storage(
     let route_id = codex_active_route_id(config_str).unwrap_or_default();
     let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
     let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
+    if route_id == "custom" {
+        if !env_key.is_empty() {
+            obj.insert("env".to_string(), json!({ "envKey": env_key }));
+        }
+        return Ok(());
+    }
     let Some(family) = detect_codex_managed_route_family(&route_id, &env_key, &base_url) else {
         return Ok(());
     };
@@ -1500,7 +1506,7 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         }
 
         let auth_path = get_codex_auth_path();
-        let auth: Value = if auth_path.exists() {
+        let live_auth: Value = if auth_path.exists() {
             read_json_file(&auth_path)?
         } else {
             json!({})
@@ -1510,18 +1516,36 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
             return Ok(false);
         }
 
+        let uses_custom_provider =
+            crate::codex_config::codex_config_uses_custom_provider(&config_str);
+        let auth = if uses_custom_provider {
+            json!({})
+        } else {
+            live_auth
+        };
+        let mut settings = json!({ "auth": auth, "config": config_str });
+        if let Some(env_key) = settings
+            .get("config")
+            .and_then(Value::as_str)
+            .and_then(crate::codex_config::extract_codex_env_key)
+        {
+            settings["env"] = json!({ "envKey": env_key });
+        }
+
         let mut provider = Provider::with_id(
             "codex-live-config".to_string(),
             "当前 Codex 配置".to_string(),
-            json!({ "auth": auth, "config": config_str }),
+            settings,
             None,
         );
-        provider.category = Some("custom".to_string());
-        normalize_codex_managed_provider_for_storage(
-            state.db.as_ref(),
-            &mut provider,
-            Some("codex-live-config"),
-        )?;
+        provider.category = Some(
+            if uses_custom_provider {
+                "custom"
+            } else {
+                "official"
+            }
+            .to_string(),
+        );
 
         state.db.save_provider(app_type.as_str(), &provider)?;
         state

@@ -50,6 +50,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { settingsApi } from "@/lib/api/settings";
 import {
   getApiKeyFromConfig,
+  getCodexProviderApiKey,
   getCodexProviderEnvKeyFromSettings,
 } from "@/utils/providerConfigUtils";
 
@@ -268,14 +269,11 @@ export function ProviderList({
 
       if (appId === "codex") {
         const envKeyName = getCodexProviderEnvKey(provider);
-        if (envKeyName && codexEnvKeys[envKeyName]) {
-          return false;
-        }
-        const apiKey = getApiKeyFromConfig(configString, "codex");
-        if (apiKey.trim()) {
-          return false;
-        }
-        return true;
+        const apiKey = getCodexProviderApiKey(
+          provider.settingsConfig,
+          envKeyName ? codexEnvKeys[envKeyName] : undefined,
+        );
+        return !apiKey;
       }
 
       if (appId === "gemini") {

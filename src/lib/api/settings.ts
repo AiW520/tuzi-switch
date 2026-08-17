@@ -42,6 +42,7 @@ export interface CodexUnifyHistoryRestoreResult {
 export type CodexImageCompatReadinessReason =
   | "disabled"
   | "no_provider"
+  | "native_route"
   | "unsupported_provider"
   | "provider_config_invalid"
   | "missing_credential"

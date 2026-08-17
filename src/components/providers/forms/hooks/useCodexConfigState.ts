@@ -185,6 +185,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
         getCodexProviderEnvKeyFromSettings({ ...config, config: configStr }) ||
         "";
       setCodexEnvKey(resolvedEnvKey);
+      setCodexApiKey("");
 
       // Read API key from shell rc via backend
       if (resolvedEnvKey) {
@@ -193,18 +194,9 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
             if (key) setCodexApiKey(key);
             else if (migratedLegacyToken.migratedApiKey) {
               setCodexApiKey(migratedLegacyToken.migratedApiKey);
-            }
+            } else setCodexApiKey("");
           })
-          .catch(() => {
-            // Fallback: legacy auth field
-            const auth = migratedLegacyToken.auth;
-            if (
-              auth?.OPENAI_API_KEY &&
-              typeof auth.OPENAI_API_KEY === "string"
-            ) {
-              setCodexApiKey(auth.OPENAI_API_KEY);
-            }
-          });
+          .catch(() => setCodexApiKey(""));
       } else {
         // Legacy provider without envKey
         const auth = migratedLegacyToken.auth;

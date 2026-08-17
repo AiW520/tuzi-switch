@@ -619,18 +619,6 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn is_codex_third_party_history_provider_bucket_migrated() -> bool {
-    get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| {
-            migrations
-                .codex_third_party_history_provider_bucket_v1
-                .as_ref()
-        })
-        .is_some_and(|m| m.scanned_history_files)
-}
-
 pub fn mark_codex_third_party_history_provider_bucket_migrated(
     migration: CodexThirdPartyHistoryProviderBucketMigration,
 ) -> Result<(), AppError> {
@@ -640,14 +628,6 @@ pub fn mark_codex_third_party_history_provider_bucket_migrated(
             .get_or_insert_with(Default::default);
         migrations.codex_third_party_history_provider_bucket_v1 = Some(migration);
     })
-}
-
-pub fn is_codex_provider_template_migrated() -> bool {
-    get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| migrations.codex_provider_template_v1.as_ref())
-        .is_some()
 }
 
 pub fn mark_codex_provider_template_migrated(

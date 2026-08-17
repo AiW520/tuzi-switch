@@ -144,7 +144,7 @@ vi.mock("@/lib/api", () => ({
       requested: true,
       ready: true,
       reason: "ready",
-      providerBaseUrl: "https://api.tu-zi.com/v1",
+      providerBaseUrl: "https://api.tu-zi.com/coding",
       providerEnvKey: "TUZI01_CODEX_API_KEY",
       liveBaseUrl: "http://127.0.0.1:15721/v1",
       imageKeyEnv: "TUZI_CODEX_IMAGE_API_KEY",

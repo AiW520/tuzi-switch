@@ -215,6 +215,7 @@
     "providerSaved": "Provider configuration saved",
     "providerDeleted": "Provider deleted successfully",
     "switchSuccess": "Switch successful!",
+    "codexSwitchRestartRequired": "Switched successfully. Restart the client to apply changes.",
     "codexRestartRequired": "Imported and enabled. Fully quit and reopen Codex before use.",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
     "claudeDesktopProxyRestartRequired": "Switched successfully. Keep 兔子switch running and restart Claude Desktop to apply changes.",
@@ -735,18 +736,23 @@
     "preserveCodexOfficialAuthOnSwitchDescription": "When enabled, you can use the Codex app's official plugins, mobile remote control, and other features while using third-party APIs.",
     "codexImageRenderCompat": "Codex image rendering compatibility",
     "codexImageRenderCompatBadge": "NEW · ON BY DEFAULT",
-    "codexImageRenderCompatDescription": "Enables compatibility for Codex's built-in Images API and local rendering fallback. Provider templates, original /v1 URLs, and env_key remain unchanged; during takeover, live config.toml temporarily points to the local proxy and is restored when disabled.",
+    "codexImageRenderCompatDescription": "Adapts automatically to the current route: /coding subscriptions use image API compatibility and the local rendering fallback, while Tuzi /v1 uses native capabilities without subscription-only personalization. The provider URL and env_key always remain unchanged.",
     "codexImageRenderCompatNotReady": "Requested, but not ready yet: {{reason}}",
     "codexImageRenderCompatReason": {
       "disabled": "the feature is disabled",
       "no_provider": "no Codex provider is selected",
-      "unsupported_provider": "the current provider is not a supported Tuzi /v1 or /coding route",
+      "native_route": "the current /v1 route uses native capabilities",
+      "unsupported_provider": "the current provider is not a supported Tuzi route",
       "provider_config_invalid": "the current provider configuration is invalid",
       "missing_credential": "the managed API key for the current provider was not found; enter or apply the provider again",
       "managed_credential_unreadable": "the private image credential cannot be read",
       "managed_files_missing": "the image rendering skill or Codex personalization is not fully installed",
       "local_route_inactive": "the local Codex image route is not running",
       "ready": "ready"
+    },
+    "codexImageRenderCompatNative": {
+      "title": "The current route uses native capabilities",
+      "description": "{{baseUrl}} does not need /coding subscription compatibility. Managed image credentials, the skill, forced personalization, and local takeover are removed automatically; switching back to /coding restores them."
     },
     "codexImageRenderCompatDetails": {
       "title": "Effective configuration",

@@ -34,7 +34,7 @@ const baseStatus = (): CodexImageCompatStatus => ({
   requested: true,
   ready: true,
   reason: "ready",
-  providerBaseUrl: "https://api.tu-zi.com/v1",
+  providerBaseUrl: "https://api.tu-zi.com/coding",
   providerEnvKey: "TUZI01_CODEX_API_KEY",
   liveBaseUrl: "http://127.0.0.1:15721/v1",
   imageKeyEnv: "TUZI_CODEX_IMAGE_API_KEY",
@@ -72,7 +72,7 @@ describe("CodexAuthSettings 图片兼容模式", () => {
       }),
     ).toBeChecked();
     expect(screen.getByTestId("codex-image-compat-details")).toHaveTextContent(
-      "https://api.tu-zi.com/v1",
+      "https://api.tu-zi.com/coding",
     );
     expect(screen.getByTestId("codex-image-compat-details")).toHaveTextContent(
       "TUZI01_CODEX_API_KEY",
@@ -110,6 +110,25 @@ describe("CodexAuthSettings 图片兼容模式", () => {
     renderSettings({ codexImageRenderCompat: true });
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("/v1 原生线路不显示未就绪告警和订阅专用个性化", () => {
+    status = {
+      ...baseStatus(),
+      ready: false,
+      reason: "native_route",
+      providerBaseUrl: "https://api.tu-zi.com/v1",
+      liveBaseUrl: null,
+    };
+    renderSettings({ codexImageRenderCompat: true });
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("codex-image-native-route")).toHaveTextContent(
+      "settings.codexImageRenderCompatNative.title",
+    );
+    expect(
+      screen.queryByTestId("codex-image-compat-details"),
+    ).not.toBeInTheDocument();
   });
 
   it("切换后保存并刷新只读状态", async () => {

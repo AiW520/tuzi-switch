@@ -1263,7 +1263,7 @@ pub fn run() {
             // subscription quota
             commands::get_subscription_quota,
             commands::get_codex_oauth_quota,
-            commands::sync_codex_live_api_key,
+            commands::sanitize_codex_provider_credentials,
             commands::sync_claude_live_api_key,
             commands::sync_gemini_live_api_key,
             commands::get_coding_plan_quota,

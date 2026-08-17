@@ -281,7 +281,9 @@ const isCodexTuziPreset = (preset: CodexProviderPreset) =>
 const isCodexCodingPreset = (preset: CodexProviderPreset) =>
   preset.icon === "codex-sub" ||
   preset.envKey === "CODING01_CODEX_API_KEY" ||
-  extractCodexRouteId(preset.config ?? "").startsWith(CODEX_CODING_ROUTE_PREFIX);
+  extractCodexRouteId(preset.config ?? "").startsWith(
+    CODEX_CODING_ROUTE_PREFIX,
+  );
 
 const formatCodexTuziRouteId = (index: number) =>
   `${CODEX_TUZI_ROUTE_PREFIX}${String(index).padStart(2, "0")}`;
@@ -963,6 +965,7 @@ function ProviderFormFull({
     isExtracting: isCodexExtracting,
     handleExtract: handleCodexExtract,
     clearCommonConfigError: clearCodexCommonConfigError,
+    isLoading: isCodexCommonConfigLoading,
   } = useCodexCommonConfig({
     codexConfig,
     onConfigChange: handleCodexConfigChange,
@@ -1319,9 +1322,11 @@ function ProviderFormFull({
         }
         finalEnvKey = `${finalEnvKey}_${counter}`;
 
-        toast.success(t("providerForm.envKeyAutoRenamed", {
-          defaultValue: `环境变量名冲突，已自动调整为 ${finalEnvKey}`,
-        }));
+        toast.success(
+          t("providerForm.envKeyAutoRenamed", {
+            defaultValue: `环境变量名冲突，已自动调整为 ${finalEnvKey}`,
+          }),
+        );
       }
       setCodexEnvKeyError("");
 
@@ -1536,10 +1541,16 @@ function ProviderFormFull({
       return;
     }
 
-    await performSubmit(values, appId === "codex" ? overriddenEnvKey : undefined);
+    await performSubmit(
+      values,
+      appId === "codex" ? overriddenEnvKey : undefined,
+    );
   };
 
-  const performSubmit = async (values: ProviderFormData, resolvedEnvKeyOverride?: string) => {
+  const performSubmit = async (
+    values: ProviderFormData,
+    resolvedEnvKeyOverride?: string,
+  ) => {
     // OAuth / 其它身份识别（与 handleSubmit 保持一致）
     const isCopilotProvider =
       templatePreset?.providerType === "github_copilot" ||
@@ -1628,10 +1639,7 @@ function ProviderFormFull({
           env: { envKey: string };
           modelCatalog?: { models: CodexCatalogModel[] };
         } = {
-          auth:
-            resolvedCodexEnvKey && codexApiKey
-              ? {}
-              : codexAuthObject,
+          auth: resolvedCodexEnvKey ? {} : codexAuthObject,
           config: normalizedCodexConfig,
           env: { envKey: resolvedCodexEnvKey },
         };
@@ -1654,10 +1662,13 @@ function ProviderFormFull({
           codexEnvKey
         ).trim();
         if (fallbackEnvKey) {
-          fallbackConfig = setCodexEnvKeyInConfig(fallbackConfig, fallbackEnvKey);
+          fallbackConfig = setCodexEnvKeyInConfig(
+            fallbackConfig,
+            fallbackEnvKey,
+          );
         }
         settingsConfig = JSON.stringify({
-          auth: parseCodexAuthObject(codexAuth),
+          auth: fallbackEnvKey ? {} : parseCodexAuthObject(codexAuth),
           config: fallbackConfig,
           env: {
             envKey: fallbackEnvKey,
@@ -2975,6 +2986,7 @@ function ProviderFormFull({
                       configError={codexConfigError}
                       onExtract={handleCodexExtract}
                       isExtracting={isCodexExtracting}
+                      isCommonConfigLoading={isCodexCommonConfigLoading}
                     />
                     {settingsConfigErrorField}
                   </>

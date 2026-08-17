@@ -24,6 +24,19 @@ const MANAGED_END: &str = "<!-- TUZI_SWITCH_CODEX_IMAGE_COMPAT_END -->";
 pub(crate) const MANAGED_INSTRUCTION: &str = "只要是生成图片相关的需求，都使用 API Key 中内置的 gpt-image-2 生成，接口地址使用 https://api.tu-zi.com/v1。";
 static PERSONALIZATION_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TuziImageRouteKind {
+    NativeV1,
+    Coding,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TuziImageSource {
+    pub base_url: String,
+    pub env_key: String,
+    pub route_kind: TuziImageRouteKind,
+}
+
 /// Derive the dedicated image credential from one effective Codex provider.
 /// `None` or an ineligible provider clears only Tuzi Switch's managed image key.
 pub(crate) fn reconcile_managed_image_api_key(
@@ -90,16 +103,23 @@ fn derive_image_api_key(settings_config: Option<&Value>) -> Result<Option<String
 pub(crate) fn eligible_tuzi_env_key_from_settings(
     settings_config: &Value,
 ) -> Result<Option<String>, AppError> {
-    Ok(eligible_tuzi_image_source_from_settings(settings_config)?.map(|(_, env_key)| env_key))
+    Ok(eligible_tuzi_image_source_from_settings(settings_config)?.map(|source| source.env_key))
 }
 
 pub(crate) fn eligible_tuzi_image_source_from_settings(
     settings_config: &Value,
-) -> Result<Option<(String, String)>, AppError> {
+) -> Result<Option<TuziImageSource>, AppError> {
+    Ok(tuzi_image_source_from_settings(settings_config)?
+        .filter(|source| source.route_kind == TuziImageRouteKind::Coding))
+}
+
+pub(crate) fn tuzi_image_source_from_settings(
+    settings_config: &Value,
+) -> Result<Option<TuziImageSource>, AppError> {
     let Some(config_text) = settings_config.get("config").and_then(Value::as_str) else {
         return Ok(None);
     };
-    eligible_tuzi_image_source(config_text)
+    tuzi_image_source(config_text)
 }
 
 pub(crate) fn read_managed_image_api_key() -> Result<Option<String>, AppError> {
@@ -109,7 +129,7 @@ pub(crate) fn read_managed_image_api_key() -> Result<Option<String>, AppError> {
         .transpose()
 }
 
-fn eligible_tuzi_image_source(config_text: &str) -> Result<Option<(String, String)>, AppError> {
+fn tuzi_image_source(config_text: &str) -> Result<Option<TuziImageSource>, AppError> {
     if config_text.trim().is_empty() {
         return Ok(None);
     }
@@ -134,9 +154,9 @@ fn eligible_tuzi_image_source(config_text: &str) -> Result<Option<(String, Strin
     let Some(base_url) = provider.get("base_url").and_then(toml::Value::as_str) else {
         return Ok(None);
     };
-    if !is_supported_tuzi_image_source(base_url) {
+    let Some(route_kind) = classify_tuzi_image_route(base_url) else {
         return Ok(None);
-    }
+    };
     let Some(env_key) = provider
         .get("env_key")
         .and_then(toml::Value::as_str)
@@ -146,12 +166,16 @@ fn eligible_tuzi_image_source(config_text: &str) -> Result<Option<(String, Strin
         return Ok(None);
     };
     validate_env_key(env_key)?;
-    Ok(Some((base_url.to_string(), env_key.to_string())))
+    Ok(Some(TuziImageSource {
+        base_url: base_url.to_string(),
+        env_key: env_key.to_string(),
+        route_kind,
+    }))
 }
 
-fn is_supported_tuzi_image_source(raw: &str) -> bool {
+fn classify_tuzi_image_route(raw: &str) -> Option<TuziImageRouteKind> {
     let Ok(url) = url::Url::parse(raw.trim()) else {
-        return false;
+        return None;
     };
     if url.scheme() != "https"
         || url.host_str() != Some(TUZI_IMAGE_HOST)
@@ -161,9 +185,13 @@ fn is_supported_tuzi_image_source(raw: &str) -> bool {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return false;
+        return None;
     }
-    matches!(url.path(), "/v1" | "/v1/" | "/coding" | "/coding/")
+    match url.path() {
+        "/v1" | "/v1/" => Some(TuziImageRouteKind::NativeV1),
+        "/coding" | "/coding/" => Some(TuziImageRouteKind::Coding),
+        _ => None,
+    }
 }
 
 fn validate_env_key(env_key: &str) -> Result<(), AppError> {
@@ -456,14 +484,23 @@ mod tests {
     }
 
     #[test]
-    fn tuzi_source_accepts_only_exact_v1_and_coding_routes() {
+    fn tuzi_source_classifies_only_exact_v1_and_coding_routes() {
+        for accepted in ["https://api.tu-zi.com/v1", "https://api.tu-zi.com/v1/"] {
+            assert_eq!(
+                classify_tuzi_image_route(accepted),
+                Some(TuziImageRouteKind::NativeV1),
+                "{accepted}"
+            );
+        }
         for accepted in [
-            "https://api.tu-zi.com/v1",
-            "https://api.tu-zi.com/v1/",
             "https://api.tu-zi.com/coding",
             "https://api.tu-zi.com/coding/",
         ] {
-            assert!(is_supported_tuzi_image_source(accepted), "{accepted}");
+            assert_eq!(
+                classify_tuzi_image_route(accepted),
+                Some(TuziImageRouteKind::Coding),
+                "{accepted}"
+            );
         }
         for rejected in [
             "http://api.tu-zi.com/v1",
@@ -474,8 +511,32 @@ mod tests {
             "https://api.tu-zi.com/coding#x",
             "https://api.tu-zi.com:8443/v1",
         ] {
-            assert!(!is_supported_tuzi_image_source(rejected), "{rejected}");
+            assert_eq!(classify_tuzi_image_route(rejected), None, "{rejected}");
         }
+    }
+
+    #[test]
+    fn only_coding_route_is_eligible_for_managed_image_compat() {
+        let native = serde_json::json!({
+            "config": config("https://api.tu-zi.com/v1", "TUZI_CODEX_API_KEY")
+        });
+        let coding = serde_json::json!({
+            "config": config("https://api.tu-zi.com/coding", "CODING_CODEX_API_KEY")
+        });
+
+        let native_source = tuzi_image_source_from_settings(&native)
+            .expect("native source")
+            .expect("classified native source");
+        assert_eq!(native_source.route_kind, TuziImageRouteKind::NativeV1);
+        assert!(eligible_tuzi_image_source_from_settings(&native)
+            .expect("native eligibility")
+            .is_none());
+
+        let coding_source = eligible_tuzi_image_source_from_settings(&coding)
+            .expect("coding eligibility")
+            .expect("eligible coding source");
+        assert_eq!(coding_source.route_kind, TuziImageRouteKind::Coding);
+        assert_eq!(coding_source.env_key, "CODING_CODEX_API_KEY");
     }
 
     #[test]
@@ -556,7 +617,7 @@ mod tests {
 
         let auth = serde_json::json!({
             "auth": {"OPENAI_API_KEY": "auth-key"},
-            "config": config("https://api.tu-zi.com/v1", "TUZI01_CODEX_API_KEY")
+            "config": config("https://api.tu-zi.com/coding", "TUZI01_CODEX_API_KEY")
         });
         assert!(reconcile_managed_image_api_key(Some(&auth)).expect("auth"));
         assert_eq!(
@@ -611,7 +672,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn tuzi_provider_cannot_read_arbitrary_process_env() {
+    fn coding_provider_cannot_read_arbitrary_process_env() {
         let temp = tempfile::tempdir().expect("tempdir");
         let old_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_secret = std::env::var_os("AWS_SECRET_ACCESS_KEY");
@@ -619,7 +680,7 @@ mod tests {
         std::env::set_var("AWS_SECRET_ACCESS_KEY", "must-not-copy");
         let settings = serde_json::json!({
             "auth": {},
-            "config": config("https://api.tu-zi.com/v1", "AWS_SECRET_ACCESS_KEY")
+            "config": config("https://api.tu-zi.com/coding", "AWS_SECRET_ACCESS_KEY")
         });
 
         assert!(!reconcile_managed_image_api_key(Some(&settings)).expect("reject"));
@@ -627,6 +688,24 @@ mod tests {
 
         restore_env("CC_SWITCH_TEST_HOME", old_home);
         restore_env("AWS_SECRET_ACCESS_KEY", old_secret);
+    }
+
+    #[test]
+    #[serial]
+    fn native_v1_route_clears_previous_derived_image_key() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let old_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        codex_config::write_managed_env_key_file(IMAGE_API_KEY_ENV, "old-image-key")
+            .expect("seed image key");
+        let settings = serde_json::json!({
+            "auth": {"OPENAI_API_KEY": "native-key"},
+            "config": config("https://api.tu-zi.com/v1", "TUZI_CODEX_API_KEY")
+        });
+
+        assert!(!reconcile_managed_image_api_key(Some(&settings)).expect("native route"));
+        assert!(read_managed_image_api_key().expect("read").is_none());
+        restore_env("CC_SWITCH_TEST_HOME", old_home);
     }
 
     #[test]

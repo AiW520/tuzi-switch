@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    get_claude_settings_path, read_json_file, write_codex_live_atomic, AppError, AppType, McpApps,
-    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
+    get_claude_settings_path, read_json_file, write_codex_env_key, write_codex_live_atomic,
+    AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -326,6 +326,15 @@ command = "echo"
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
+    state
+        .db
+        .set_current_provider(AppType::Codex.as_str(), "codex-subscription")
+        .expect("set database current provider");
+    tuzi_switch_lib::update_settings(tuzi_switch_lib::AppSettings {
+        current_provider_codex: Some("codex-subscription".to_string()),
+        ..tuzi_switch_lib::AppSettings::default()
+    })
+    .expect("set local current provider");
 
     ProviderService::clear_live_config(&state, AppType::Codex, "codex-subscription")
         .expect("clear codex config");
@@ -858,7 +867,7 @@ fn provider_service_clear_config_only_clears_matching_current_markers() {
 fn provider_service_switch_codex_preserves_live_model_provider_id_for_history() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let _home = ensure_test_home();
+    let home = ensure_test_home();
 
     let legacy_auth = json!({ "OPENAI_API_KEY": "rightcode-key" });
     let legacy_config = r#"model_provider = "rightcode"
@@ -867,6 +876,7 @@ model = "gpt-5.4"
 [model_providers.rightcode]
 name = "RightCode"
 base_url = "https://rightcode.example/v1"
+env_key = "RIGHTCODE_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false
 "#;
@@ -904,6 +914,7 @@ model = "gpt-5.4"
 [model_providers.aihubmix]
 name = "AiHubMix"
 base_url = "https://aihubmix.example/v1"
+env_key = "AIHUBMIX_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false
 "#
@@ -914,6 +925,11 @@ requires_openai_auth = false
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key(
+        "AIHUBMIX_API_KEY".to_string(),
+        "real-provider-key".to_string(),
+    )
+    .expect("seed selected provider env key");
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -924,25 +940,46 @@ requires_openai_auth = false
 
     assert_eq!(
         parsed.get("model_provider").and_then(|v| v.as_str()),
-        Some("aihubmix"),
-        "live Codex model_provider should point at the selected provider"
+        Some("rightcode"),
+        "live Codex model_provider should preserve the existing session anchor"
     );
 
     let model_providers = parsed
         .get("model_providers")
         .and_then(|v| v.as_table())
         .expect("model_providers table exists");
-    assert!(
-        model_providers.get("rightcode").is_some(),
-        "existing provider entry should be preserved in main config"
-    );
     assert_eq!(
         model_providers
-            .get("aihubmix")
+            .get("rightcode")
             .and_then(|v| v.get("base_url"))
             .and_then(|v| v.as_str()),
         Some("https://aihubmix.example/v1"),
-        "target provider id should point at the newly selected supplier endpoint"
+        "stable provider id should point at the newly selected supplier endpoint"
+    );
+    assert_eq!(
+        model_providers
+            .get("rightcode")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str()),
+        Some("RightCode"),
+        "stable provider name should be preserved"
+    );
+    assert_eq!(
+        model_providers
+            .get("rightcode")
+            .and_then(|v| v.get("env_key"))
+            .and_then(|v| v.as_str()),
+        Some("RIGHTCODE_API_KEY"),
+        "stable provider env_key should be preserved"
+    );
+    let shell_rc = std::fs::read_to_string(home.join(".zshrc")).expect("read managed env rc");
+    assert!(
+        shell_rc.contains("export RIGHTCODE_API_KEY='real-provider-key'"),
+        "selected provider env key should be mapped through the stable anchor env_key"
+    );
+    assert!(
+        !shell_rc.contains("export RIGHTCODE_API_KEY='fresh-key'"),
+        "stored auth must not overwrite the stable anchor env_key"
     );
 
     let providers = state
@@ -1035,13 +1072,15 @@ requires_openai_auth = false
         Some("rightcode"),
         "adding a non-current Codex provider must not switch the active provider"
     );
-    assert!(
-        parsed
-            .get("model_providers")
-            .and_then(|v| v.get("codex_sub"))
-            .is_some(),
-        "main config.toml should include the newly added provider"
-    );
+    let registered_route_id = parsed
+        .get("model_providers")
+        .and_then(|value| value.as_table())
+        .and_then(|providers| {
+            providers
+                .keys()
+                .find(|route_id| route_id.starts_with("provider-coding"))
+        })
+        .expect("main config.toml should include the numbered Coding provider");
     assert!(
         config_text.contains("[mcp_servers.keep]"),
         "existing Codex config sections should be preserved"
@@ -1050,7 +1089,7 @@ requires_openai_auth = false
     let profile_path = home.join(".codex").join("codex订阅-我的线路.config.toml");
     let profile_text = std::fs::read_to_string(profile_path).expect("read codex profile");
     assert!(
-        profile_text.contains("[model_providers.codex_sub]"),
+        profile_text.contains(&format!("[model_providers.{registered_route_id}]")),
         "Codex profile config should be created for the provider"
     );
 }
@@ -1110,8 +1149,14 @@ X-Custom-Trace = "keep-me"
     let parsed: toml::Value = toml::from_str(&config_text).expect("parse config");
     let provider = parsed
         .get("model_providers")
-        .and_then(|value| value.get("codex_sub"))
-        .expect("codex_sub provider should be registered");
+        .and_then(|value| value.as_table())
+        .and_then(|providers| {
+            providers
+                .iter()
+                .find(|(route_id, _)| route_id.starts_with("provider-coding"))
+                .map(|(_, provider)| provider)
+        })
+        .expect("numbered Coding provider should be registered");
 
     assert_eq!(
         provider

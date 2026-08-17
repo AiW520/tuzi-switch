@@ -412,7 +412,7 @@ base_url = "http://localhost:8080"
             })
             .expect("enable unified history");
 
-            let provider = Provider::with_id(
+            let mut provider = Provider::with_id(
                 "codex-provider".into(),
                 "Codex Provider".into(),
                 json!({
@@ -430,6 +430,7 @@ wire_api = "responses"
                 }),
                 None,
             );
+            provider.category = Some("official".to_string());
             state
                 .db
                 .save_provider(AppType::Codex.as_str(), &provider)

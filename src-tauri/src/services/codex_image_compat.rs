@@ -57,6 +57,7 @@ pub(crate) struct CodexImageCompatState {
 pub enum CodexImageCompatReadinessReason {
     Disabled,
     NoProvider,
+    NativeRoute,
     UnsupportedProvider,
     ProviderConfigInvalid,
     MissingCredential,
@@ -145,10 +146,14 @@ pub(crate) async fn readiness(state: &AppState) -> Result<CodexImageCompatReadin
     let Some(provider) = current_codex_provider_settings(state.db.as_ref())? else {
         return Ok(readiness);
     };
-    match codex_image_config::eligible_tuzi_image_source_from_settings(&provider) {
-        Ok(Some((base_url, env_key))) => {
-            readiness.provider_base_url = Some(base_url);
-            readiness.provider_env_key = Some(env_key);
+    match codex_image_config::tuzi_image_source_from_settings(&provider) {
+        Ok(Some(source)) => {
+            readiness.provider_base_url = Some(source.base_url);
+            readiness.provider_env_key = Some(source.env_key);
+            if source.route_kind == codex_image_config::TuziImageRouteKind::NativeV1 {
+                readiness.reason = CodexImageCompatReadinessReason::NativeRoute;
+                return Ok(readiness);
+            }
         }
         Ok(None) => {
             readiness.reason = CodexImageCompatReadinessReason::UnsupportedProvider;

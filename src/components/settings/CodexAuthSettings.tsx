@@ -33,9 +33,12 @@ export function CodexAuthSettings({
   const [hasUnifyBackup, setHasUnifyBackup] = useState(false);
   const imageCompatStatus = useCodexImageCompatStatusQuery();
   const imageCompatRequested = settings.codexImageRenderCompat ?? true;
+  const imageCompatUsesNativeRoute =
+    imageCompatRequested && imageCompatStatus.data?.reason === "native_route";
   const imageCompatNotReadyReason =
     imageCompatRequested &&
     imageCompatStatus.data?.requested === true &&
+    !imageCompatUsesNativeRoute &&
     !imageCompatStatus.data.ready
       ? imageCompatStatus.data.reason
       : null;
@@ -147,7 +150,27 @@ export function CodexAuthSettings({
           })}
         </p>
       ) : null}
-      {imageCompatRequested ? (
+      {imageCompatUsesNativeRoute ? (
+        <div
+          className="ml-11 flex items-start gap-2 border-l-2 border-emerald-500/60 pl-4 text-xs leading-5"
+          data-testid="codex-image-native-route"
+        >
+          <CircleCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <p className="font-medium text-foreground">
+              {t("settings.codexImageRenderCompatNative.title")}
+            </p>
+            <p className="text-muted-foreground">
+              {t("settings.codexImageRenderCompatNative.description", {
+                baseUrl:
+                  imageCompatStatus.data?.providerBaseUrl ??
+                  "https://api.tu-zi.com/v1",
+              })}
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {imageCompatRequested && !imageCompatUsesNativeRoute ? (
         <div
           className="ml-11 space-y-3 border-l-2 border-rose-500/60 pl-4"
           data-testid="codex-image-compat-details"
