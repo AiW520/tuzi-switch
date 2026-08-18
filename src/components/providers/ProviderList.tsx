@@ -74,6 +74,7 @@ interface ProviderListProps {
   isProxyRunning?: boolean; // 代理服务运行状态
   isProxyTakeover?: boolean; // 代理接管模式（Live配置已被接管）
   activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
+  switchingProviderId?: string;
   onSetAsDefault?: (provider: Provider) => void; // OpenClaw: set as default model
 }
 
@@ -97,6 +98,7 @@ export function ProviderList({
   isProxyRunning = false,
   isProxyTakeover = false,
   activeProviderId,
+  switchingProviderId,
   onSetAsDefault,
 }: ProviderListProps) {
   const { t } = useTranslation();
@@ -564,6 +566,8 @@ export function ProviderList({
                   handleToggleFailover(provider.id, enabled)
                 }
                 activeProviderId={activeProviderId}
+                isSwitching={switchingProviderId === provider.id}
+                isSwitchDisabled={Boolean(switchingProviderId)}
                 // OpenClaw: default model / Hermes: model.provider === provider.id
                 isDefaultModel={
                   appId === "hermes"
@@ -731,6 +735,8 @@ interface SortableProviderCardProps {
   isInFailoverQueue: boolean;
   onToggleFailover: (enabled: boolean) => void;
   activeProviderId?: string;
+  isSwitching?: boolean;
+  isSwitchDisabled?: boolean;
   // OpenClaw: default model
   isDefaultModel?: boolean;
   onSetAsDefault?: () => void;
@@ -763,6 +769,8 @@ function SortableProviderCard({
   isInFailoverQueue,
   onToggleFailover,
   activeProviderId,
+  isSwitching,
+  isSwitchDisabled,
   isDefaultModel,
   onSetAsDefault,
 }: SortableProviderCardProps) {
@@ -816,6 +824,8 @@ function SortableProviderCard({
         isInFailoverQueue={isInFailoverQueue}
         onToggleFailover={onToggleFailover}
         activeProviderId={activeProviderId}
+        isSwitching={isSwitching}
+        isSwitchDisabled={isSwitchDisabled}
         // OpenClaw: default model
         isDefaultModel={isDefaultModel}
         onSetAsDefault={onSetAsDefault}

@@ -1202,6 +1202,84 @@ X-Custom-Trace = "keep-me"
 }
 
 #[test]
+fn provider_service_update_codex_preserves_edited_config_when_reloaded() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let state = create_test_state().expect("create test state");
+    let original = Provider::with_id(
+        "editable-codex".to_string(),
+        "Editable Codex".to_string(),
+        json!({
+            "auth": {},
+            "config": r#"model_provider = "editable"
+model = "gpt-5.5"
+
+[model_providers.editable]
+name = "editable"
+base_url = "https://example.com/v1"
+env_key = "EDITABLE_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#,
+            "env": { "envKey": "EDITABLE_CODEX_API_KEY" }
+        }),
+        Some("aggregator".to_string()),
+    );
+    ProviderService::add(&state, AppType::Codex, original, false)
+        .expect("add editable Codex provider");
+
+    let edited_config = r#"model_provider = "editable"
+model = "gpt-5.5"
+approval_policy = "never"
+
+[model_providers.editable]
+name = "editable"
+base_url = "https://example.com/v1"
+env_key = "EDITABLE_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+request_max_retries = 7
+
+[model_providers.editable.http_headers]
+X-Custom-Trace = "keep-me"
+
+[projects."/tmp/provider-editor"]
+trust_level = "trusted"
+"#;
+    let updated = Provider::with_id(
+        "editable-codex".to_string(),
+        "Editable Codex".to_string(),
+        json!({
+            "auth": {},
+            "config": edited_config,
+            "env": { "envKey": "EDITABLE_CODEX_API_KEY" }
+        }),
+        Some("aggregator".to_string()),
+    );
+    ProviderService::update(&state, AppType::Codex, None, updated)
+        .expect("update editable Codex provider");
+
+    let reloaded = ProviderService::list(&state, AppType::Codex)
+        .expect("reload Codex providers")
+        .shift_remove("editable-codex")
+        .expect("edited provider should remain available");
+    let reloaded_config = reloaded
+        .settings_config
+        .get("config")
+        .and_then(serde_json::Value::as_str)
+        .expect("reloaded provider config");
+
+    assert_eq!(reloaded_config, edited_config);
+    assert!(reloaded_config.contains("approval_policy = \"never\""));
+    assert!(reloaded_config.contains("request_max_retries = 7"));
+    assert!(reloaded_config.contains("X-Custom-Trace = \"keep-me\""));
+    assert!(reloaded_config.contains("[projects.\"/tmp/provider-editor\"]"));
+    assert!(reloaded_config.contains("trust_level = \"trusted\""));
+}
+
+#[test]
 fn provider_service_add_codex_tuzi_route_uses_numbered_provider_without_overwriting_existing_tuzi()
 {
     let _guard = test_mutex().lock().expect("acquire test mutex");

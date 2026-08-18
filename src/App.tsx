@@ -325,6 +325,7 @@ function App() {
     switchProvider,
     saveUsageScript,
     setAsDefaultModel,
+    switchingProviderId,
   } = useProviderActions(
     activeApp,
     isProxyRunning,
@@ -1083,6 +1084,7 @@ function App() {
                         isProxyRunning && isCurrentAppTakeoverActive
                       }
                       activeProviderId={activeProviderId}
+                      switchingProviderId={switchingProviderId}
                       onSwitch={switchProvider}
                       onEdit={(provider) => {
                         setEditingProvider(provider);

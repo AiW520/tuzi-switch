@@ -135,13 +135,20 @@ pub fn switch_provider_test_hook(
 }
 
 #[tauri::command]
-pub fn switch_provider(
-    state: State<'_, AppState>,
+pub async fn switch_provider(
+    app_handle: tauri::AppHandle,
     app: String,
     id: String,
 ) -> Result<SwitchResult, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    switch_provider_internal(&state, app_type, &id).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle
+            .try_state::<AppState>()
+            .ok_or_else(|| "应用状态不可用".to_string())?;
+        switch_provider_internal(state.inner(), app_type, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("供应商切换任务执行失败: {e}"))?
 }
 
 fn import_default_config_internal(state: &AppState, app_type: AppType) -> Result<bool, AppError> {

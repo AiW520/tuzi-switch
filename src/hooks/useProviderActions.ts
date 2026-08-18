@@ -361,6 +361,9 @@ export function useProviderActions(
     deleteProvider,
     saveUsageScript,
     setAsDefaultModel,
+    switchingProviderId: switchProviderMutation.isPending
+      ? switchProviderMutation.variables
+      : undefined,
     isLoading:
       addProviderMutation.isPending ||
       updateProviderMutation.isPending ||

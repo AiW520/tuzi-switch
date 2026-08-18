@@ -61,6 +61,8 @@ interface ProviderCardProps {
   isInFailoverQueue?: boolean; // 是否在故障转移队列中
   onToggleFailover?: (enabled: boolean) => void; // 切换故障转移队列
   activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
+  isSwitching?: boolean;
+  isSwitchDisabled?: boolean;
   // OpenClaw: default model
   isDefaultModel?: boolean;
   onSetAsDefault?: () => void;
@@ -158,6 +160,8 @@ export function ProviderCard({
   isInFailoverQueue = false,
   onToggleFailover,
   activeProviderId,
+  isSwitching = false,
+  isSwitchDisabled = false,
   // OpenClaw: default model
   isDefaultModel,
   onSetAsDefault,
@@ -664,6 +668,8 @@ export function ProviderCard({
             <ProviderActions
               appId={appId}
               isCurrent={isCurrent}
+              isSwitching={isSwitching}
+              isSwitchDisabled={isSwitchDisabled}
               isInConfig={isInConfig}
               isTesting={isTesting}
               isProxyTakeover={isProxyTakeover}
