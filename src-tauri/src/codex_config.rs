@@ -1774,6 +1774,37 @@ pub fn codex_auth_has_oauth_login_material(auth: &Value) -> bool {
     })
 }
 
+/// Only count material that Codex can authenticate with. Metadata such as
+/// `last_refresh` and `tokens.account_id` must not protect stale API-key auth.
+pub fn codex_auth_has_credential_login_material(auth: &Value) -> bool {
+    let Some(obj) = auth.as_object() else {
+        return false;
+    };
+
+    let value_present = |value: &Value| match value {
+        Value::Null => false,
+        Value::String(text) => !text.trim().is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(map) => !map.is_empty(),
+        _ => true,
+    };
+
+    if ["personal_access_token", "agent_identity", "bedrock_api_key"]
+        .iter()
+        .any(|key| obj.get(*key).is_some_and(value_present))
+    {
+        return true;
+    }
+
+    obj.get("tokens")
+        .and_then(Value::as_object)
+        .is_some_and(|tokens| {
+            ["id_token", "access_token", "refresh_token"]
+                .iter()
+                .any(|key| tokens.get(*key).is_some_and(value_present))
+        })
+}
+
 #[allow(dead_code)]
 pub fn extract_codex_api_key(auth: Option<&Value>, config_text: Option<&str>) -> Option<String> {
     auth.and_then(extract_codex_auth_api_key)
@@ -3035,7 +3066,20 @@ fn set_codex_model_catalog_json_field(
 
     match catalog_path {
         Some(path) => {
-            doc["model_catalog_json"] = toml_edit::value(path.to_string_lossy().as_ref());
+            let is_tuzi_switch_owned = doc
+                .get("model_catalog_json")
+                .and_then(|item| item.as_str())
+                .map(|configured_path| {
+                    configured_path == generated_path.to_string_lossy().as_ref()
+                        || Path::new(configured_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            == Some(TUZI_SWITCH_CODEX_MODEL_CATALOG_FILENAME)
+                })
+                .unwrap_or(true);
+            if is_tuzi_switch_owned {
+                doc["model_catalog_json"] = toml_edit::value(path.to_string_lossy().as_ref());
+            }
         }
         None => {
             let should_remove = doc
@@ -4324,6 +4368,38 @@ name = "any"
                 .is_none(),
             "model_catalog_json should stay top-level"
         );
+    }
+
+    #[test]
+    fn generated_catalog_preserves_user_owned_catalog_path() {
+        let input = r#"model_provider = "any"
+model_catalog_json = "/Users/me/.codex/my-custom-catalog.json"
+
+[model_providers.any]
+name = "any"
+"#;
+        let catalog_path = Path::new("/tmp/tuzi-switch-model-catalog.json");
+
+        let result = set_codex_model_catalog_json_field(input, Some(catalog_path)).unwrap();
+        let parsed: toml::Value = toml::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed
+                .get("model_catalog_json")
+                .and_then(|value| value.as_str()),
+            Some("/Users/me/.codex/my-custom-catalog.json")
+        );
+    }
+
+    #[test]
+    fn credential_login_material_ignores_metadata_residue() {
+        assert!(codex_auth_has_credential_login_material(&json!({
+            "tokens": { "refresh_token": "rt" }
+        })));
+        assert!(!codex_auth_has_credential_login_material(&json!({
+            "last_refresh": "2026-08-01T00:00:00Z",
+            "tokens": { "account_id": "acc" }
+        })));
     }
 
     #[test]
