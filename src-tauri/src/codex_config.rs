@@ -2622,6 +2622,60 @@ fn set_codex_active_provider_env_key(
     Ok(doc.to_string())
 }
 
+fn restore_codex_active_provider_route_fields(
+    config_text: &str,
+    template_config_text: &str,
+) -> Result<String, AppError> {
+    let template_doc = template_config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    let Some(template_provider_id) = active_codex_model_provider_id(&template_doc) else {
+        return Ok(config_text.to_string());
+    };
+    let Some(template_provider_table) = template_doc
+        .get("model_providers")
+        .and_then(|item| item.as_table())
+        .and_then(|providers| providers.get(template_provider_id.as_str()))
+        .and_then(|item| item.as_table())
+    else {
+        return Ok(config_text.to_string());
+    };
+
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    let Some(provider_id) = active_codex_model_provider_id(&doc) else {
+        return Ok(config_text.to_string());
+    };
+    let Some(provider_table) = doc
+        .get_mut("model_providers")
+        .and_then(|item| item.as_table_mut())
+        .and_then(|providers| providers.get_mut(provider_id.as_str()))
+        .and_then(|item| item.as_table_mut())
+    else {
+        return Ok(config_text.to_string());
+    };
+
+    for field in [
+        "name",
+        "base_url",
+        "wire_api",
+        "requires_openai_auth",
+        "supports_websockets",
+    ] {
+        match template_provider_table.get(field) {
+            Some(value) => {
+                provider_table[field] = value.clone();
+            }
+            None => {
+                provider_table.remove(field);
+            }
+        }
+    }
+
+    Ok(doc.to_string())
+}
+
 /// Convert a Codex live config that was normalized for history stability back
 /// to the provider-specific id used by the stored provider template.
 pub fn restore_codex_settings_config_model_provider_for_backfill(
@@ -2648,6 +2702,9 @@ pub fn restore_codex_settings_config_model_provider_for_backfill(
         restore_codex_backfill_model_provider_id(&config_text, template_config_text)?;
 
     if let Some(template_env_key) = template_env_key_state {
+        if live_env_key != template_env_key {
+            restored = restore_codex_active_provider_route_fields(&restored, template_config_text)?;
+        }
         restored = set_codex_active_provider_env_key(&restored, template_env_key.as_deref())?;
         if live_env_key != template_env_key {
             restored = remove_codex_live_only_provider_fields(&restored)?;
@@ -3857,7 +3914,8 @@ name = "Existing Route"
 base_url = "https://existing.example/v1"
 "#;
 
-        let result = inject_codex_unified_session_bucket(input).expect("inject unified bucket");
+        let result = inject_codex_unified_session_bucket_with_id(input, "custom")
+            .expect("inject unified bucket");
 
         let parsed: toml::Value = toml::from_str(&result).expect("parse result");
         assert_eq!(
@@ -4599,6 +4657,106 @@ env_key = "EXISTING_CODEX_API_KEY"
                 .pointer("/auth/OPENAI_API_KEY")
                 .and_then(Value::as_str),
             Some("expired-login-key")
+        );
+    }
+
+    #[test]
+    fn restore_backfill_rejects_route_fields_from_a_different_env_key() {
+        let mut live_settings = json!({
+            "auth": {},
+            "env": { "envKey": "TUZI_CODEX_API_KEY" },
+            "config": r#"model_provider = "session_anchor"
+
+[model_providers.session_anchor]
+name = "Rabbit Route"
+base_url = "https://api.tu-zi.com/v1"
+env_key = "TUZI_CODEX_API_KEY"
+wire_api = "chat"
+requires_openai_auth = true
+"#,
+        });
+        let template_settings = json!({
+            "auth": {},
+            "env": { "envKey": "CODING01_CODEX_API_KEY" },
+            "config": r#"model_provider = "coding"
+
+[model_providers.coding]
+name = "Codex Subscription"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODING01_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#,
+        });
+
+        restore_codex_settings_for_backfill(&mut live_settings, &template_settings, true).unwrap();
+
+        let config = live_settings.get("config").and_then(Value::as_str).unwrap();
+        let parsed: toml::Value = toml::from_str(config).unwrap();
+        let provider = parsed
+            .get("model_providers")
+            .and_then(|providers| providers.get("coding"))
+            .expect("restored coding provider");
+        assert_eq!(
+            provider.get("base_url").and_then(|value| value.as_str()),
+            Some("https://api.tu-zi.com/coding")
+        );
+        assert_eq!(
+            provider.get("env_key").and_then(|value| value.as_str()),
+            Some("CODING01_CODEX_API_KEY")
+        );
+        assert_eq!(
+            provider.get("wire_api").and_then(|value| value.as_str()),
+            Some("responses")
+        );
+        assert_eq!(
+            provider
+                .get("requires_openai_auth")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn restore_backfill_keeps_manual_route_edits_for_the_same_env_key() {
+        let mut live_settings = json!({
+            "auth": {},
+            "env": { "envKey": "CODING01_CODEX_API_KEY" },
+            "config": r#"model_provider = "session_anchor"
+
+[model_providers.session_anchor]
+name = "Codex Subscription"
+base_url = "https://api.tu-zi.com/coding-fast"
+env_key = "CODING01_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#,
+        });
+        let template_settings = json!({
+            "auth": {},
+            "env": { "envKey": "CODING01_CODEX_API_KEY" },
+            "config": r#"model_provider = "coding"
+
+[model_providers.coding]
+name = "Codex Subscription"
+base_url = "https://api.tu-zi.com/coding"
+env_key = "CODING01_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#,
+        });
+
+        restore_codex_settings_for_backfill(&mut live_settings, &template_settings, true).unwrap();
+
+        let config = live_settings.get("config").and_then(Value::as_str).unwrap();
+        let parsed: toml::Value = toml::from_str(config).unwrap();
+        assert_eq!(
+            parsed
+                .get("model_providers")
+                .and_then(|providers| providers.get("coding"))
+                .and_then(|provider| provider.get("base_url"))
+                .and_then(|value| value.as_str()),
+            Some("https://api.tu-zi.com/coding-fast")
         );
     }
 

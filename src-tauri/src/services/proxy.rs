@@ -155,6 +155,13 @@ impl ProxyService {
         });
     }
 
+    pub(crate) async fn lock_switch_for_app(
+        &self,
+        app_type: &str,
+    ) -> tokio::sync::OwnedMutexGuard<()> {
+        self.switch_locks.lock_for_app(app_type).await
+    }
+
     pub(crate) fn has_app_handle(&self) -> bool {
         self.app_handle
             .try_read()
@@ -1670,6 +1677,14 @@ impl ProxyService {
     ) -> Result<HotSwitchOutcome, String> {
         let _guard = self.switch_locks.lock_for_app(app_type).await;
 
+        self.hot_switch_provider_inner(app_type, provider_id).await
+    }
+
+    pub(crate) async fn hot_switch_provider_inner(
+        &self,
+        app_type: &str,
+        provider_id: &str,
+    ) -> Result<HotSwitchOutcome, String> {
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("无效的应用类型: {app_type}"))?;
         let provider = self

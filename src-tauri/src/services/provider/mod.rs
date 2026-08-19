@@ -320,6 +320,109 @@ mod tests {
         }
     }
 
+    fn codex_provider(id: &str, base_url: &str, env_key: &str) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: format!("Provider {id}"),
+            settings_config: json!({
+                "auth": {},
+                "env": { "envKey": env_key },
+                "config": format!(r#"model_provider = "{id}"
+
+[model_providers.{id}]
+name = "Provider {id}"
+base_url = "{base_url}"
+env_key = "{env_key}"
+wire_api = "responses"
+requires_openai_auth = false
+"#),
+            }),
+            website_url: None,
+            category: Some("custom".to_string()),
+            created_at: Some(1),
+            sort_index: Some(0),
+            notes: None,
+            meta: None,
+            icon: None,
+            icon_color: None,
+            in_failover_queue: false,
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn normal_codex_switch_waits_for_the_per_app_switch_lock() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let state = Arc::new(AppState::new(db.clone()));
+        let provider_a = codex_provider(
+            "provider-a",
+            "https://api.tu-zi.com/coding",
+            "PROVIDER_A_CODEX_API_KEY",
+        );
+        let provider_b = codex_provider(
+            "provider-b",
+            "https://api.tu-zi.com/v1",
+            "PROVIDER_B_CODEX_API_KEY",
+        );
+        db.save_provider(AppType::Codex.as_str(), &provider_a)
+            .expect("save provider a");
+        db.save_provider(AppType::Codex.as_str(), &provider_b)
+            .expect("save provider b");
+        db.set_current_provider(AppType::Codex.as_str(), "provider-a")
+            .expect("set db current");
+        crate::settings::set_current_provider(&AppType::Codex, Some("provider-a"))
+            .expect("set local current");
+        crate::codex_config::write_codex_live_atomic(
+            &json!({}),
+            provider_a
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str),
+        )
+        .expect("seed live config");
+
+        let guard = tauri::async_runtime::block_on(
+            state
+                .proxy_service
+                .lock_switch_for_app(AppType::Codex.as_str()),
+        );
+        let (tx, rx) = mpsc::channel();
+        let switch_state = state.clone();
+        let handle = std::thread::spawn(move || {
+            let result = ProviderService::switch(&switch_state, AppType::Codex, "provider-b");
+            tx.send(result).expect("send switch result");
+        });
+
+        assert!(
+            rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "normal Codex switch must wait while the per-app lock is held"
+        );
+        assert_eq!(
+            crate::settings::get_effective_current_provider(&db, &AppType::Codex)
+                .expect("read current while locked")
+                .as_deref(),
+            Some("provider-a")
+        );
+
+        drop(guard);
+        rx.recv_timeout(Duration::from_secs(2))
+            .expect("switch should finish after lock release")
+            .expect("switch provider");
+        handle.join().expect("join switch thread");
+        assert_eq!(
+            crate::settings::get_effective_current_provider(&db, &AppType::Codex)
+                .expect("read final current")
+                .as_deref(),
+            Some("provider-b")
+        );
+    }
+
     fn omo_config_path(home: &Path, category: &str) -> PathBuf {
         home.join(".config").join("opencode").join(match category {
             "omo" => crate::services::omo::STANDARD.preferred_filename,
@@ -1721,6 +1824,17 @@ impl ProviderService {
             return Self::switch_normal(state, app_type, id, &providers);
         }
 
+        // Switching and takeover both mutate current-provider state and live files.
+        // Keep the complete read/backfill/write sequence serialized per app.
+        let _switch_guard =
+            if matches!(app_type, AppType::Claude | AppType::Codex | AppType::Gemini) {
+                Some(futures::executor::block_on(
+                    state.proxy_service.lock_switch_for_app(app_type.as_str()),
+                ))
+            } else {
+                None
+            };
+
         let is_app_taken_over =
             futures::executor::block_on(state.db.get_live_backup(app_type.as_str()))
                 .ok()
@@ -1755,7 +1869,7 @@ impl ProviderService {
             futures::executor::block_on(
                 state
                     .proxy_service
-                    .hot_switch_provider(app_type.as_str(), id),
+                    .hot_switch_provider_inner(app_type.as_str(), id),
             )
             .map_err(|e| AppError::Message(format!("热切换失败: {e}")))?;
 

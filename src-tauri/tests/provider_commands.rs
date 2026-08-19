@@ -1281,13 +1281,17 @@ requires_openai_auth = false
         .db
         .get_all_providers(AppType::Codex.as_str())
         .expect("read providers");
-    for (route, env_key, _, _) in routes {
+    for (route, env_key, _, base_url) in routes {
         let stored = providers[route].settings_config["config"]
             .as_str()
             .expect("stored provider config");
         assert!(
             stored.contains(&format!("env_key = \"{env_key}\"")),
             "backfill must restore the provider-specific env_key for {route}"
+        );
+        assert!(
+            stored.contains(&format!("base_url = \"{base_url}\"")),
+            "backfill must preserve the provider-specific base_url for {route}"
         );
     }
 }
