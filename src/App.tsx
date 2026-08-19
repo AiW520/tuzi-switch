@@ -54,6 +54,7 @@ import { useLastValidValue } from "@/hooks/useLastValidValue";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
 import { cn } from "@/lib/utils";
+import { REPOSITORY_URL } from "@/lib/releaseRepository";
 import {
   isWindows,
   isLinux,
@@ -1308,7 +1309,7 @@ function App() {
               <div className="flex items-center gap-2">
                 <div className="relative inline-flex items-center">
                   <a
-                    href="https://github.com/tuziapi/tuzi-switch"
+                    href={REPOSITORY_URL}
                     target="_blank"
                     rel="noreferrer"
                     className={cn(

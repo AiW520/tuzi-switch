@@ -82,7 +82,7 @@ Tauri 的 deb 打包器会把 `productName` 转成 kebab-case 后写入 Debian �
 ## 用户临时规避方案（在新版本发布前）
 
 - 优先使用 `.AppImage`（本次问题不影响 AppImage）
-- 或使用一键安装脚本：`curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@<tag>/scripts/install_tuzi_switch.sh | bash`
+- 或使用一键安装脚本：`curl -fsSL https://cdn.jsdelivr.net/gh/AiW520/tuzi-switch@<tag>/scripts/install_tuzi_switch.sh | bash`
 - 若必须使用 deb：可以下载后用 `dpkg-deb -R` 拆包、手动改 `DEBIAN/control` 中的 `Package:` 值，再 `dpkg-deb -b` 重打包；但推荐直接等下一版发布
 
 ## 验证方式

@@ -18,6 +18,8 @@ permissions:
 env:
   PNPM_VERSION: "9"
   NODE_VERSION: "20"
+  TUZI_SWITCH_RELEASE_REPOSITORY: ${{ github.repository }}
+  VITE_RELEASE_REPOSITORY: ${{ github.repository }}
 
 jobs:
   create-release:
@@ -94,10 +96,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-            pnpm tauri build --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --unsigned)"
           else
-            pnpm tauri build --target aarch64-apple-darwin
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs)"
           fi
+          pnpm tauri build --target aarch64-apple-darwin --config "$RELEASE_CONFIG"
       - name: Collect assets
         shell: bash
         run: |
@@ -158,10 +161,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-            pnpm tauri build --config '{"productName":"tuzi switch","bundle":{"createUpdaterArtifacts":false}}'
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name --unsigned)"
           else
-            pnpm tauri build --config '{"productName":"tuzi switch"}'
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name)"
           fi
+          pnpm tauri build --config "$RELEASE_CONFIG"
       - name: Collect assets
         shell: pwsh
         run: |
@@ -229,10 +233,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-            pnpm tauri build --config '{"productName":"tuzi switch","bundle":{"createUpdaterArtifacts":false}}'
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name --unsigned)"
           else
-            pnpm tauri build --config '{"productName":"tuzi switch"}'
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name)"
           fi
+          pnpm tauri build --config "$RELEASE_CONFIG"
       - name: Collect assets
         shell: bash
         run: |

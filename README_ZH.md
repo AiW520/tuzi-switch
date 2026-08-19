@@ -4,24 +4,24 @@
 
 ### 面向 Claude Code、Codex、Gemini 与 OpenClaw 的兔子业务桌面助手
 
-[![版本](https://img.shields.io/github/v/release/tuziapi/tuzi-switch?color=0ea5e9&label=version)](https://github.com/tuziapi/tuzi-switch/releases)
-[![下载量](https://img.shields.io/github/downloads/tuziapi/tuzi-switch/total?color=f97316)](https://github.com/tuziapi/tuzi-switch/releases)
-[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-94a3b8)](https://github.com/tuziapi/tuzi-switch/releases)
+[![版本](https://img.shields.io/github/v/release/AiW520/tuzi-switch?color=0ea5e9&label=version)](https://github.com/AiW520/tuzi-switch/releases)
+[![下载量](https://img.shields.io/github/downloads/AiW520/tuzi-switch/total?color=f97316)](https://github.com/AiW520/tuzi-switch/releases)
+[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-94a3b8)](https://github.com/AiW520/tuzi-switch/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-111827)](https://tauri.app/)
 
-中文 | [English](README_EN.md) | [日本語](README_JA.md) | [Releases](https://github.com/tuziapi/tuzi-switch/releases)
+中文 | [English](README_EN.md) | [日本語](README_JA.md) | [Releases](https://github.com/AiW520/tuzi-switch/releases)
 
 </div>
 
 ## 下载
 
-最新安装包请前往 [GitHub Releases](https://github.com/tuziapi/tuzi-switch/releases)。
+最新安装包请前往 [GitHub Releases](https://github.com/AiW520/tuzi-switch/releases)。
 
 推荐下载方式：
 
 - Windows：下载 Windows 安装包
 - Linux：根据发行版选择 `.AppImage`、`.deb` 或 `.rpm`
-- macOS：下载 `macOS-unsigned.dmg` 或 `macOS-unsigned.zip`
+- macOS：下载 `tuzi-switch-macos-aarch64.dmg`
 
 目前公开 Release 已支持 Windows、macOS 和 Linux 用户下载使用。
 
@@ -29,14 +29,14 @@
 
 直接安装当前推荐版本：
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/tuziapi/tuzi-switch@main/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/AiW520/tuzi-switch@main/scripts/install_tuzi_switch.sh | bash
 ```
 ```
 open "/Applications/兔子switch.app"
 ```
 安装指定版本：
 ```
-TUZI_SWITCH_TAG=v1.2.0 curl -fsSL https://raw.githubusercontent.com/tuziapi/tuzi-switch/v1.2.0/scripts/install_tuzi_switch.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AiW520/tuzi-switch/main/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.5 bash
 ```
 ```
 open "/Applications/兔子switch.app"
@@ -44,9 +44,9 @@ open "/Applications/兔子switch.app"
 补充说明：
 
 - 当前 Release 已按正式版本发布，GitHub `releases/latest` 会优先命中当前推荐版本
-- 当前 README 默认固定到 `v1.2.0`，这样可以确保安装到我们当前推荐版本
+- 默认安装当前最新 Release；指定 `TUZI_SWITCH_TAG` 可安装固定版本
 - 需要安装其它版本时，可以改用 `env TUZI_SWITCH_TAG=vX.Y.Z bash`
-- 这个脚本会自动按系统选择对应安装包，macOS 装 `.zip`，Linux 装 `.AppImage`
+- 这个脚本会自动按系统选择对应安装包，macOS 装 `.dmg`，Linux 装 `.AppImage`
 
 ### macOS 未签名包打开方式
 
@@ -77,7 +77,9 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.2.0`，这一轮更新重点包括：
+当前公开版本为 `v1.2.5`。本版本将应用内更新、Release 页面、安装脚本和文档统一到实际构建仓库，并保留构建时仓库覆盖能力，避免再次下载到上游旧版本。
+
+这一轮同时包含以下 Codex 稳定性更新：
 
 ### Codex 官方登录与会话历史统一
 
@@ -135,7 +137,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/tuziapi/tuzi-switch/releases) 下载最新安装包。
+1. 从 [Releases](https://github.com/AiW520/tuzi-switch/releases) 下载最新安装包。
 2. 打开 `tuzi-switch`。
 3. 选择 Claude Code、Codex、Gemini 或 OpenClaw。
 4. 在引导流程中输入你的兔子 Key。
