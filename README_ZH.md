@@ -36,7 +36,7 @@ open "/Applications/兔子switch.app"
 ```
 安装指定版本：
 ```
-curl -fsSL https://raw.githubusercontent.com/AiW520/tuzi-switch/main/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.5 bash
+curl -fsSL https://raw.githubusercontent.com/AiW520/tuzi-switch/main/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.6 bash
 ```
 ```
 open "/Applications/兔子switch.app"
@@ -77,7 +77,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.2.5`。本版本将应用内更新、Release 页面、安装脚本和文档统一到实际构建仓库，并保留构建时仓库覆盖能力，避免再次下载到上游旧版本。
+当前公开版本为 `v1.2.6`。本版本将应用内更新、Release 页面、安装脚本和文档统一到实际构建仓库，并保留构建时仓库覆盖能力，避免再次下载到上游旧版本。
 
 这一轮同时包含以下 Codex 稳定性更新：
 
