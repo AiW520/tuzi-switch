@@ -36,7 +36,7 @@ open "/Applications/兔子switch.app"
 ```
 安装指定版本：
 ```
-curl -fsSL https://cdn.jsdelivr.net/gh/AiW520/tuzi-switch@main/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.7 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/AiW520/tuzi-switch@main/scripts/install_tuzi_switch.sh | TUZI_SWITCH_TAG=v1.2.8 bash
 ```
 ```
 open "/Applications/兔子switch.app"
@@ -76,7 +76,7 @@ tuzi-switch 是基于 CC Switch 定制的兔子业务版本。它保留了成熟
 
 ## 当前版本更新
 
-当前公开版本为 `v1.2.7`。本版本修复 Codex 多供应商切换时线路配置串写的问题，确保每张供应商卡片独立保留自己的 API 地址和 `env_key`。
+当前公开版本为 `v1.2.8`。本版本修复供应商缺少 API Key 时选择“仍要保存”后确认框可能残留在列表上方的问题；保存失败时仍会恢复确认框，便于用户重试。此前的 Codex 多供应商线路与 `env_key` 隔离保持不变。
 
 这一轮同时包含以下 Codex 稳定性更新：
 

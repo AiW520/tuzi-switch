@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { flushSync } from "react-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -3173,15 +3174,22 @@ function ProviderFormFull({
             setSoftIssues(null);
             return;
           }
-          setIsConfirmSubmitting(true);
+          const issuesToRestore = softIssues;
+          // Commit the nested dialog close before submit can close the parent
+          // panel; otherwise React's async event batching can leave its portal
+          // mounted over the provider list.
+          flushSync(() => {
+            setSoftIssues(null);
+            setIsConfirmSubmitting(true);
+          });
           try {
             await performSubmit(values, pendingCodexEnvKeyOverride);
-            setSoftIssues(null);
             setPendingFormValues(null);
             setPendingCodexEnvKeyOverride(undefined);
           } catch (error) {
             console.error("[ProviderForm] soft-confirm submit failed:", error);
-            // 保留确认框和 pending values，让用户可以重试或取消
+            // Restore the confirmation only when the actual save failed.
+            setSoftIssues(issuesToRestore);
           } finally {
             setIsConfirmSubmitting(false);
           }
