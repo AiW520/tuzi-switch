@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { flushSync } from "react-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +16,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { ImeSafeInput } from "@/components/ui/ime-safe-input";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import { providersApi, settingsApi, type AppId } from "@/lib/api";
 import type {
@@ -239,6 +241,9 @@ const normalizeCodexChatReasoningForSave = (
   };
 };
 
+const normalizeProviderKey = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+
 const CODEX_CUSTOM_NAME_DEFAULT = "我的配置";
 
 const buildPresetPrefixedName = (presetName: string, customName: string) => {
@@ -281,7 +286,9 @@ const isCodexTuziPreset = (preset: CodexProviderPreset) =>
 const isCodexCodingPreset = (preset: CodexProviderPreset) =>
   preset.icon === "codex-sub" ||
   preset.envKey === "CODING01_CODEX_API_KEY" ||
-  extractCodexRouteId(preset.config ?? "").startsWith(CODEX_CODING_ROUTE_PREFIX);
+  extractCodexRouteId(preset.config ?? "").startsWith(
+    CODEX_CODING_ROUTE_PREFIX,
+  );
 
 const formatCodexTuziRouteId = (index: number) =>
   `${CODEX_TUZI_ROUTE_PREFIX}${String(index).padStart(2, "0")}`;
@@ -963,6 +970,7 @@ function ProviderFormFull({
     isExtracting: isCodexExtracting,
     handleExtract: handleCodexExtract,
     clearCommonConfigError: clearCodexCommonConfigError,
+    isLoading: isCodexCommonConfigLoading,
   } = useCodexCommonConfig({
     codexConfig,
     onConfigChange: handleCodexConfigChange,
@@ -1319,9 +1327,11 @@ function ProviderFormFull({
         }
         finalEnvKey = `${finalEnvKey}_${counter}`;
 
-        toast.success(t("providerForm.envKeyAutoRenamed", {
-          defaultValue: `环境变量名冲突，已自动调整为 ${finalEnvKey}`,
-        }));
+        toast.success(
+          t("providerForm.envKeyAutoRenamed", {
+            defaultValue: `环境变量名冲突，已自动调整为 ${finalEnvKey}`,
+          }),
+        );
       }
       setCodexEnvKeyError("");
 
@@ -1536,10 +1546,16 @@ function ProviderFormFull({
       return;
     }
 
-    await performSubmit(values, appId === "codex" ? overriddenEnvKey : undefined);
+    await performSubmit(
+      values,
+      appId === "codex" ? overriddenEnvKey : undefined,
+    );
   };
 
-  const performSubmit = async (values: ProviderFormData, resolvedEnvKeyOverride?: string) => {
+  const performSubmit = async (
+    values: ProviderFormData,
+    resolvedEnvKeyOverride?: string,
+  ) => {
     // OAuth / 其它身份识别（与 handleSubmit 保持一致）
     const isCopilotProvider =
       templatePreset?.providerType === "github_copilot" ||
@@ -1628,10 +1644,7 @@ function ProviderFormFull({
           env: { envKey: string };
           modelCatalog?: { models: CodexCatalogModel[] };
         } = {
-          auth:
-            resolvedCodexEnvKey && codexApiKey
-              ? {}
-              : codexAuthObject,
+          auth: resolvedCodexEnvKey ? {} : codexAuthObject,
           config: normalizedCodexConfig,
           env: { envKey: resolvedCodexEnvKey },
         };
@@ -1654,10 +1667,13 @@ function ProviderFormFull({
           codexEnvKey
         ).trim();
         if (fallbackEnvKey) {
-          fallbackConfig = setCodexEnvKeyInConfig(fallbackConfig, fallbackEnvKey);
+          fallbackConfig = setCodexEnvKeyInConfig(
+            fallbackConfig,
+            fallbackEnvKey,
+          );
         }
         settingsConfig = JSON.stringify({
-          auth: parseCodexAuthObject(codexAuth),
+          auth: fallbackEnvKey ? {} : parseCodexAuthObject(codexAuth),
           config: fallbackConfig,
           env: {
             envKey: fallbackEnvKey,
@@ -2303,14 +2319,11 @@ function ProviderFormFull({
                     {t("opencode.providerKey")}
                     <span className="text-destructive ml-1">*</span>
                   </Label>
-                  <Input
+                  <ImeSafeInput
                     id="opencode-key"
                     value={opencodeForm.opencodeProviderKey}
-                    onChange={(e) =>
-                      opencodeForm.setOpencodeProviderKey(
-                        e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-                      )
-                    }
+                    onValueChange={opencodeForm.setOpencodeProviderKey}
+                    normalize={normalizeProviderKey}
                     placeholder={t("opencode.providerKeyPlaceholder")}
                     disabled={
                       isProviderKeyLocked || isProviderKeyLockStateLoading
@@ -2371,16 +2384,11 @@ function ProviderFormFull({
                         {t("openclaw.providerKey")}
                         <span className="text-destructive ml-1">*</span>
                       </Label>
-                      <Input
+                      <ImeSafeInput
                         id="openclaw-key"
                         value={openclawForm.openclawProviderKey}
-                        onChange={(e) =>
-                          openclawForm.setOpenclawProviderKey(
-                            e.target.value
-                              .toLowerCase()
-                              .replace(/[^a-z0-9-]/g, ""),
-                          )
-                        }
+                        onValueChange={openclawForm.setOpenclawProviderKey}
+                        normalize={normalizeProviderKey}
                         placeholder={t("openclaw.providerKeyPlaceholder")}
                         disabled={
                           isProviderKeyLocked || isProviderKeyLockStateLoading
@@ -2470,16 +2478,11 @@ function ProviderFormFull({
                         })}
                         <span className="text-destructive ml-1">*</span>
                       </Label>
-                      <Input
+                      <ImeSafeInput
                         id="hermes-key"
                         value={hermesForm.hermesProviderKey}
-                        onChange={(e) =>
-                          hermesForm.setHermesProviderKey(
-                            e.target.value
-                              .toLowerCase()
-                              .replace(/[^a-z0-9-]/g, ""),
-                          )
-                        }
+                        onValueChange={hermesForm.setHermesProviderKey}
+                        normalize={normalizeProviderKey}
                         placeholder={t("hermes.form.providerKeyPlaceholder", {
                           defaultValue: "my-provider",
                         })}
@@ -2975,6 +2978,7 @@ function ProviderFormFull({
                       configError={codexConfigError}
                       onExtract={handleCodexExtract}
                       isExtracting={isCodexExtracting}
+                      isCommonConfigLoading={isCodexCommonConfigLoading}
                     />
                     {settingsConfigErrorField}
                   </>
@@ -3170,15 +3174,22 @@ function ProviderFormFull({
             setSoftIssues(null);
             return;
           }
-          setIsConfirmSubmitting(true);
+          const issuesToRestore = softIssues;
+          // Commit the nested dialog close before submit can close the parent
+          // panel; otherwise React's async event batching can leave its portal
+          // mounted over the provider list.
+          flushSync(() => {
+            setSoftIssues(null);
+            setIsConfirmSubmitting(true);
+          });
           try {
             await performSubmit(values, pendingCodexEnvKeyOverride);
-            setSoftIssues(null);
             setPendingFormValues(null);
             setPendingCodexEnvKeyOverride(undefined);
           } catch (error) {
             console.error("[ProviderForm] soft-confirm submit failed:", error);
-            // 保留确认框和 pending values，让用户可以重试或取消
+            // Restore the confirmation only when the actual save failed.
+            setSoftIssues(issuesToRestore);
           } finally {
             setIsConfirmSubmitting(false);
           }

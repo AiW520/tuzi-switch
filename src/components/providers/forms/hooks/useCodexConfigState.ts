@@ -130,6 +130,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
   // 初始化 Codex 配置（编辑模式）
   useEffect(() => {
     if (!initialData) return;
+    let cancelled = false;
 
     const config = initialData.settingsConfig;
     if (typeof config === "object" && config !== null) {
@@ -185,25 +186,20 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
         getCodexProviderEnvKeyFromSettings({ ...config, config: configStr }) ||
         "";
       setCodexEnvKey(resolvedEnvKey);
+      setCodexApiKey("");
 
       // Read API key from shell rc via backend
       if (resolvedEnvKey) {
         invoke<string | null>("read_codex_env_key", { envKey: resolvedEnvKey })
           .then((key) => {
+            if (cancelled) return;
             if (key) setCodexApiKey(key);
             else if (migratedLegacyToken.migratedApiKey) {
               setCodexApiKey(migratedLegacyToken.migratedApiKey);
-            }
+            } else setCodexApiKey("");
           })
           .catch(() => {
-            // Fallback: legacy auth field
-            const auth = migratedLegacyToken.auth;
-            if (
-              auth?.OPENAI_API_KEY &&
-              typeof auth.OPENAI_API_KEY === "string"
-            ) {
-              setCodexApiKey(auth.OPENAI_API_KEY);
-            }
+            if (!cancelled) setCodexApiKey("");
           });
       } else {
         // Legacy provider without envKey
@@ -213,6 +209,10 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
         }
       }
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialData]);
 
   // 与 TOML 配置保持基础 URL 同步
