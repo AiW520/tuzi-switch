@@ -24,12 +24,9 @@ env:
 jobs:
   create-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       tag: ${{ steps.release-tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
       - name: Resolve release tag
         id: release-tag
         shell: bash
@@ -44,6 +41,14 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-tag.outputs.tag }}
+      - name: Test Codex image render fallback
+        run: >-
+          python3 -m unittest discover
+          -s src-tauri/resources/builtin-skills/codex-image-render-fallback/scripts
+          -p 'test_*.py'
       - name: Check release signing mode
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
