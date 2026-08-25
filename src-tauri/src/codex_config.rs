@@ -551,6 +551,44 @@ fn read_codex_env_file() -> HashMap<String, String> {
         .collect()
 }
 
+/// Read one key from Codex's `.env` using the same bounded input size as the
+/// Tuzi-managed environment file. Proxy and image compatibility callers must
+/// not fall back to arbitrary shell exports while resolving provider keys.
+pub(crate) fn read_codex_env_key_file(env_key: &str) -> Result<Option<String>, AppError> {
+    if !is_valid_env_key_name(env_key) {
+        return Ok(None);
+    }
+    let path = get_codex_env_file_path();
+    let file = match fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(AppError::io(&path, error)),
+    };
+    let size = file
+        .metadata()
+        .map_err(|error| AppError::io(&path, error))?
+        .len();
+    if size > MAX_MANAGED_ENV_FILE_BYTES {
+        return Err(AppError::Config("Codex .env 文件超过大小限制".to_string()));
+    }
+
+    let mut content = String::with_capacity(size as usize);
+    file.take(MAX_MANAGED_ENV_FILE_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|error| AppError::io(&path, error))?;
+    if content.len() as u64 > MAX_MANAGED_ENV_FILE_BYTES {
+        return Err(AppError::Config("Codex .env 文件超过大小限制".to_string()));
+    }
+
+    Ok(parse_env_file(&content)
+        .into_iter()
+        .find_map(|(key, value)| (key == env_key && is_valid_env_key_name(&key)).then_some(value))
+        .and_then(|value| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }))
+}
+
 fn write_codex_env_file(env_map: &HashMap<String, String>) -> Result<(), AppError> {
     let path = get_codex_env_file_path();
     if env_map.is_empty() {
@@ -3765,6 +3803,34 @@ wire_api = "responses"
             merged.get("TUZI_CODEX_API_KEY").map(String::as_str),
             Some("correct-token")
         );
+    }
+
+    #[test]
+    fn codex_dotenv_exact_reader_ignores_blank_values() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create Codex dir");
+        fs::write(
+            temp.path().join(".codex").join(".env"),
+            "BLANK_CODEX_API_KEY=   \nVALID_CODEX_API_KEY=  valid-key  \n",
+        )
+        .expect("write Codex dotenv");
+
+        assert_eq!(
+            read_codex_env_key_file("BLANK_CODEX_API_KEY").expect("read blank key"),
+            None
+        );
+        assert_eq!(
+            read_codex_env_key_file("VALID_CODEX_API_KEY").expect("read valid key"),
+            Some("valid-key".to_string())
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
     }
 
     #[test]
