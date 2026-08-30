@@ -1239,6 +1239,8 @@ pub fn run() {
             commands::read_live_provider_settings,
             commands::get_settings,
             commands::get_codex_image_compat_status,
+            commands::get_codex_subagent_settings,
+            commands::set_codex_subagent_max_concurrent_threads,
             commands::save_settings,
             commands::get_codex_history_anchor_status,
             commands::has_codex_unify_history_backup,

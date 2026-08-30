@@ -27,6 +27,7 @@ import {
 } from "./state";
 
 const TAURI_ENDPOINT = "http://tauri.local";
+let codexSubagentThreads: number | null = null;
 
 const withJson = async <T>(request: Request): Promise<T> => {
   try {
@@ -247,6 +248,27 @@ export const handlers = [
       personalizationInstruction:
         "只要是生成图片相关的需求，都使用 API Key 中内置的 gpt-image-2 生成，接口地址使用 https://api.tu-zi.com/v1。",
     }),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/get_codex_subagent_settings`, () =>
+    success({
+      maxConcurrentThreadsPerSession: codexSubagentThreads,
+      configPath: "/home/mock/.codex/config.toml",
+      usedLegacyAlias: false,
+    }),
+  ),
+
+  http.post(
+    `${TAURI_ENDPOINT}/set_codex_subagent_max_concurrent_threads`,
+    async ({ request }) => {
+      const { value } = await withJson<{ value: number | null }>(request);
+      codexSubagentThreads = value;
+      return success({
+        maxConcurrentThreadsPerSession: codexSubagentThreads,
+        configPath: "/home/mock/.codex/config.toml",
+        usedLegacyAlias: false,
+      });
+    },
   ),
 
   http.post(`${TAURI_ENDPOINT}/check_env_conflicts`, () => success([])),

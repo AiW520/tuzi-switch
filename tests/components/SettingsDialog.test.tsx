@@ -137,6 +137,10 @@ vi.mock("@/hooks/useImportExport", () => ({
     useImportExportSpy(options),
 }));
 
+vi.mock("@/components/settings/CodexSubagentSettings", () => ({
+  CodexSubagentSettings: () => <div>codex-subagent-settings</div>,
+}));
+
 vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),
@@ -154,6 +158,16 @@ vi.mock("@/lib/api", () => ({
         "只要是生成图片相关的需求，都使用 API Key 中内置的 gpt-image-2 生成，接口地址使用 https://api.tu-zi.com/v1。",
     }),
     hasCodexUnifyHistoryBackup: vi.fn().mockResolvedValue(false),
+    getCodexSubagentSettings: vi.fn().mockResolvedValue({
+      maxConcurrentThreadsPerSession: null,
+      configPath: "/Users/test/.codex/config.toml",
+      usedLegacyAlias: false,
+    }),
+    setCodexSubagentMaxConcurrentThreads: vi.fn().mockResolvedValue({
+      maxConcurrentThreadsPerSession: null,
+      configPath: "/Users/test/.codex/config.toml",
+      usedLegacyAlias: false,
+    }),
   },
 }));
 

@@ -38,6 +38,18 @@ const MANAGED_ENV_END: &str = "# <<< tuzi-switch codex env <<<";
 const CODEX_ENV_MANAGED_MARKER_PREFIX: &str = "# tuzi-switch managed env:";
 const MAX_MANAGED_ENV_FILE_BYTES: u64 = 256 * 1024;
 static MANAGED_ENV_FILE_LOCK: Mutex<()> = Mutex::new(());
+static CODEX_CONFIG_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+const CODEX_SUBAGENT_THREADS_KEY: &str = "max_concurrent_threads_per_session";
+const CODEX_LEGACY_SUBAGENT_THREADS_KEY: &str = "max_threads";
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSubagentSettings {
+    pub max_concurrent_threads_per_session: Option<u64>,
+    pub config_path: String,
+    pub used_legacy_alias: bool,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CodexEffectiveModelProvider {
@@ -1645,6 +1657,9 @@ pub fn write_codex_live_atomic(
     auth: &Value,
     config_text_opt: Option<&str>,
 ) -> Result<(), AppError> {
+    let _config_lock = CODEX_CONFIG_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let auth_path = get_codex_auth_path();
     let config_path = get_codex_config_path();
 
@@ -1695,6 +1710,9 @@ pub fn write_codex_live_atomic(
 
 /// 原子写 Codex 的 `config.toml`，不触碰 `auth.json`。
 pub fn write_codex_live_config_atomic(config_text_opt: Option<&str>) -> Result<(), AppError> {
+    let _config_lock = CODEX_CONFIG_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let config_path = get_codex_config_path();
     let cfg_text = match config_text_opt {
         Some(text) => {
@@ -1709,6 +1727,167 @@ pub fn write_codex_live_config_atomic(config_text_opt: Option<&str>) -> Result<(
     }
 
     write_text_file(&config_path, &cfg_text)
+}
+
+/// Read the global subagent concurrency setting from the effective Codex config.
+/// The legacy `agents.max_threads` key is accepted for compatibility, but the
+/// canonical key is always preferred when both are present.
+pub fn read_codex_subagent_settings() -> Result<CodexSubagentSettings, AppError> {
+    let config_path = get_codex_config_path();
+    let config_text = read_codex_config_text()?;
+    codex_subagent_settings_from_text(&config_path, &config_text)
+}
+
+fn codex_subagent_settings_from_text(
+    config_path: &Path,
+    config_text: &str,
+) -> Result<CodexSubagentSettings, AppError> {
+    let doc = if config_text.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        config_text.parse::<DocumentMut>().map_err(|e| {
+            AppError::Message(format!(
+                "Invalid Codex config.toml ({}): {e}",
+                config_path.display()
+            ))
+        })?
+    };
+
+    let agents = doc.get("agents").and_then(|item| item.as_table_like());
+    let read_value = |key: &str| -> Result<Option<u64>, AppError> {
+        let Some(item) = agents.and_then(|table| table.get(key)) else {
+            return Ok(None);
+        };
+        let value = item
+            .as_integer()
+            .ok_or_else(|| AppError::Config(format!("Codex agents.{key} 必须是大于 0 的整数")))?;
+        let value = u64::try_from(value)
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| AppError::Config(format!("Codex agents.{key} 必须是大于 0 的整数")))?;
+        Ok(Some(value))
+    };
+    let canonical = read_value(CODEX_SUBAGENT_THREADS_KEY)?;
+    let legacy = read_value(CODEX_LEGACY_SUBAGENT_THREADS_KEY)?;
+
+    Ok(CodexSubagentSettings {
+        max_concurrent_threads_per_session: canonical.or(legacy),
+        config_path: config_path.to_string_lossy().to_string(),
+        used_legacy_alias: canonical.is_none() && legacy.is_some(),
+    })
+}
+
+/// Set or clear the global subagent concurrency setting while preserving all
+/// unrelated Codex TOML content. Setting a value also removes the legacy alias.
+pub fn set_codex_subagent_max_concurrent_threads(
+    value: Option<u64>,
+) -> Result<CodexSubagentSettings, AppError> {
+    if value.is_some_and(|threads| threads == 0 || threads > i64::MAX as u64) {
+        return Err(AppError::Config(
+            "Codex 子代理并发线程数必须是大于 0 且不超过 64 位整数上限的整数".to_string(),
+        ));
+    }
+
+    let _config_lock = CODEX_CONFIG_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let config_path = get_codex_config_path();
+    let config_text = read_codex_config_text()?;
+    let mut doc = if config_text.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        config_text.parse::<DocumentMut>().map_err(|e| {
+            AppError::Message(format!(
+                "Invalid Codex config.toml ({}): {e}",
+                config_path.display()
+            ))
+        })?
+    };
+
+    match value {
+        Some(threads) => {
+            if doc.get("agents").is_none() {
+                doc["agents"] = toml_edit::table();
+            }
+            let agents = doc
+                .get_mut("agents")
+                .and_then(|item| item.as_table_like_mut())
+                .ok_or_else(|| AppError::Config("Codex [agents] 必须是表".to_string()))?;
+            agents.insert(CODEX_SUBAGENT_THREADS_KEY, toml_edit::value(threads as i64));
+            agents.remove(CODEX_LEGACY_SUBAGENT_THREADS_KEY);
+        }
+        None => {
+            if let Some(agents) = doc
+                .get_mut("agents")
+                .and_then(|item| item.as_table_like_mut())
+            {
+                agents.remove(CODEX_SUBAGENT_THREADS_KEY);
+                agents.remove(CODEX_LEGACY_SUBAGENT_THREADS_KEY);
+                if agents.is_empty() {
+                    doc.as_table_mut().remove("agents");
+                }
+            }
+        }
+    }
+
+    write_text_file(&config_path, &doc.to_string())?;
+    drop(_config_lock);
+    read_codex_subagent_settings()
+}
+
+/// Preserve global Codex tables when a provider-specific write supplies a
+/// config fragment without them. Provider switching should not erase settings
+/// such as `[agents]` that are owned by the user-level config.
+pub fn preserve_codex_global_tables_from_live(config_text: &str) -> Result<String, AppError> {
+    if config_text.trim().is_empty() {
+        return Ok(config_text.to_string());
+    }
+    let current = read_codex_config_text().unwrap_or_default();
+    if current.trim().is_empty() {
+        return Ok(config_text.to_string());
+    }
+
+    preserve_codex_global_tables_from_text(config_text, &current)
+}
+
+fn preserve_codex_global_tables_from_text(
+    config_text: &str,
+    current: &str,
+) -> Result<String, AppError> {
+    if config_text.trim().is_empty() || current.trim().is_empty() {
+        return Ok(config_text.to_string());
+    }
+
+    let mut candidate = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    let live = current
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid live Codex config.toml: {e}")))?;
+
+    let Some(live_agents) = live.get("agents") else {
+        return Ok(config_text.to_string());
+    };
+    if candidate.get("agents").is_none() {
+        candidate["agents"] = live_agents.clone();
+        return Ok(candidate.to_string());
+    }
+
+    let Some(live_table) = live_agents.as_table() else {
+        return Ok(candidate.to_string());
+    };
+    let Some(candidate_table) = candidate
+        .get_mut("agents")
+        .and_then(|item| item.as_table_mut())
+    else {
+        return Ok(candidate.to_string());
+    };
+    for (key, item) in live_table.iter() {
+        // `[agents]` is user-level configuration. Keep the live value when a
+        // provider snapshot happens to include the same key.
+        candidate_table.insert(key, item.clone());
+    }
+    Ok(candidate.to_string())
 }
 
 /// 读取 `~/.codex/config.toml`，若不存在返回空字符串
@@ -2885,8 +3064,9 @@ pub fn write_codex_live_atomic_with_stable_provider(
                 .get("config")
                 .and_then(|value| value.as_str())
                 .unwrap_or(config_text);
-            validate_codex_config_routes_history_anchor(config_text)?;
-            write_codex_live_atomic(auth, Some(config_text))
+            let config_text = preserve_codex_global_tables_from_live(config_text)?;
+            validate_codex_config_routes_history_anchor(&config_text)?;
+            write_codex_live_atomic(auth, Some(&config_text))
         }
         None => write_codex_live_atomic(auth, None),
     }
@@ -2952,6 +3132,7 @@ pub fn write_codex_live_for_provider(
         }
     }
     let live_config = prepare_codex_provider_live_config(auth, normalized_config)?;
+    let live_config = preserve_codex_global_tables_from_live(&live_config)?;
     validate_codex_config_routes_history_anchor(&live_config)?;
     write_codex_live_config_atomic(Some(&live_config))
 }
@@ -3332,6 +3513,7 @@ pub fn write_codex_provider_live_exact_with_catalog(
     match prepared_config.as_deref() {
         Some(config_text) => {
             let live_config = prepare_codex_provider_live_config(auth, config_text)?;
+            let live_config = preserve_codex_global_tables_from_live(&live_config)?;
             write_codex_live_atomic(auth, Some(&live_config))
         }
         None => write_codex_live_atomic(auth, None),
@@ -3566,6 +3748,97 @@ mod tests {
     use std::sync::Mutex;
 
     static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn subagent_settings_prefer_canonical_key_and_preserve_path() {
+        let path = Path::new("/tmp/test-codex/config.toml");
+        let config = r#"model = "gpt-5.5"
+
+[agents]
+max_threads = 2
+max_concurrent_threads_per_session = 6
+"#;
+
+        let result = codex_subagent_settings_from_text(path, config).unwrap();
+        assert_eq!(result.max_concurrent_threads_per_session, Some(6));
+        assert!(!result.used_legacy_alias);
+        assert_eq!(result.config_path, "/tmp/test-codex/config.toml");
+    }
+
+    #[test]
+    fn subagent_settings_accept_legacy_alias() {
+        let result = codex_subagent_settings_from_text(
+            Path::new("/tmp/test-codex/config.toml"),
+            "[agents]\nmax_threads = 3\n",
+        )
+        .unwrap();
+        assert_eq!(result.max_concurrent_threads_per_session, Some(3));
+        assert!(result.used_legacy_alias);
+    }
+
+    #[test]
+    fn subagent_settings_reject_invalid_values() {
+        let result = codex_subagent_settings_from_text(
+            Path::new("/tmp/test-codex/config.toml"),
+            "[agents]\nmax_concurrent_threads_per_session = 0\n",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn preserve_global_agents_table_from_live_config() {
+        let original = r#"model = "gpt-5.5"
+
+[agents]
+max_concurrent_threads_per_session = 8
+interrupt_message = true
+        "#;
+        let candidate = "model = \"gpt-5.5\"\n";
+        let merged = preserve_codex_global_tables_from_text(candidate, original).unwrap();
+        assert!(merged.contains("max_concurrent_threads_per_session = 8"));
+        assert!(merged.contains("interrupt_message = true"));
+    }
+
+    #[test]
+    fn preserve_global_agents_values_overrides_provider_snapshot() {
+        let live = "[agents]\nmax_concurrent_threads_per_session = 8\n";
+        let candidate = "[agents]\nmax_concurrent_threads_per_session = 2\n";
+        let merged = preserve_codex_global_tables_from_text(candidate, live).unwrap();
+        assert!(merged.contains("max_concurrent_threads_per_session = 8"));
+        assert!(!merged.contains("max_concurrent_threads_per_session = 2"));
+    }
+
+    #[test]
+    fn set_subagent_threads_persists_and_reset_removes_only_managed_table() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        let config_dir = temp.path().join(".codex");
+        fs::create_dir_all(&config_dir).expect("create codex dir");
+        fs::write(
+            config_dir.join("config.toml"),
+            "model = \"gpt-5.5\"\n[agents]\nmax_threads = 2\n",
+        )
+        .expect("seed config");
+
+        let updated = set_codex_subagent_max_concurrent_threads(Some(12)).unwrap();
+        assert_eq!(updated.max_concurrent_threads_per_session, Some(12));
+        let written = fs::read_to_string(config_dir.join("config.toml")).unwrap();
+        assert!(written.contains("max_concurrent_threads_per_session = 12"));
+        assert!(!written.contains("max_threads = 2"));
+
+        let reset = set_codex_subagent_max_concurrent_threads(None).unwrap();
+        assert_eq!(reset.max_concurrent_threads_per_session, None);
+        let written = fs::read_to_string(config_dir.join("config.toml")).unwrap();
+        assert!(written.contains("model = \"gpt-5.5\""));
+        assert!(!written.contains("[agents]"));
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
 
     #[test]
     fn effective_provider_parser_uses_codex_resolved_top_level_value() {
