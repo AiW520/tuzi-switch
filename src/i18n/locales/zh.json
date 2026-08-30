@@ -733,9 +733,9 @@
     "saveFailedGeneric": "保存失败，请重试",
     "codexAuth": "Codex 应用增强",
     "codexSubagents": {
-      "title": "Codex 子代理并发线程",
-      "description": "设置每个 Codex 会话同时运行的子代理线程数，不包含主线程。留空表示使用 Codex 默认值。设置会写入当前生效的 config.toml。",
-      "inputLabel": "子代理并发线程数",
+      "title": "Codex 子代理并发线程默认值",
+      "description": "作为 Codex 供应商的默认并发线程数，不包含主线程。供应商可单独覆盖；留空表示使用 Codex 默认值。",
+      "inputLabel": "全局默认线程数",
       "defaultPlaceholder": "Codex 默认值",
       "defaultOption": "恢复默认",
       "reset": "恢复 Codex 默认值",
@@ -744,7 +744,7 @@
       "loadFailed": "Codex 子代理并发设置加载失败",
       "invalid": "请输入大于 0 的整数",
       "legacyDetected": "检测到旧版 agents.max_threads；保存后将迁移为新版字段。",
-      "restartHint": "通常需要新建会话或重启 Codex/ChatGPT 后生效。项目配置、profile 或命令行参数可能覆盖此值。"
+      "restartHint": "当前供应商选择“跟随全局”时使用此值。通常需要新建会话或重启 Codex/ChatGPT 后生效。"
     },
     "preserveCodexOfficialAuthOnSwitch": "切换第三方时保留官方登录",
     "preserveCodexOfficialAuthOnSwitchDescription": "开启后可以在使用第三方 API 的时候使用 Codex 应用的官方插件、手机远程操作等功能",
@@ -1144,6 +1144,11 @@
     "localRoutingToggle": "需要本地路由映射",
     "localRoutingOnHint": "供应商使用 Chat Completions 或非 GPT 模型时，需保持本地路由开启。",
     "localRoutingOffHint": "原生 OpenAI Responses 线路可保持关闭；非原生线路请开启。",
+    "subagentThreadsLabel": "子代理并发线程",
+    "subagentThreadsHint": "留空时跟随设置中的全局默认值，切换到此供应商后生效。",
+    "subagentThreadsInherit": "跟随全局",
+    "subagentThreadsCustom": "自定义",
+    "subagentThreadsInvalid": "请输入 1 到 2147483647 之间的整数",
     "reasoningSectionToggle": "思考能力（高级·通常自动识别）",
     "reasoningSectionHint": "仅当自动识别不准时展开手动覆盖。",
     "reasoningModeToggle": "支持思考模式",

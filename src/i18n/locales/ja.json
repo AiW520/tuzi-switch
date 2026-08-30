@@ -728,9 +728,9 @@
     "saveFailedGeneric": "保存に失敗しました。もう一度お試しください",
     "codexAuth": "Codex アプリ拡張",
     "codexSubagents": {
-      "title": "Codex サブエージェントの同時実行数",
-      "description": "各 Codex セッションで同時に実行できるサブエージェントのスレッド数を設定します。メインスレッドは含みません。空欄にすると Codex のデフォルト値を使用します。値は有効な config.toml に保存されます。",
-      "inputLabel": "サブエージェント同時実行数",
+      "title": "Codex サブエージェント同時実行数の既定値",
+      "description": "Codex プロバイダーの既定のサブエージェント同時実行数です。メインスレッドは含みません。プロバイダーごとに上書きでき、空欄では Codex の既定値を使用します。",
+      "inputLabel": "グローバル既定スレッド数",
       "defaultPlaceholder": "Codex のデフォルト",
       "defaultOption": "デフォルトに戻す",
       "reset": "Codex のデフォルトに戻す",
@@ -739,7 +739,7 @@
       "loadFailed": "Codex サブエージェント設定の読み込みに失敗しました",
       "invalid": "1 以上の整数を入力してください",
       "legacyDetected": "旧形式の agents.max_threads を検出しました。保存時に現在のフィールドへ移行します。",
-      "restartHint": "通常は新しいセッションを開始するか、Codex/ChatGPT を再起動すると反映されます。プロジェクト設定、profile、コマンドライン引数がこの値を上書きする場合があります。"
+      "restartHint": "現在のプロバイダーがグローバル設定を継承する場合に使用します。通常は新しいセッションまたは Codex/ChatGPT の再起動後に反映されます。"
     },
     "preserveCodexOfficialAuthOnSwitch": "サードパーティ切替時に公式ログインを保持",
     "preserveCodexOfficialAuthOnSwitchDescription": "オンにすると、サードパーティ API を使用する際に Codex アプリの公式プラグインやスマホからのリモート操作などの機能を利用できます。",
@@ -1139,6 +1139,11 @@
     "localRoutingToggle": "ローカルルーティングを使用",
     "localRoutingOnHint": "Chat Completions プロバイダーや非 GPT モデルでは、ローカルルーティングをオンにしてください。",
     "localRoutingOffHint": "ネイティブ OpenAI Responses ルートではオフのままで問題ありません。非ネイティブルートではオンにしてください。",
+    "subagentThreadsLabel": "サブエージェント同時実行数",
+    "subagentThreadsHint": "空欄の場合はグローバル既定値を継承し、このプロバイダーへの切り替え後に反映されます。",
+    "subagentThreadsInherit": "グローバル設定を継承",
+    "subagentThreadsCustom": "カスタム",
+    "subagentThreadsInvalid": "1 から 2147483647 までの整数を入力してください",
     "reasoningSectionToggle": "推論能力（高度・通常は自動判定）",
     "reasoningSectionHint": "自動判定が合わない場合のみ展開して手動で上書きします。",
     "reasoningModeToggle": "思考モード対応",

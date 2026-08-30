@@ -294,6 +294,13 @@ pub struct AppSettings {
     /// User opted in to migrate existing official sessions into the shared bucket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unify_codex_migrate_existing: Option<bool>,
+    /// Device-level default for Codex subagent concurrency. Providers may override it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_subagent_default_threads: Option<u64>,
+    /// Distinguishes an explicit Codex-default choice from an installation that
+    /// has not migrated the legacy live-only setting yet.
+    #[serde(default)]
+    pub codex_subagent_default_initialized: bool,
     /// User has confirmed the failover toggle first-run notice
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failover_confirmed: Option<bool>,
@@ -411,6 +418,8 @@ impl Default for AppSettings {
             codex_image_render_compat: true,
             unify_codex_session_history: true,
             unify_codex_migrate_existing: None,
+            codex_subagent_default_threads: None,
+            codex_subagent_default_initialized: false,
             failover_confirmed: None,
             first_run_notice_confirmed: None,
             common_config_confirmed: None,
@@ -630,6 +639,38 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     });
     *guard = new_settings;
     Ok(())
+}
+
+pub fn initialize_codex_subagent_default_threads(
+    live_value: Option<u64>,
+) -> Result<Option<u64>, AppError> {
+    let current = get_settings();
+    if current.codex_subagent_default_initialized {
+        return Ok(current.codex_subagent_default_threads);
+    }
+    let mut resolved = None;
+    mutate_settings(|settings| {
+        if !settings.codex_subagent_default_initialized {
+            settings.codex_subagent_default_threads = live_value;
+            settings.codex_subagent_default_initialized = true;
+        }
+        resolved = settings.codex_subagent_default_threads;
+    })?;
+    Ok(resolved)
+}
+
+pub fn set_codex_subagent_default_threads(value: Option<u64>) -> Result<(), AppError> {
+    set_codex_subagent_default_state(value, true)
+}
+
+pub fn set_codex_subagent_default_state(
+    value: Option<u64>,
+    initialized: bool,
+) -> Result<(), AppError> {
+    mutate_settings(|settings| {
+        settings.codex_subagent_default_threads = value;
+        settings.codex_subagent_default_initialized = initialized;
+    })
 }
 
 pub fn mark_codex_third_party_history_provider_bucket_migrated(

@@ -22,6 +22,10 @@ fn merge_settings_for_save(
         _ => {}
     }
     incoming.local_migrations = existing.local_migrations.clone();
+    // Owned by the dedicated Codex subagent command. Do not let a stale
+    // SettingsPage autosave overwrite a newer value.
+    incoming.codex_subagent_default_threads = existing.codex_subagent_default_threads;
+    incoming.codex_subagent_default_initialized = existing.codex_subagent_default_initialized;
     incoming
 }
 
@@ -361,6 +365,25 @@ mod tests {
             merged.webdav_sync.as_ref().map(|v| v.base_url.as_str()),
             Some("https://dav.new.example.com")
         );
+    }
+
+    #[test]
+    fn save_settings_preserves_dedicated_codex_subagent_default() {
+        let existing = AppSettings {
+            codex_subagent_default_threads: Some(12),
+            codex_subagent_default_initialized: true,
+            ..AppSettings::default()
+        };
+        let incoming = AppSettings {
+            codex_subagent_default_threads: Some(2),
+            codex_subagent_default_initialized: false,
+            ..AppSettings::default()
+        };
+
+        let merged = merge_settings_for_save(incoming, &existing);
+
+        assert_eq!(merged.codex_subagent_default_threads, Some(12));
+        assert!(merged.codex_subagent_default_initialized);
     }
 
     /// Regression test: frontend always receives empty password from

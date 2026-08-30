@@ -733,9 +733,9 @@
     "saveFailedGeneric": "Save failed, please try again",
     "codexAuth": "Codex App Enhancements",
     "codexSubagents": {
-      "title": "Codex subagent concurrency",
-      "description": "Set how many subagent threads may run at the same time in each Codex session, excluding the main thread. Leave empty to use Codex's default. The value is written to the active config.toml.",
-      "inputLabel": "Subagent concurrency",
+      "title": "Default Codex subagent concurrency",
+      "description": "Default concurrent subagent threads for Codex providers, excluding the main thread. Providers may override it; leave empty to use Codex's default.",
+      "inputLabel": "Global default threads",
       "defaultPlaceholder": "Codex default",
       "defaultOption": "Reset default",
       "reset": "Restore Codex default",
@@ -744,7 +744,7 @@
       "loadFailed": "Failed to load Codex subagent concurrency",
       "invalid": "Enter a positive integer",
       "legacyDetected": "Legacy agents.max_threads detected; saving will migrate it to the current field.",
-      "restartHint": "A new session or Codex/ChatGPT restart is usually required. Project config, profiles, or command-line arguments may override this value."
+      "restartHint": "Used when the current provider inherits the global default. A new session or Codex/ChatGPT restart is usually required."
     },
     "preserveCodexOfficialAuthOnSwitch": "Keep official login when switching third-party providers",
     "preserveCodexOfficialAuthOnSwitchDescription": "When enabled, you can use the Codex app's official plugins, mobile remote control, and other features while using third-party APIs.",
@@ -1144,6 +1144,11 @@
     "localRoutingToggle": "Use local routing",
     "localRoutingOnHint": "Keep local routing on for Chat Completions providers or non-GPT models.",
     "localRoutingOffHint": "Native OpenAI Responses providers can stay off; enable this for non-native routes.",
+    "subagentThreadsLabel": "Subagent concurrency",
+    "subagentThreadsHint": "Leave empty to inherit the global default. The value applies after switching to this provider.",
+    "subagentThreadsInherit": "Inherit global",
+    "subagentThreadsCustom": "Custom",
+    "subagentThreadsInvalid": "Enter an integer between 1 and 2147483647",
     "reasoningSectionToggle": "Reasoning capability (advanced, usually auto-detected)",
     "reasoningSectionHint": "Expand only when auto-detection needs a manual override.",
     "reasoningModeToggle": "Supports thinking mode",

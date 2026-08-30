@@ -710,6 +710,9 @@ function ProviderFormFull({
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
   );
+  const [codexSubagentThreads, setCodexSubagentThreads] = useState<string>(
+    () => initialData?.meta?.codexSubagentThreads?.toString() ?? "",
+  );
 
   // Query existing codex providers for suffix computation
   const { data: existingCodexProviders } = useQuery({
@@ -1255,6 +1258,21 @@ function ProviderFormFull({
     const issues: string[] = [];
     let overriddenEnvKey = codexEnvKey;
 
+    const trimmedCodexSubagentThreads = codexSubagentThreads.trim();
+    if (
+      appId === "codex" &&
+      trimmedCodexSubagentThreads &&
+      (!/^[1-9][0-9]*$/.test(trimmedCodexSubagentThreads) ||
+        Number(trimmedCodexSubagentThreads) > 2147483647)
+    ) {
+      toast.error(
+        t("codexConfig.subagentThreadsInvalid", {
+          defaultValue: "请输入 1 到 2147483647 之间的整数",
+        }),
+      );
+      return;
+    }
+
     // 模板变量未填：A 类（空值）
     if (appId === "claude" && templateValueEntries.length > 0) {
       const validation = validateTemplateValues();
@@ -1556,6 +1574,7 @@ function ProviderFormFull({
     values: ProviderFormData,
     resolvedEnvKeyOverride?: string,
   ) => {
+    const resolvedCodexSubagentThreads = codexSubagentThreads.trim();
     // OAuth / 其它身份识别（与 handleSubmit 保持一致）
     const isCopilotProvider =
       templatePreset?.providerType === "github_copilot" ||
@@ -1824,6 +1843,10 @@ function ProviderFormFull({
           ? selectedGitHubAccountId
           : undefined,
       codexFastMode: isCodexOauthProvider ? codexFastMode : undefined,
+      codexSubagentThreads:
+        appId === "codex" && resolvedCodexSubagentThreads
+          ? Number(resolvedCodexSubagentThreads)
+          : undefined,
       testConfig: testConfig.enabled ? testConfig : undefined,
       costMultiplier: pricingConfig.enabled
         ? pricingConfig.costMultiplier
@@ -2745,6 +2768,8 @@ function ProviderFormFull({
               onApiFormatChange={handleCodexApiFormatChange}
               codexChatReasoning={codexChatReasoning}
               onCodexChatReasoningChange={setCodexChatReasoning}
+              subagentThreads={codexSubagentThreads}
+              onSubagentThreadsChange={setCodexSubagentThreads}
               catalogModels={codexCatalogModels}
               onCatalogModelsChange={setCodexCatalogModels}
               speedTestEndpoints={speedTestEndpoints}

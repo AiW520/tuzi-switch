@@ -858,6 +858,18 @@ pub(crate) fn build_effective_settings_with_common_config(
         }
     }
 
+    if matches!(app_type, AppType::Codex) {
+        let override_threads = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.codex_subagent_threads);
+        let resolved = crate::codex_config::resolved_codex_subagent_threads(override_threads)?;
+        crate::codex_config::apply_codex_subagent_threads_to_settings(
+            &mut effective_settings,
+            resolved,
+        )?;
+    }
+
     Ok(effective_settings)
 }
 
@@ -947,6 +959,16 @@ fn restore_live_settings_for_provider_backfill(
     ) {
         log::warn!(
             "Failed to restore Codex live settings while backfilling '{}': {err}",
+            provider.id
+        );
+    }
+
+    // The concurrency value belongs to the device-level live config. It must
+    // not be copied from the previous provider into the provider being saved.
+    if let Err(err) = crate::codex_config::strip_codex_subagent_threads_from_settings(&mut settings)
+    {
+        log::warn!(
+            "Failed to strip Codex subagent override while backfilling '{}': {err}",
             provider.id
         );
     }
@@ -1090,15 +1112,21 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             use crate::codex_config::{
                 read_codex_config_text, save_route_to_config_with_provider_config,
                 switch_codex_profile, write_codex_profile_config,
-                write_codex_provider_live_with_catalog,
             };
 
             if config_str.trim().is_empty() {
-                write_codex_provider_live_with_catalog(
+                let threads = crate::codex_config::resolved_codex_subagent_threads(
+                    provider
+                        .meta
+                        .as_ref()
+                        .and_then(|meta| meta.codex_subagent_threads),
+                )?;
+                crate::codex_config::write_codex_provider_live_with_catalog_for_provider(
                     &provider.settings_config,
                     provider.category.as_deref(),
                     auth,
                     None,
+                    threads,
                 )?;
                 return Ok(());
             }
@@ -1156,11 +1184,18 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 }
             }
 
-            write_codex_provider_live_with_catalog(
+            let threads = crate::codex_config::resolved_codex_subagent_threads(
+                provider
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.codex_subagent_threads),
+            )?;
+            crate::codex_config::write_codex_provider_live_with_catalog_for_provider(
                 &provider.settings_config,
                 provider.category.as_deref(),
                 auth,
                 Some(&final_config),
+                threads,
             )?;
         }
         AppType::Gemini => {

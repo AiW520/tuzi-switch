@@ -31,6 +31,7 @@ import type {
   CodexChatReasoning,
   ProviderCategory,
 } from "@/types";
+import { CodexSubagentProviderField } from "./CodexSubagentProviderField";
 
 interface EndpointCandidate {
   url: string;
@@ -68,6 +69,10 @@ interface CodexFormFieldsProps {
   onApiFormatChange: (format: CodexApiFormat) => void;
   codexChatReasoning?: CodexChatReasoning;
   onCodexChatReasoningChange?: (value: CodexChatReasoning) => void;
+
+  // Provider-specific subagent concurrency. Empty inherits the global default.
+  subagentThreads: string;
+  onSubagentThreadsChange: (value: string) => void;
 
   // Model Catalog
   catalogModels?: CodexCatalogModel[];
@@ -128,6 +133,8 @@ export function CodexFormFields({
   onApiFormatChange,
   codexChatReasoning = {},
   onCodexChatReasoningChange,
+  subagentThreads,
+  onSubagentThreadsChange,
   catalogModels = [],
   onCatalogModelsChange,
   speedTestEndpoints,
@@ -362,6 +369,11 @@ export function CodexFormFields({
           </div>
         </div>
       )}
+
+      <CodexSubagentProviderField
+        value={subagentThreads}
+        onChange={onSubagentThreadsChange}
+      />
 
       {needsLocalRouting && canEditReasoning && (
         <Collapsible

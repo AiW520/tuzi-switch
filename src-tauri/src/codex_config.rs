@@ -1738,6 +1738,37 @@ pub fn read_codex_subagent_settings() -> Result<CodexSubagentSettings, AppError>
     codex_subagent_settings_from_text(&config_path, &config_text)
 }
 
+/// Read the device-level default, migrating the pre-provider implementation
+/// from the live config exactly once.
+pub fn read_codex_subagent_default_settings() -> Result<CodexSubagentSettings, AppError> {
+    let live = read_codex_subagent_settings()?;
+    let value = crate::settings::initialize_codex_subagent_default_threads(
+        live.max_concurrent_threads_per_session,
+    )?;
+    Ok(CodexSubagentSettings {
+        max_concurrent_threads_per_session: value,
+        config_path: live.config_path,
+        used_legacy_alias: live.used_legacy_alias,
+    })
+}
+
+pub fn resolved_codex_subagent_threads(
+    provider_override: Option<u64>,
+) -> Result<Option<u64>, AppError> {
+    if let Some(value) = provider_override {
+        validate_codex_subagent_threads(Some(value))?;
+    }
+    let settings = crate::settings::get_settings();
+    if settings.codex_subagent_default_initialized {
+        return Ok(provider_override.or(settings.codex_subagent_default_threads));
+    }
+    let live = read_codex_subagent_settings()?;
+    let default = crate::settings::initialize_codex_subagent_default_threads(
+        live.max_concurrent_threads_per_session,
+    )?;
+    Ok(provider_override.or(default))
+}
+
 fn codex_subagent_settings_from_text(
     config_path: &Path,
     config_text: &str,
@@ -1782,26 +1813,40 @@ fn codex_subagent_settings_from_text(
 pub fn set_codex_subagent_max_concurrent_threads(
     value: Option<u64>,
 ) -> Result<CodexSubagentSettings, AppError> {
-    if value.is_some_and(|threads| threads == 0 || threads > i64::MAX as u64) {
-        return Err(AppError::Config(
-            "Codex 子代理并发线程数必须是大于 0 且不超过 64 位整数上限的整数".to_string(),
-        ));
-    }
+    validate_codex_subagent_threads(value)?;
 
     let _config_lock = CODEX_CONFIG_WRITE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let config_path = get_codex_config_path();
     let config_text = read_codex_config_text()?;
+    let updated = apply_codex_subagent_threads_to_config_text(&config_text, value)?;
+
+    write_text_file(&config_path, &updated)?;
+    drop(_config_lock);
+    read_codex_subagent_settings()
+}
+
+pub fn validate_codex_subagent_threads(value: Option<u64>) -> Result<(), AppError> {
+    if value.is_some_and(|threads| threads == 0 || threads > i64::MAX as u64) {
+        return Err(AppError::Config(
+            "Codex 子代理并发线程数必须是大于 0 且不超过 64 位整数上限的整数".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn apply_codex_subagent_threads_to_config_text(
+    config_text: &str,
+    value: Option<u64>,
+) -> Result<String, AppError> {
+    validate_codex_subagent_threads(value)?;
     let mut doc = if config_text.trim().is_empty() {
         DocumentMut::new()
     } else {
-        config_text.parse::<DocumentMut>().map_err(|e| {
-            AppError::Message(format!(
-                "Invalid Codex config.toml ({}): {e}",
-                config_path.display()
-            ))
-        })?
+        config_text
+            .parse::<DocumentMut>()
+            .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?
     };
 
     match value {
@@ -1830,9 +1875,44 @@ pub fn set_codex_subagent_max_concurrent_threads(
         }
     }
 
-    write_text_file(&config_path, &doc.to_string())?;
-    drop(_config_lock);
-    read_codex_subagent_settings()
+    Ok(doc.to_string())
+}
+
+pub fn apply_codex_subagent_threads_to_settings(
+    settings: &mut Value,
+    value: Option<u64>,
+) -> Result<(), AppError> {
+    let Some(object) = settings.as_object_mut() else {
+        return Err(AppError::Config(
+            "Codex 供应商配置必须是 JSON 对象".to_string(),
+        ));
+    };
+    let config_text = object.get("config").and_then(Value::as_str).unwrap_or("");
+    object.insert(
+        "config".to_string(),
+        Value::String(apply_codex_subagent_threads_to_config_text(
+            config_text,
+            value,
+        )?),
+    );
+    Ok(())
+}
+
+pub fn strip_codex_subagent_threads_from_settings(settings: &mut Value) -> Result<(), AppError> {
+    let Some(object) = settings.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(config_text) = object.get("config").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    object.insert(
+        "config".to_string(),
+        Value::String(apply_codex_subagent_threads_to_config_text(
+            config_text,
+            None,
+        )?),
+    );
+    Ok(())
 }
 
 /// Preserve global Codex tables when a provider-specific write supplies a
@@ -3072,7 +3152,7 @@ pub fn write_codex_live_atomic_with_stable_provider(
     }
 }
 
-pub fn write_codex_live_for_provider(
+fn write_codex_live_for_provider_inner(
     category: Option<&str>,
     auth: &Value,
     config_text_opt: Option<&str>,
@@ -3483,41 +3563,42 @@ pub fn read_codex_model_catalog_simplified_from_live() -> Result<Option<Value>, 
     ))
 }
 
-pub fn write_codex_provider_live_with_catalog(
+pub fn write_codex_provider_live_with_catalog_for_provider(
     settings: &Value,
     category: Option<&str>,
     auth: &Value,
     config_text: Option<&str>,
+    subagent_threads: Option<u64>,
 ) -> Result<(), AppError> {
     let prepared_config = config_text
         .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
         .transpose()?;
-
-    write_codex_live_for_provider(category, auth, prepared_config.as_deref())
+    write_codex_live_for_provider_inner(category, auth, prepared_config.as_deref())?;
+    set_codex_subagent_max_concurrent_threads(subagent_threads)?;
+    Ok(())
 }
 
-/// Write Codex live config exactly from the provider template.
-///
-/// This is used when turning off unified session history: the live config must
-/// return to the provider's own `model_provider` instead of reusing the current
-/// live history anchor.
-pub fn write_codex_provider_live_exact_with_catalog(
+/// Write Codex live config from the provider template while applying its
+/// resolved subagent concurrency policy.
+pub fn write_codex_provider_live_exact_with_catalog_for_provider(
     settings: &Value,
     auth: &Value,
     config_text: Option<&str>,
+    subagent_threads: Option<u64>,
 ) -> Result<(), AppError> {
     let prepared_config = config_text
         .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
         .transpose()?;
-
     match prepared_config.as_deref() {
         Some(config_text) => {
             let live_config = prepare_codex_provider_live_config(auth, config_text)?;
             let live_config = preserve_codex_global_tables_from_live(&live_config)?;
-            write_codex_live_atomic(auth, Some(&live_config))
+            write_codex_live_atomic(auth, Some(&live_config))?;
         }
-        None => write_codex_live_atomic(auth, None),
+        None => write_codex_live_atomic(auth, None)?,
     }
+    set_codex_subagent_max_concurrent_threads(subagent_threads)?;
+    Ok(())
 }
 
 /// Update a field in Codex config.toml using toml_edit (syntax-preserving).
@@ -3838,6 +3919,48 @@ interrupt_message = true
             Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
             None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
         }
+    }
+
+    #[test]
+    fn provider_subagent_override_is_applied_without_touching_other_agents_values() {
+        let input = r#"model = "gpt-5.5"
+
+[agents]
+interrupt_message = true
+max_threads = 2
+"#;
+        let updated = apply_codex_subagent_threads_to_config_text(input, Some(12)).unwrap();
+        let doc = updated.parse::<toml::Table>().unwrap();
+        let agents = doc.get("agents").and_then(toml::Value::as_table).unwrap();
+        assert_eq!(
+            agents
+                .get("max_concurrent_threads_per_session")
+                .and_then(|value| value.as_integer()),
+            Some(12)
+        );
+        assert_eq!(
+            agents
+                .get("interrupt_message")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(agents.get("max_threads").is_none());
+
+        let reset = apply_codex_subagent_threads_to_config_text(&updated, None).unwrap();
+        let reset_doc = reset.parse::<toml::Table>().unwrap();
+        let reset_agents = reset_doc
+            .get("agents")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(
+            reset_agents
+                .get("interrupt_message")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(reset_agents
+            .get("max_concurrent_threads_per_session")
+            .is_none());
     }
 
     #[test]
@@ -4867,7 +4990,7 @@ model = "gpt-5"
         )
         .expect("seed auth.json");
 
-        write_codex_live_for_provider(
+        write_codex_live_for_provider_inner(
             Some("aggregator"),
             &json!({}),
             Some(

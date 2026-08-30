@@ -112,10 +112,17 @@ pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
             .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
         let auth = obj.get("auth").unwrap_or(&Value::Null);
         let config_text = obj.get("config").and_then(Value::as_str);
-        crate::codex_config::write_codex_provider_live_exact_with_catalog(
+        let threads = crate::codex_config::resolved_codex_subagent_threads(
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.codex_subagent_threads),
+        )?;
+        crate::codex_config::write_codex_provider_live_exact_with_catalog_for_provider(
             &effective_settings,
             auth,
             config_text,
+            threads,
         )?;
         return Ok(true);
     }
