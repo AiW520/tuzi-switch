@@ -42,6 +42,32 @@ use live::{
 };
 use usage::validate_usage_script;
 
+/// Make the credential for the selected Codex provider available to processes
+/// launched outside a login shell. This only migrates the key to Codex's
+/// persistent `.env`; it never rewrites the live provider configuration.
+pub fn ensure_current_codex_provider_env_ready(state: &AppState) -> Result<bool, AppError> {
+    let current_id = ProviderService::current(state, AppType::Codex)?;
+    if current_id.is_empty() {
+        return Ok(false);
+    }
+    let Some(provider) = state
+        .db
+        .get_provider_by_id(&current_id, AppType::Codex.as_str())?
+    else {
+        return Ok(false);
+    };
+    let Some(config_text) = provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+    else {
+        return Ok(false);
+    };
+
+    crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+    Ok(crate::codex_config::extract_codex_env_key(config_text).is_some())
+}
+
 /// 统一会话开关变更后，立即按新开关状态重写当前 Codex 供应商的
 /// live 配置，使开关即时生效（无需等下一次切换）。
 pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
@@ -393,6 +419,8 @@ requires_openai_auth = false
                 .and_then(Value::as_str),
         )
         .expect("seed live config");
+        crate::codex_config::write_managed_env_key("PROVIDER_B_CODEX_API_KEY", "provider-b-key")
+            .expect("seed provider b env key");
 
         let guard = tauri::async_runtime::block_on(
             state
@@ -1291,6 +1319,13 @@ impl ProviderService {
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         if matches!(app_type, AppType::Codex) {
             normalize_codex_managed_provider_for_storage(state.db.as_ref(), &mut provider, None)?;
+            if let Some(config_text) = provider
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+            {
+                crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+            }
         }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
@@ -1359,6 +1394,13 @@ impl ProviderService {
                 &mut provider,
                 Some(original_id.as_str()),
             )?;
+            if let Some(config_text) = provider
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+            {
+                crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+            }
         }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
@@ -1900,6 +1942,16 @@ impl ProviderService {
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
         Self::validate_provider_settings(&app_type, provider)?;
+
+        if matches!(app_type, AppType::Codex) {
+            if let Some(config_text) = provider
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+            {
+                crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+            }
+        }
 
         // Startup normally resolves this once. Keep the write boundary
         // self-contained as well so an early/manual switch can never fall back

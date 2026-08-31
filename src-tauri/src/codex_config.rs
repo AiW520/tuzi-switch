@@ -633,6 +633,18 @@ fn write_codex_env_file(env_map: &HashMap<String, String>) -> Result<(), AppErro
     Ok(())
 }
 
+fn write_codex_env_key_file(env_key: &str, value: &str) -> Result<(), AppError> {
+    validate_env_key_name(env_key)?;
+    if value.trim().is_empty() || value.contains(['\r', '\n']) {
+        return Err(AppError::InvalidInput(
+            "Codex API Key 为空或包含换行符".to_string(),
+        ));
+    }
+    let mut codex_env = read_codex_env_file();
+    codex_env.insert(env_key.to_string(), value.to_string());
+    write_codex_env_file(&codex_env)
+}
+
 pub fn read_managed_env_block() -> HashMap<String, String> {
     if cfg!(target_os = "windows") {
         return read_windows_env_keys();
@@ -658,7 +670,10 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
     if !is_valid_env_key_name(env_key) {
         return None;
     }
-    if let Some(value) = read_codex_env_file().remove(env_key) {
+    if let Some(value) = read_codex_env_file()
+        .remove(env_key)
+        .filter(|value| !value.trim().is_empty())
+    {
         return Some(value);
     }
     if cfg!(target_os = "windows") {
@@ -693,6 +708,43 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn missing_codex_env_key_error(env_key: &str) -> AppError {
+    AppError::localized(
+        "codex.provider_env_key_missing",
+        format!(
+            "Codex 供应商需要环境变量 {env_key}，但未找到对应 API Key。请重新填写并保存该供应商后再启用；当前可用配置未被覆盖。"
+        ),
+        format!(
+            "The Codex provider requires environment variable {env_key}, but its API key is missing. Re-enter and save the provider before enabling it; the current working configuration was not overwritten."
+        ),
+    )
+}
+
+/// Ensure an env-backed provider credential is available to GUI-launched Codex.
+/// Shell startup files are a migration source only; ~/.codex/.env is the
+/// persistent source that desktop and IDE processes can load after a reboot.
+pub fn ensure_codex_provider_env_ready(config_text: &str) -> Result<(), AppError> {
+    let Some(env_key) = extract_codex_env_key(config_text) else {
+        return Ok(());
+    };
+    validate_env_key_name(&env_key)?;
+
+    if read_codex_env_key_file(&env_key)?.is_some() {
+        return Ok(());
+    }
+
+    let Some(value) = read_managed_env_key(&env_key) else {
+        return Err(missing_codex_env_key_error(&env_key));
+    };
+    write_codex_env_key_file(&env_key, &value)?;
+
+    if read_codex_env_key_file(&env_key)?.is_some() {
+        Ok(())
+    } else {
+        Err(missing_codex_env_key_error(&env_key))
+    }
 }
 
 pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
@@ -2277,6 +2329,7 @@ pub fn prepare_codex_provider_live_config(
     auth: &Value,
     config_text: &str,
 ) -> Result<String, AppError> {
+    ensure_codex_provider_env_ready(config_text)?;
     prepare_codex_provider_live_config_with_env_reader(auth, config_text, read_managed_env_key)
 }
 
@@ -2487,9 +2540,17 @@ fn prepare_codex_provider_live_config_with_env_reader(
     config_text: &str,
     read_env_key: impl Fn(&str) -> Option<String>,
 ) -> Result<String, AppError> {
-    let _ = extract_codex_auth_api_key(auth)
-        .or_else(|| extract_codex_env_key(config_text).and_then(|env_key| read_env_key(&env_key)))
-        .or_else(|| extract_codex_experimental_bearer_token(config_text));
+    if let Some(env_key) = extract_codex_env_key(config_text) {
+        if read_env_key(&env_key)
+            .filter(|value| !value.trim().is_empty())
+            .is_none()
+        {
+            return Err(missing_codex_env_key_error(&env_key));
+        }
+    } else {
+        let _ = extract_codex_auth_api_key(auth)
+            .or_else(|| extract_codex_experimental_bearer_token(config_text));
+    }
 
     remove_codex_live_only_provider_fields(config_text)
 }
@@ -4323,6 +4384,89 @@ wire_api = "responses"
             read_managed_env_key("TUZI_TEST_CODEX_API_KEY").as_deref(),
             Some("sk-dotenv")
         );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    fn ensure_provider_env_ready_accepts_existing_codex_dotenv_key() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create Codex dir");
+        fs::write(
+            temp.path().join(".codex").join(".env"),
+            "READY_CODEX_API_KEY=stored-key\n",
+        )
+        .expect("seed Codex dotenv");
+
+        let config = r#"model_provider = "custom"
+[model_providers.custom]
+env_key = "READY_CODEX_API_KEY"
+"#;
+        ensure_codex_provider_env_ready(config).expect("existing key should be accepted");
+        assert_eq!(
+            read_codex_env_key_file("READY_CODEX_API_KEY").expect("read key"),
+            Some("stored-key".to_string())
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    fn ensure_provider_env_ready_migrates_shell_key_to_codex_dotenv() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::write(
+            temp.path().join(".zshrc"),
+            "# Codex\nexport MIGRATE_CODEX_API_KEY='shell-key'\n",
+        )
+        .expect("seed shell rc");
+
+        let config = r#"model_provider = "custom"
+[model_providers.custom]
+env_key = "MIGRATE_CODEX_API_KEY"
+"#;
+        ensure_codex_provider_env_ready(config).expect("shell key should migrate");
+        assert_eq!(
+            read_codex_env_key_file("MIGRATE_CODEX_API_KEY").expect("read migrated key"),
+            Some("shell-key".to_string())
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    fn ensure_provider_env_ready_rejects_missing_or_blank_key_without_changing_dotenv() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::create_dir_all(temp.path().join(".codex")).expect("create Codex dir");
+        let dotenv = temp.path().join(".codex").join(".env");
+        let original = "KEEP_CODEX_API_KEY=keep\nMISSING_CODEX_API_KEY=   \n";
+        fs::write(&dotenv, original).expect("seed Codex dotenv");
+
+        let config = r#"model_provider = "custom"
+[model_providers.custom]
+env_key = "MISSING_CODEX_API_KEY"
+"#;
+        let error = ensure_codex_provider_env_ready(config)
+            .expect_err("blank key should be treated as missing");
+        assert!(error.to_string().contains("MISSING_CODEX_API_KEY"));
+        assert_eq!(fs::read_to_string(&dotenv).expect("read dotenv"), original);
 
         match old_test_home {
             Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),

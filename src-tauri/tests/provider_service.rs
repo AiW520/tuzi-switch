@@ -182,6 +182,8 @@ command = "say"
     );
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key("FRESH_CODEX_API_KEY".to_string(), "fresh-key".to_string())
+        .expect("seed selected provider env key");
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -1048,6 +1050,10 @@ command = "echo"
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key("CODING01_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
+    write_codex_env_key("CODING02_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed normalized provider env key");
     let provider = Provider::with_id(
         "new-provider".to_string(),
         "codex订阅-我的线路".to_string(),
@@ -1124,6 +1130,8 @@ requires_openai_auth = false
     .expect("seed codex config");
 
     let state = create_test_state().expect("create test state");
+    write_codex_env_key("CODING02_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
     let provider = Provider::with_id(
         "new-provider".to_string(),
         "New Provider".to_string(),
@@ -1208,6 +1216,8 @@ fn provider_service_update_codex_preserves_edited_config_when_reloaded() {
     let _home = ensure_test_home();
 
     let state = create_test_state().expect("create test state");
+    write_codex_env_key("EDITABLE_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
     let original = Provider::with_id(
         "editable-codex".to_string(),
         "Editable Codex".to_string(),
@@ -1305,6 +1315,8 @@ requires_openai_auth = false
     write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
 
     let state = create_test_state().expect("create test state");
+    write_codex_env_key("TUZI01_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
     let provider = Provider::with_id(
         "new-tuzi".to_string(),
         "兔子线路-我的配置".to_string(),
@@ -2063,6 +2075,78 @@ fn provider_service_switch_codex_missing_auth_returns_error() {
         ),
         other => panic!("expected config error, got {other:?}"),
     }
+}
+
+#[test]
+fn provider_service_switch_codex_missing_env_key_preserves_current_and_live_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let live_config = r#"model_provider = "working"
+model = "gpt-5.5"
+
+[model_providers.working]
+name = "Working"
+base_url = "https://working.example/v1"
+wire_api = "responses"
+requires_openai_auth = false
+"#;
+    write_codex_live_atomic(&json!({}), Some(live_config)).expect("seed live config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "working".to_string();
+        manager.providers.insert(
+            "working".to_string(),
+            Provider::with_id(
+                "working".to_string(),
+                "Working".to_string(),
+                json!({"auth": {}, "config": live_config}),
+                None,
+            ),
+        );
+        manager.providers.insert(
+            "missing-key".to_string(),
+            Provider::with_id(
+                "missing-key".to_string(),
+                "Missing Key".to_string(),
+                json!({
+                    "auth": {},
+                    "config": r#"model_provider = "missing"
+[model_providers.missing]
+name = "Missing"
+base_url = "https://missing.example/v1"
+env_key = "MISSING_SWITCH_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#
+                }),
+                None,
+            ),
+        );
+    }
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    let error = ProviderService::switch(&state, AppType::Codex, "missing-key")
+        .expect_err("switch should fail when provider key is missing");
+    assert!(error.to_string().contains("MISSING_SWITCH_CODEX_API_KEY"));
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Codex.as_str())
+            .expect("read current provider")
+            .as_deref(),
+        Some("working")
+    );
+    assert_eq!(
+        std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+            .expect("read unchanged live config"),
+        live_config
+    );
 }
 
 #[test]

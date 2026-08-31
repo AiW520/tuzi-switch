@@ -1009,6 +1009,45 @@ trust_level = "untrusted"
 }
 
 #[test]
+fn save_codex_route_missing_env_key_does_not_overwrite_live_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let existing_live_config = r#"model_provider = "existing"
+model = "gpt-5.5"
+
+[model_providers.existing]
+name = "Existing"
+base_url = "https://existing.example/v1"
+wire_api = "responses"
+requires_openai_auth = false
+"#;
+    write_codex_live_atomic(&json!({}), Some(existing_live_config))
+        .expect("seed existing live config");
+    let state = create_test_state().expect("create test state");
+
+    let error = save_codex_route_test_hook(
+        &state,
+        "missing".to_string(),
+        "https://missing.example/v1".to_string(),
+        "MISSING_ROUTE_CODEX_API_KEY".to_string(),
+        String::new(),
+        "gpt-5.5".to_string(),
+        "high".to_string(),
+        Some("Missing".to_string()),
+        None,
+        None,
+    )
+    .expect_err("save should fail without env-backed key");
+    assert!(error.contains("MISSING_ROUTE_CODEX_API_KEY"));
+    assert_eq!(
+        std::fs::read_to_string(get_codex_config_path()).expect("read unchanged live config"),
+        existing_live_config
+    );
+}
+
+#[test]
 fn switch_provider_updates_codex_live_and_state() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

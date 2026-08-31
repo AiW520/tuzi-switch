@@ -112,33 +112,49 @@ pub fn import_provider_from_deeplink(
 
     let provider_id = provider.id.clone();
 
-    // Use ProviderService to add the provider
-    ProviderService::add(state, app_type.clone(), provider, true)?;
-
-    // A Codex deep link carries an explicit provider credential. Persist it in
-    // the env_key selected by provider normalization before switching live.
-    // Do not source this value from auth.json: that file may contain an expired
-    // Codex login token rather than the third-party provider key.
-    if matches!(app_type, AppType::Codex) {
-        let stored_provider = state
-            .db
-            .get_provider_by_id(&provider_id, AppType::Codex.as_str())?
-            .ok_or_else(|| AppError::Config("Imported Codex provider was not saved".to_string()))?;
-        if let Some(env_key) = stored_provider
+    // Codex credentials must be persisted under the final normalized env_key
+    // before ProviderService validates or writes this provider. Keep the old
+    // value so a later add failure can restore the credential store.
+    let codex_env_rollback = if matches!(app_type, AppType::Codex) {
+        crate::services::provider::normalize_codex_managed_provider_for_storage(
+            state.db.as_ref(),
+            &mut provider,
+            None,
+        )?;
+        let env_key = provider
             .settings_config
             .get("config")
             .and_then(serde_json::Value::as_str)
             .and_then(crate::codex_config::extract_codex_env_key)
             .or_else(|| {
-                stored_provider
+                provider
                     .settings_config
                     .pointer("/env/envKey")
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string)
             })
-        {
-            crate::codex_config::write_managed_env_key(&env_key, api_key)?;
+            .ok_or_else(|| AppError::Config("Codex provider env_key is missing".to_string()))?;
+        let previous_value = crate::codex_config::read_managed_env_key(&env_key);
+        crate::codex_config::write_managed_env_key(&env_key, api_key)?;
+        Some((env_key, previous_value))
+    } else {
+        None
+    };
+
+    // Use ProviderService to add the provider
+    if let Err(error) = ProviderService::add(state, app_type.clone(), provider, true) {
+        if let Some((env_key, previous_value)) = codex_env_rollback {
+            let rollback = match previous_value {
+                Some(value) => crate::codex_config::write_managed_env_key(&env_key, &value),
+                None => crate::codex_config::remove_managed_env_key(&env_key),
+            };
+            if let Err(rollback_error) = rollback {
+                log::error!(
+                    "Failed to roll back Codex env key after deep-link import error: {rollback_error}"
+                );
+            }
         }
+        return Err(error);
     }
 
     // Add extra endpoints as custom endpoints (skip first one as it's the primary)

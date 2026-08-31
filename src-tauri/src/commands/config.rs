@@ -581,6 +581,11 @@ fn save_codex_route_inner(
             .map_err(|e| e.to_string())?;
     }
 
+    // Validate the final route before touching config.toml or its profile. This
+    // keeps a failed save from replacing a working live route with one whose
+    // env-backed credential is unavailable to the desktop process.
+    codex_config::ensure_codex_provider_env_ready(normalized_config).map_err(|e| e.to_string())?;
+
     // Write route section to config.toml
     let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
     let existing_with_edits = if source_config.is_some() {
