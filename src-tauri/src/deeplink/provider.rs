@@ -112,8 +112,50 @@ pub fn import_provider_from_deeplink(
 
     let provider_id = provider.id.clone();
 
+    // Codex credentials must be persisted under the final normalized env_key
+    // before ProviderService validates or writes this provider. Keep the old
+    // value so a later add failure can restore the credential store.
+    let codex_env_rollback = if matches!(app_type, AppType::Codex) {
+        crate::services::provider::normalize_codex_managed_provider_for_storage(
+            state.db.as_ref(),
+            &mut provider,
+            None,
+        )?;
+        let env_key = provider
+            .settings_config
+            .get("config")
+            .and_then(serde_json::Value::as_str)
+            .and_then(crate::codex_config::extract_codex_env_key)
+            .or_else(|| {
+                provider
+                    .settings_config
+                    .pointer("/env/envKey")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .ok_or_else(|| AppError::Config("Codex provider env_key is missing".to_string()))?;
+        let previous_value = crate::codex_config::read_managed_env_key(&env_key);
+        crate::codex_config::write_managed_env_key(&env_key, api_key)?;
+        Some((env_key, previous_value))
+    } else {
+        None
+    };
+
     // Use ProviderService to add the provider
-    ProviderService::add(state, app_type.clone(), provider, true)?;
+    if let Err(error) = ProviderService::add(state, app_type.clone(), provider, true) {
+        if let Some((env_key, previous_value)) = codex_env_rollback {
+            let rollback = match previous_value {
+                Some(value) => crate::codex_config::write_managed_env_key(&env_key, &value),
+                None => crate::codex_config::remove_managed_env_key(&env_key),
+            };
+            if let Err(rollback_error) = rollback {
+                log::error!(
+                    "Failed to roll back Codex env key after deep-link import error: {rollback_error}"
+                );
+            }
+        }
+        return Err(error);
+    }
 
     // Add extra endpoints as custom endpoints (skip first one as it's the primary)
     for ep in all_endpoints.iter().skip(1) {

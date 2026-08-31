@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use tuzi_switch_lib::{
-    get_claude_settings_path, read_json_file, write_codex_live_atomic, AppError, AppType, McpApps,
-    McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
+    get_claude_settings_path, read_json_file, write_codex_env_key, write_codex_live_atomic,
+    AppError, AppType, McpApps, McpServer, MultiAppConfig, Provider, ProviderMeta, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -182,6 +182,8 @@ command = "say"
     );
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key("FRESH_CODEX_API_KEY".to_string(), "fresh-key".to_string())
+        .expect("seed selected provider env key");
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -1004,6 +1006,10 @@ command = "echo"
     }
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
+    write_codex_env_key("CODING01_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
+    write_codex_env_key("CODING02_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed normalized provider env key");
     let provider = Provider::with_id(
         "new-provider".to_string(),
         "codex订阅-我的线路".to_string(),
@@ -1035,13 +1041,15 @@ requires_openai_auth = false
         Some("rightcode"),
         "adding a non-current Codex provider must not switch the active provider"
     );
-    assert!(
-        parsed
-            .get("model_providers")
-            .and_then(|v| v.get("codex_sub"))
-            .is_some(),
-        "main config.toml should include the newly added provider"
-    );
+    let registered_route_id = parsed
+        .get("model_providers")
+        .and_then(|value| value.as_table())
+        .and_then(|providers| {
+            providers
+                .keys()
+                .find(|route_id| route_id.starts_with("provider-coding"))
+        })
+        .expect("main config.toml should include the numbered Coding provider");
     assert!(
         config_text.contains("[mcp_servers.keep]"),
         "existing Codex config sections should be preserved"
@@ -1050,7 +1058,7 @@ requires_openai_auth = false
     let profile_path = home.join(".codex").join("codex订阅-我的线路.config.toml");
     let profile_text = std::fs::read_to_string(profile_path).expect("read codex profile");
     assert!(
-        profile_text.contains("[model_providers.codex_sub]"),
+        profile_text.contains(&format!("[model_providers.{registered_route_id}]")),
         "Codex profile config should be created for the provider"
     );
 }
@@ -1078,6 +1086,8 @@ requires_openai_auth = false
     .expect("seed codex config");
 
     let state = create_test_state().expect("create test state");
+    write_codex_env_key("CODING02_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
     let provider = Provider::with_id(
         "new-provider".to_string(),
         "New Provider".to_string(),
@@ -1110,8 +1120,14 @@ X-Custom-Trace = "keep-me"
     let parsed: toml::Value = toml::from_str(&config_text).expect("parse config");
     let provider = parsed
         .get("model_providers")
-        .and_then(|value| value.get("codex_sub"))
-        .expect("codex_sub provider should be registered");
+        .and_then(|value| value.as_table())
+        .and_then(|providers| {
+            providers
+                .iter()
+                .find(|(route_id, _)| route_id.starts_with("provider-coding"))
+                .map(|(_, provider)| provider)
+        })
+        .expect("numbered Coding provider should be registered");
 
     assert_eq!(
         provider
@@ -1175,6 +1191,8 @@ requires_openai_auth = false
     write_codex_live_atomic(&json!({}), Some(existing_config)).expect("seed codex config");
 
     let state = create_test_state().expect("create test state");
+    write_codex_env_key("TUZI01_CODEX_API_KEY".to_string(), "test-key".to_string())
+        .expect("seed provider env key");
     let provider = Provider::with_id(
         "new-tuzi".to_string(),
         "兔子线路-我的配置".to_string(),
@@ -1933,6 +1951,78 @@ fn provider_service_switch_codex_missing_auth_returns_error() {
         ),
         other => panic!("expected config error, got {other:?}"),
     }
+}
+
+#[test]
+fn provider_service_switch_codex_missing_env_key_preserves_current_and_live_config() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let live_config = r#"model_provider = "working"
+model = "gpt-5.5"
+
+[model_providers.working]
+name = "Working"
+base_url = "https://working.example/v1"
+wire_api = "responses"
+requires_openai_auth = false
+"#;
+    write_codex_live_atomic(&json!({}), Some(live_config)).expect("seed live config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "working".to_string();
+        manager.providers.insert(
+            "working".to_string(),
+            Provider::with_id(
+                "working".to_string(),
+                "Working".to_string(),
+                json!({"auth": {}, "config": live_config}),
+                None,
+            ),
+        );
+        manager.providers.insert(
+            "missing-key".to_string(),
+            Provider::with_id(
+                "missing-key".to_string(),
+                "Missing Key".to_string(),
+                json!({
+                    "auth": {},
+                    "config": r#"model_provider = "missing"
+[model_providers.missing]
+name = "Missing"
+base_url = "https://missing.example/v1"
+env_key = "MISSING_SWITCH_CODEX_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+"#
+                }),
+                None,
+            ),
+        );
+    }
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    let error = ProviderService::switch(&state, AppType::Codex, "missing-key")
+        .expect_err("switch should fail when provider key is missing");
+    assert!(error.to_string().contains("MISSING_SWITCH_CODEX_API_KEY"));
+    assert_eq!(
+        state
+            .db
+            .get_current_provider(AppType::Codex.as_str())
+            .expect("read current provider")
+            .as_deref(),
+        Some("working")
+    );
+    assert_eq!(
+        std::fs::read_to_string(tuzi_switch_lib::get_codex_config_path())
+            .expect("read unchanged live config"),
+        live_config
+    );
 }
 
 #[test]

@@ -602,7 +602,28 @@ pub fn run() {
             }
 
             {
-                if crate::settings::unify_codex_session_history() {
+                let current_codex_credential_ready =
+                    match crate::services::provider::ensure_current_codex_provider_env_ready(
+                        &app_state,
+                    ) {
+                        Ok(true) => {
+                            log::info!(
+                                "✓ Current Codex provider credential is available to desktop processes"
+                            );
+                            true
+                        }
+                        Ok(false) => true,
+                        Err(e) => {
+                            log::warn!(
+                                "✗ Current Codex provider credential is unavailable; live config was not changed: {e}"
+                            );
+                            false
+                        }
+                    };
+
+                if current_codex_credential_ready
+                    && crate::settings::unify_codex_session_history()
+                {
                     if let Err(e) = crate::services::provider::reapply_current_codex_live(&app_state)
                     {
                         log::warn!("✗ Failed to reapply Codex unified live config on startup: {e}");
