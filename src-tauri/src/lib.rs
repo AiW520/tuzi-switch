@@ -603,6 +603,17 @@ pub fn run() {
             }
 
             {
+                match crate::services::provider::ensure_current_codex_provider_env_ready(&app_state)
+                {
+                    Ok(true) => log::info!(
+                        "✓ Current Codex provider credential is available to desktop processes"
+                    ),
+                    Ok(false) => {}
+                    Err(e) => log::warn!(
+                        "✗ Current Codex provider credential is unavailable; live config was preserved: {e}"
+                    ),
+                }
+
                 if crate::settings::unify_codex_session_history() {
                     match crate::codex_history_migration::ensure_codex_history_anchor() {
                         Ok(_) => {
@@ -1233,6 +1244,7 @@ pub fn run() {
             commands::set_common_config_snippet,
             commands::extract_common_config_snippet,
             commands::read_codex_env_key,
+            commands::read_codex_provider_credential,
             commands::write_codex_env_key,
             commands::read_all_codex_env_keys,
             commands::save_codex_route,
@@ -1407,6 +1419,7 @@ pub fn run() {
             commands::set_auto_failover_enabled,
             // Usage statistics
             commands::get_usage_summary,
+            commands::get_usage_summary_by_app,
             commands::get_usage_trends,
             commands::get_provider_stats,
             commands::get_model_stats,

@@ -601,6 +601,18 @@ pub(crate) fn read_codex_env_key_file(env_key: &str) -> Result<Option<String>, A
         }))
 }
 
+fn write_codex_env_key_file(env_key: &str, value: &str) -> Result<(), AppError> {
+    validate_env_key_name(env_key)?;
+    if value.trim().is_empty() || value.contains(['\r', '\n']) {
+        return Err(AppError::InvalidInput(
+            "Codex API Key 为空或包含换行符".to_string(),
+        ));
+    }
+    let mut codex_env = read_codex_env_file();
+    codex_env.insert(env_key.to_string(), value.to_string());
+    write_codex_env_file(&codex_env)
+}
+
 fn write_codex_env_file(env_map: &HashMap<String, String>) -> Result<(), AppError> {
     let path = get_codex_env_file_path();
     if env_map.is_empty() {
@@ -658,7 +670,10 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
     if !is_valid_env_key_name(env_key) {
         return None;
     }
-    if let Some(value) = read_codex_env_file().remove(env_key) {
+    if let Some(value) = read_codex_env_file()
+        .remove(env_key)
+        .filter(|value| !value.trim().is_empty())
+    {
         return Some(value);
     }
     if cfg!(target_os = "windows") {
@@ -693,6 +708,58 @@ pub fn read_managed_env_key(env_key: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Copy a credential only when the destination is still empty. The source is
+/// deliberately preserved so older provider records remain recoverable.
+pub fn copy_managed_env_key_if_missing(
+    source_env_key: &str,
+    target_env_key: &str,
+) -> Result<bool, AppError> {
+    validate_env_key_name(source_env_key)?;
+    validate_env_key_name(target_env_key)?;
+    if source_env_key == target_env_key || read_managed_env_key(target_env_key).is_some() {
+        return Ok(false);
+    }
+    let Some(value) = read_managed_env_key(source_env_key) else {
+        return Ok(false);
+    };
+    write_managed_env_key(target_env_key, &value)?;
+    Ok(true)
+}
+
+fn missing_codex_env_key_error(env_key: &str) -> AppError {
+    AppError::localized(
+        "codex.provider_env_key_missing",
+        format!(
+            "Codex 供应商需要环境变量 {env_key}，但未找到对应 API Key。请重新填写并保存该供应商；当前可用配置未被覆盖。"
+        ),
+        format!(
+            "The Codex provider requires environment variable {env_key}, but its API key is missing. Re-enter and save the provider; the current working configuration was not overwritten."
+        ),
+    )
+}
+
+/// Ensure an env-backed provider credential is available to GUI-launched
+/// Codex. Shell startup files are a migration source; ~/.codex/.env is the
+/// persistent source used after a reboot.
+pub fn ensure_codex_provider_env_ready(config_text: &str) -> Result<(), AppError> {
+    let Some(env_key) = extract_codex_env_key(config_text) else {
+        return Ok(());
+    };
+    validate_env_key_name(&env_key)?;
+    if read_codex_env_key_file(&env_key)?.is_some() {
+        return Ok(());
+    }
+    let Some(value) = read_managed_env_key(&env_key) else {
+        return Err(missing_codex_env_key_error(&env_key));
+    };
+    write_codex_env_key_file(&env_key, &value)?;
+    if read_codex_env_key_file(&env_key)?.is_some() {
+        Ok(())
+    } else {
+        Err(missing_codex_env_key_error(&env_key))
+    }
 }
 
 pub fn write_managed_env_key(env_key: &str, value: &str) -> Result<(), AppError> {
@@ -1738,6 +1805,37 @@ pub fn read_codex_subagent_settings() -> Result<CodexSubagentSettings, AppError>
     codex_subagent_settings_from_text(&config_path, &config_text)
 }
 
+/// Read the device-level default, migrating the pre-provider implementation
+/// from the live config exactly once.
+pub fn read_codex_subagent_default_settings() -> Result<CodexSubagentSettings, AppError> {
+    let live = read_codex_subagent_settings()?;
+    let value = crate::settings::initialize_codex_subagent_default_threads(
+        live.max_concurrent_threads_per_session,
+    )?;
+    Ok(CodexSubagentSettings {
+        max_concurrent_threads_per_session: value,
+        config_path: live.config_path,
+        used_legacy_alias: live.used_legacy_alias,
+    })
+}
+
+pub fn resolved_codex_subagent_threads(
+    provider_override: Option<u64>,
+) -> Result<Option<u64>, AppError> {
+    if let Some(value) = provider_override {
+        validate_codex_subagent_threads(Some(value))?;
+    }
+    let settings = crate::settings::get_settings();
+    if settings.codex_subagent_default_initialized {
+        return Ok(provider_override.or(settings.codex_subagent_default_threads));
+    }
+    let live = read_codex_subagent_settings()?;
+    let default = crate::settings::initialize_codex_subagent_default_threads(
+        live.max_concurrent_threads_per_session,
+    )?;
+    Ok(provider_override.or(default))
+}
+
 fn codex_subagent_settings_from_text(
     config_path: &Path,
     config_text: &str,
@@ -1782,26 +1880,40 @@ fn codex_subagent_settings_from_text(
 pub fn set_codex_subagent_max_concurrent_threads(
     value: Option<u64>,
 ) -> Result<CodexSubagentSettings, AppError> {
-    if value.is_some_and(|threads| threads == 0 || threads > i64::MAX as u64) {
-        return Err(AppError::Config(
-            "Codex 子代理并发线程数必须是大于 0 且不超过 64 位整数上限的整数".to_string(),
-        ));
-    }
+    validate_codex_subagent_threads(value)?;
 
     let _config_lock = CODEX_CONFIG_WRITE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let config_path = get_codex_config_path();
     let config_text = read_codex_config_text()?;
+    let updated = apply_codex_subagent_threads_to_config_text(&config_text, value)?;
+
+    write_text_file(&config_path, &updated)?;
+    drop(_config_lock);
+    read_codex_subagent_settings()
+}
+
+pub fn validate_codex_subagent_threads(value: Option<u64>) -> Result<(), AppError> {
+    if value.is_some_and(|threads| threads == 0 || threads > i64::MAX as u64) {
+        return Err(AppError::Config(
+            "Codex 子代理并发线程数必须是大于 0 且不超过 64 位整数上限的整数".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn apply_codex_subagent_threads_to_config_text(
+    config_text: &str,
+    value: Option<u64>,
+) -> Result<String, AppError> {
+    validate_codex_subagent_threads(value)?;
     let mut doc = if config_text.trim().is_empty() {
         DocumentMut::new()
     } else {
-        config_text.parse::<DocumentMut>().map_err(|e| {
-            AppError::Message(format!(
-                "Invalid Codex config.toml ({}): {e}",
-                config_path.display()
-            ))
-        })?
+        config_text
+            .parse::<DocumentMut>()
+            .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?
     };
 
     match value {
@@ -1830,9 +1942,44 @@ pub fn set_codex_subagent_max_concurrent_threads(
         }
     }
 
-    write_text_file(&config_path, &doc.to_string())?;
-    drop(_config_lock);
-    read_codex_subagent_settings()
+    Ok(doc.to_string())
+}
+
+pub fn apply_codex_subagent_threads_to_settings(
+    settings: &mut Value,
+    value: Option<u64>,
+) -> Result<(), AppError> {
+    let Some(object) = settings.as_object_mut() else {
+        return Err(AppError::Config(
+            "Codex 供应商配置必须是 JSON 对象".to_string(),
+        ));
+    };
+    let config_text = object.get("config").and_then(Value::as_str).unwrap_or("");
+    object.insert(
+        "config".to_string(),
+        Value::String(apply_codex_subagent_threads_to_config_text(
+            config_text,
+            value,
+        )?),
+    );
+    Ok(())
+}
+
+pub fn strip_codex_subagent_threads_from_settings(settings: &mut Value) -> Result<(), AppError> {
+    let Some(object) = settings.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(config_text) = object.get("config").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    object.insert(
+        "config".to_string(),
+        Value::String(apply_codex_subagent_threads_to_config_text(
+            config_text,
+            None,
+        )?),
+    );
+    Ok(())
 }
 
 /// Preserve global Codex tables when a provider-specific write supplies a
@@ -2197,6 +2344,7 @@ pub fn prepare_codex_provider_live_config(
     auth: &Value,
     config_text: &str,
 ) -> Result<String, AppError> {
+    ensure_codex_provider_env_ready(config_text)?;
     prepare_codex_provider_live_config_with_env_reader(auth, config_text, read_managed_env_key)
 }
 
@@ -2407,9 +2555,17 @@ fn prepare_codex_provider_live_config_with_env_reader(
     config_text: &str,
     read_env_key: impl Fn(&str) -> Option<String>,
 ) -> Result<String, AppError> {
-    let _ = extract_codex_auth_api_key(auth)
-        .or_else(|| extract_codex_env_key(config_text).and_then(|env_key| read_env_key(&env_key)))
-        .or_else(|| extract_codex_experimental_bearer_token(config_text));
+    if let Some(env_key) = extract_codex_env_key(config_text) {
+        if read_env_key(&env_key)
+            .filter(|value| !value.trim().is_empty())
+            .is_none()
+        {
+            return Err(missing_codex_env_key_error(&env_key));
+        }
+    } else {
+        let _ = extract_codex_auth_api_key(auth)
+            .or_else(|| extract_codex_experimental_bearer_token(config_text));
+    }
 
     remove_codex_live_only_provider_fields(config_text)
 }
@@ -3072,7 +3228,7 @@ pub fn write_codex_live_atomic_with_stable_provider(
     }
 }
 
-pub fn write_codex_live_for_provider(
+fn write_codex_live_for_provider_inner(
     category: Option<&str>,
     auth: &Value,
     config_text_opt: Option<&str>,
@@ -3483,41 +3639,42 @@ pub fn read_codex_model_catalog_simplified_from_live() -> Result<Option<Value>, 
     ))
 }
 
-pub fn write_codex_provider_live_with_catalog(
+pub fn write_codex_provider_live_with_catalog_for_provider(
     settings: &Value,
     category: Option<&str>,
     auth: &Value,
     config_text: Option<&str>,
+    subagent_threads: Option<u64>,
 ) -> Result<(), AppError> {
     let prepared_config = config_text
         .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
         .transpose()?;
-
-    write_codex_live_for_provider(category, auth, prepared_config.as_deref())
+    write_codex_live_for_provider_inner(category, auth, prepared_config.as_deref())?;
+    set_codex_subagent_max_concurrent_threads(subagent_threads)?;
+    Ok(())
 }
 
-/// Write Codex live config exactly from the provider template.
-///
-/// This is used when turning off unified session history: the live config must
-/// return to the provider's own `model_provider` instead of reusing the current
-/// live history anchor.
-pub fn write_codex_provider_live_exact_with_catalog(
+/// Write Codex live config from the provider template while applying its
+/// resolved subagent concurrency policy.
+pub fn write_codex_provider_live_exact_with_catalog_for_provider(
     settings: &Value,
     auth: &Value,
     config_text: Option<&str>,
+    subagent_threads: Option<u64>,
 ) -> Result<(), AppError> {
     let prepared_config = config_text
         .map(|text| prepare_codex_config_text_with_model_catalog(settings, text))
         .transpose()?;
-
     match prepared_config.as_deref() {
         Some(config_text) => {
             let live_config = prepare_codex_provider_live_config(auth, config_text)?;
             let live_config = preserve_codex_global_tables_from_live(&live_config)?;
-            write_codex_live_atomic(auth, Some(&live_config))
+            write_codex_live_atomic(auth, Some(&live_config))?;
         }
-        None => write_codex_live_atomic(auth, None),
+        None => write_codex_live_atomic(auth, None)?,
     }
+    set_codex_subagent_max_concurrent_threads(subagent_threads)?;
+    Ok(())
 }
 
 /// Update a field in Codex config.toml using toml_edit (syntax-preserving).
@@ -3745,6 +3902,7 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::sync::Mutex;
 
     static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -3809,6 +3967,7 @@ interrupt_message = true
     }
 
     #[test]
+    #[serial]
     fn set_subagent_threads_persists_and_reset_removes_only_managed_table() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
@@ -3838,6 +3997,48 @@ interrupt_message = true
             Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
             None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
         }
+    }
+
+    #[test]
+    fn provider_subagent_override_is_applied_without_touching_other_agents_values() {
+        let input = r#"model = "gpt-5.5"
+
+[agents]
+interrupt_message = true
+max_threads = 2
+"#;
+        let updated = apply_codex_subagent_threads_to_config_text(input, Some(12)).unwrap();
+        let doc = updated.parse::<toml::Table>().unwrap();
+        let agents = doc.get("agents").and_then(toml::Value::as_table).unwrap();
+        assert_eq!(
+            agents
+                .get("max_concurrent_threads_per_session")
+                .and_then(|value| value.as_integer()),
+            Some(12)
+        );
+        assert_eq!(
+            agents
+                .get("interrupt_message")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(agents.get("max_threads").is_none());
+
+        let reset = apply_codex_subagent_threads_to_config_text(&updated, None).unwrap();
+        let reset_doc = reset.parse::<toml::Table>().unwrap();
+        let reset_agents = reset_doc
+            .get("agents")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(
+            reset_agents
+                .get("interrupt_message")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert!(reset_agents
+            .get("max_concurrent_threads_per_session")
+            .is_none());
     }
 
     #[test]
@@ -4079,6 +4280,7 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     fn codex_dotenv_exact_reader_ignores_blank_values() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
@@ -4107,6 +4309,7 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     #[cfg(target_os = "linux")]
     fn linux_write_managed_env_key_uses_current_shell_rc_file() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
@@ -4140,6 +4343,7 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     #[cfg(target_os = "macos")]
     fn macos_write_managed_env_key_uses_zshrc() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
@@ -4178,6 +4382,7 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
     fn read_managed_env_key_prefers_codex_dotenv_copy() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
@@ -4208,6 +4413,84 @@ wire_api = "responses"
     }
 
     #[test]
+    #[serial]
+    fn copy_managed_env_key_only_fills_an_empty_destination() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::write(
+            temp.path().join(".zshrc"),
+            "# Codex\nexport CODING_CODEX_API_KEY='legacy-key'\n",
+        )
+        .expect("seed legacy key");
+
+        assert!(
+            copy_managed_env_key_if_missing("CODING_CODEX_API_KEY", "CODING01_CODEX_API_KEY")
+                .expect("copy legacy key")
+        );
+        assert_eq!(
+            read_managed_env_key("CODING01_CODEX_API_KEY").as_deref(),
+            Some("legacy-key")
+        );
+
+        write_managed_env_key("CODING01_CODEX_API_KEY", "provider-key")
+            .expect("replace destination");
+        assert!(
+            !copy_managed_env_key_if_missing("CODING_CODEX_API_KEY", "CODING01_CODEX_API_KEY")
+                .expect("keep destination")
+        );
+        assert_eq!(
+            read_managed_env_key("CODING01_CODEX_API_KEY").as_deref(),
+            Some("provider-key")
+        );
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn ensure_provider_env_ready_mirrors_shell_key_and_rejects_missing_key() {
+        let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
+        let temp = tempfile::tempdir().expect("temp home");
+        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        fs::write(
+            temp.path().join(".zshrc"),
+            "# Codex\nexport READY_CODEX_API_KEY='ready-key'\n",
+        )
+        .expect("seed shell key");
+        let ready_config = r#"model_provider = "custom"
+[model_providers.custom]
+env_key = "READY_CODEX_API_KEY"
+"#;
+        ensure_codex_provider_env_ready(ready_config).expect("mirror ready key");
+        assert_eq!(
+            read_codex_env_key_file("READY_CODEX_API_KEY")
+                .expect("read mirrored key")
+                .as_deref(),
+            Some("ready-key")
+        );
+
+        let missing_config = r#"model_provider = "missing"
+[model_providers.missing]
+env_key = "MISSING_CODEX_API_KEY"
+"#;
+        let error = ensure_codex_provider_env_ready(missing_config)
+            .expect_err("missing key should block live write");
+        assert!(error.to_string().contains("MISSING_CODEX_API_KEY"));
+
+        match old_test_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    #[serial]
     fn remove_managed_env_key_clears_codex_dotenv_copy() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
@@ -4854,6 +5137,7 @@ model = "gpt-5"
     }
 
     #[test]
+    #[serial]
     fn third_party_live_write_keeps_existing_auth_cache() {
         let _guard = TEST_ENV_LOCK.lock().expect("lock test env");
         let temp = tempfile::tempdir().expect("temp home");
@@ -4867,7 +5151,7 @@ model = "gpt-5"
         )
         .expect("seed auth.json");
 
-        write_codex_live_for_provider(
+        write_codex_live_for_provider_inner(
             Some("aggregator"),
             &json!({}),
             Some(

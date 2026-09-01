@@ -83,4 +83,76 @@ describe("useCodexConfigState", () => {
     expect(result.current.codexApiKey).toBe("sk-provider-b");
     expect(result.current.codexEnvKey).toBe("PROVIDER_B_CODEX_API_KEY");
   });
+
+  it("reloads the provider-bound API key after the editor is closed and reopened", async () => {
+    invokeMock.mockResolvedValue({
+      apiKey: "sk-reopened-provider",
+      migratedFrom: null,
+    });
+
+    const data = initialData("provider_a", "PROVIDER_A_CODEX_API_KEY");
+    const first = renderHook(() =>
+      useCodexConfigState({
+        providerId: "provider-a",
+        initialData: data,
+      }),
+    );
+    await waitFor(() =>
+      expect(first.result.current.codexCredentialStatus).toBe("loaded"),
+    );
+    expect(first.result.current.codexApiKey).toBe("sk-reopened-provider");
+    first.unmount();
+
+    const reopened = renderHook(() =>
+      useCodexConfigState({
+        providerId: "provider-a",
+        initialData: data,
+      }),
+    );
+    expect(reopened.result.current.codexCredentialStatus).toBe("loading");
+    await waitFor(() =>
+      expect(reopened.result.current.codexApiKey).toBe("sk-reopened-provider"),
+    );
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "read_codex_provider_credential",
+      {
+        providerId: "provider-a",
+        envKey: "PROVIDER_A_CODEX_API_KEY",
+      },
+    );
+  });
+
+  it("distinguishes a missing credential from a read failure and supports retry", async () => {
+    invokeMock.mockResolvedValueOnce({ apiKey: null, migratedFrom: null });
+    const data = initialData("provider_a", "PROVIDER_A_CODEX_API_KEY");
+    const { result } = renderHook(() =>
+      useCodexConfigState({
+        providerId: "provider-a",
+        initialData: data,
+      }),
+    );
+    await waitFor(() =>
+      expect(result.current.codexCredentialStatus).toBe("missing"),
+    );
+
+    invokeMock.mockRejectedValueOnce(new Error("credential store unavailable"));
+    act(() => result.current.retryCodexCredentialLoad());
+    await waitFor(() =>
+      expect(result.current.codexCredentialStatus).toBe("error"),
+    );
+    expect(result.current.codexCredentialError).toContain(
+      "credential store unavailable",
+    );
+
+    invokeMock.mockResolvedValueOnce({
+      apiKey: "sk-after-retry",
+      migratedFrom: null,
+    });
+    act(() => result.current.retryCodexCredentialLoad());
+    await waitFor(() =>
+      expect(result.current.codexCredentialStatus).toBe("loaded"),
+    );
+    expect(result.current.codexApiKey).toBe("sk-after-retry");
+  });
 });

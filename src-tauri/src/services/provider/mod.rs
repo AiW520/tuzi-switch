@@ -29,7 +29,8 @@ pub use live::{
 // Internal re-exports (pub(crate))
 pub(crate) use live::sanitize_claude_settings_for_live;
 pub(crate) use live::{
-    build_effective_settings_with_common_config, normalize_codex_managed_provider_for_storage,
+    build_effective_settings_with_common_config, codex_provider_env_key,
+    migrate_codex_provider_credential, normalize_codex_managed_provider_for_storage,
     normalize_provider_common_config_for_storage, provider_exists_in_live_config,
     strip_common_config_from_live_settings, sync_current_provider_for_app_to_live,
     write_live_with_common_config,
@@ -41,6 +42,134 @@ use live::{
     remove_openclaw_provider_from_live, remove_opencode_provider_from_live, write_gemini_live,
 };
 use usage::validate_usage_script;
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexProviderCredential {
+    pub api_key: Option<String>,
+    pub migrated_from: Option<String>,
+}
+
+fn legacy_codex_env_key_for_target(env_key: &str) -> Option<&'static str> {
+    let numbered_family = |prefix: &str| {
+        env_key
+            .strip_prefix(prefix)
+            .and_then(|value| value.strip_suffix("_CODEX_API_KEY"))
+            .is_some_and(|value| value.len() == 2 && value.chars().all(|ch| ch.is_ascii_digit()))
+    };
+    if numbered_family("CODING") {
+        Some("CODING_CODEX_API_KEY")
+    } else if numbered_family("TUZI") {
+        Some("TUZI_CODEX_API_KEY")
+    } else {
+        None
+    }
+}
+
+pub fn read_codex_provider_credential(
+    state: &AppState,
+    provider_id: &str,
+    requested_env_key: &str,
+) -> Result<CodexProviderCredential, AppError> {
+    let provider = state
+        .db
+        .get_provider_by_id(provider_id, AppType::Codex.as_str())?
+        .ok_or_else(|| AppError::Message(format!("Codex 供应商不存在: {provider_id}")))?;
+    let configured_env_key = codex_provider_env_key(&provider)
+        .ok_or_else(|| AppError::Config("Codex 供应商未配置 env_key".to_string()))?;
+    if configured_env_key != requested_env_key.trim() {
+        return Err(AppError::InvalidInput(
+            "请求的 Codex env_key 与供应商配置不一致".to_string(),
+        ));
+    }
+
+    if let Some(api_key) = crate::codex_config::read_managed_env_key(&configured_env_key) {
+        return Ok(CodexProviderCredential {
+            api_key: Some(api_key),
+            migrated_from: None,
+        });
+    }
+
+    if let Some(legacy_api_key) = provider
+        .settings_config
+        .pointer("/auth/OPENAI_API_KEY")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        crate::codex_config::write_managed_env_key(&configured_env_key, legacy_api_key)?;
+        return Ok(CodexProviderCredential {
+            api_key: Some(legacy_api_key.to_string()),
+            migrated_from: Some("auth.OPENAI_API_KEY".to_string()),
+        });
+    }
+
+    let current_id = ProviderService::current(state, AppType::Codex)?;
+    let Some(legacy_env_key) = (current_id == provider_id)
+        .then(|| legacy_codex_env_key_for_target(&configured_env_key))
+        .flatten()
+    else {
+        return Ok(CodexProviderCredential {
+            api_key: None,
+            migrated_from: None,
+        });
+    };
+    let Some(legacy_api_key) = crate::codex_config::read_managed_env_key(legacy_env_key) else {
+        return Ok(CodexProviderCredential {
+            api_key: None,
+            migrated_from: None,
+        });
+    };
+
+    // Never fan one legacy credential out to multiple numbered providers.
+    let already_migrated_elsewhere = state
+        .db
+        .get_all_providers(AppType::Codex.as_str())?
+        .values()
+        .filter(|candidate| candidate.id != provider_id)
+        .filter_map(codex_provider_env_key)
+        .filter(|candidate_env_key| {
+            legacy_codex_env_key_for_target(candidate_env_key) == Some(legacy_env_key)
+        })
+        .filter_map(|candidate_env_key| {
+            crate::codex_config::read_managed_env_key(&candidate_env_key)
+        })
+        .any(|candidate_api_key| candidate_api_key == legacy_api_key);
+    if already_migrated_elsewhere {
+        return Ok(CodexProviderCredential {
+            api_key: None,
+            migrated_from: None,
+        });
+    }
+
+    crate::codex_config::write_managed_env_key(&configured_env_key, &legacy_api_key)?;
+    Ok(CodexProviderCredential {
+        api_key: Some(legacy_api_key),
+        migrated_from: Some(legacy_env_key.to_string()),
+    })
+}
+
+pub fn ensure_current_codex_provider_env_ready(state: &AppState) -> Result<bool, AppError> {
+    let current_id = ProviderService::current(state, AppType::Codex)?;
+    if current_id.is_empty() {
+        return Ok(false);
+    }
+    let provider = state
+        .db
+        .get_provider_by_id(&current_id, AppType::Codex.as_str())?
+        .ok_or_else(|| AppError::Message("当前 Codex 供应商不存在".to_string()))?;
+    let Some(env_key) = codex_provider_env_key(&provider) else {
+        return Ok(false);
+    };
+    let _ = read_codex_provider_credential(state, &current_id, &env_key)?;
+    let config_text = provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+    Ok(true)
+}
 
 /// 统一会话开关变更后，立即按新开关状态重写当前 Codex 供应商的
 /// live 配置，使开关即时生效（无需等下一次切换）。
@@ -112,10 +241,17 @@ pub fn reapply_current_codex_live(state: &AppState) -> Result<bool, AppError> {
             .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
         let auth = obj.get("auth").unwrap_or(&Value::Null);
         let config_text = obj.get("config").and_then(Value::as_str);
-        crate::codex_config::write_codex_provider_live_exact_with_catalog(
+        let threads = crate::codex_config::resolved_codex_subagent_threads(
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.codex_subagent_threads),
+        )?;
+        crate::codex_config::write_codex_provider_live_exact_with_catalog_for_provider(
             &effective_settings,
             auth,
             config_text,
+            threads,
         )?;
         return Ok(true);
     }
@@ -378,6 +514,11 @@ requires_openai_auth = false
             .expect("set db current");
         crate::settings::set_current_provider(&AppType::Codex, Some("provider-a"))
             .expect("set local current");
+        crate::codex_config::write_managed_env_key(
+            "PROVIDER_B_CODEX_API_KEY",
+            "provider-b-test-key",
+        )
+        .expect("seed provider b credential");
         crate::codex_config::write_codex_live_atomic(
             &json!({}),
             provider_a
@@ -1200,6 +1341,102 @@ wire_api = "responses"
             );
         });
     }
+
+    #[test]
+    #[serial]
+    fn provider_bound_credential_read_migrates_only_the_current_legacy_key() {
+        with_test_home(|state, _| {
+            let make_provider = |id: &str, route: &str, env_key: &str| {
+                Provider::with_id(
+                    id.to_string(),
+                    id.to_string(),
+                    json!({
+                        "auth": {},
+                        "env": { "envKey": env_key },
+                        "config": format!(
+                            "model_provider = \"{route}\"\n[model_providers.{route}]\nenv_key = \"{env_key}\"\n"
+                        )
+                    }),
+                    None,
+                )
+            };
+            let current = make_provider(
+                "current-coding",
+                "provider-coding02",
+                "CODING02_CODEX_API_KEY",
+            );
+            let other = make_provider(
+                "other-coding",
+                "provider-coding03",
+                "CODING03_CODEX_API_KEY",
+            );
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &current)
+                .expect("save current provider");
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &other)
+                .expect("save other provider");
+            state
+                .db
+                .set_current_provider(AppType::Codex.as_str(), &current.id)
+                .expect("set current provider");
+            crate::settings::set_current_provider(&AppType::Codex, Some(&current.id))
+                .expect("set local current provider");
+            crate::codex_config::write_managed_env_key("CODING_CODEX_API_KEY", "legacy-coding-key")
+                .expect("seed legacy key");
+
+            let migrated =
+                read_codex_provider_credential(state, &current.id, "CODING02_CODEX_API_KEY")
+                    .expect("read current credential");
+            assert_eq!(migrated.api_key.as_deref(), Some("legacy-coding-key"));
+            assert_eq!(
+                migrated.migrated_from.as_deref(),
+                Some("CODING_CODEX_API_KEY")
+            );
+
+            let not_migrated =
+                read_codex_provider_credential(state, &other.id, "CODING03_CODEX_API_KEY")
+                    .expect("read non-current credential");
+            assert_eq!(not_migrated.api_key, None);
+            assert_eq!(
+                crate::codex_config::read_managed_env_key("CODING03_CODEX_API_KEY"),
+                None
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn provider_bound_credential_read_rejects_an_unrelated_env_key() {
+        with_test_home(|state, _| {
+            let provider = Provider::with_id(
+                "provider-a".to_string(),
+                "Provider A".to_string(),
+                json!({
+                    "auth": {},
+                    "env": { "envKey": "PROVIDER_A_CODEX_API_KEY" },
+                    "config": "model_provider = \"provider_a\"\n[model_providers.provider_a]\nenv_key = \"PROVIDER_A_CODEX_API_KEY\"\n"
+                }),
+                None,
+            );
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &provider)
+                .expect("save provider");
+            crate::codex_config::write_managed_env_key(
+                "OTHER_PROVIDER_CODEX_API_KEY",
+                "unrelated-key",
+            )
+            .expect("seed unrelated key");
+
+            let error =
+                read_codex_provider_credential(state, &provider.id, "OTHER_PROVIDER_CODEX_API_KEY")
+                    .expect_err("unrelated key should be rejected");
+            assert!(error.to_string().contains("env_key"));
+        });
+    }
 }
 
 impl ProviderService {
@@ -1280,10 +1517,22 @@ impl ProviderService {
         add_to_live: bool,
     ) -> Result<bool, AppError> {
         let mut provider = provider;
+        let submitted_provider = provider.clone();
+        let current = state.db.get_current_provider(app_type.as_str())?;
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         if matches!(app_type, AppType::Codex) {
             normalize_codex_managed_provider_for_storage(state.db.as_ref(), &mut provider, None)?;
+            migrate_codex_provider_credential(Some(&submitted_provider), &provider)?;
+            if current.is_none() {
+                if let Some(config_text) = provider
+                    .settings_config
+                    .get("config")
+                    .and_then(Value::as_str)
+                {
+                    crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+                }
+            }
         }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
@@ -1312,7 +1561,6 @@ impl ProviderService {
         }
 
         // For other apps: Check if sync is needed (if this is current provider, or no current provider)
-        let current = state.db.get_current_provider(app_type.as_str())?;
         // 当前 Codex 供应商会在 write_live_with_common_config 中完成线路注册与
         // profile 写入；这里只为非当前供应商预注册，避免首次保存重复落盘。
         if matches!(app_type, AppType::Codex) && current.is_some() {
@@ -1339,11 +1587,15 @@ impl ProviderService {
         provider: Provider,
     ) -> Result<bool, AppError> {
         let mut provider = provider;
+        let submitted_provider = provider.clone();
         let original_id = original_id.unwrap_or(provider.id.as_str()).to_string();
         let provider_id_changed = original_id != provider.id;
         let existing_provider = state
             .db
             .get_provider_by_id(&original_id, app_type.as_str())?;
+        let effective_current =
+            crate::settings::get_effective_current_provider(&state.db, &app_type)?;
+        let is_current = effective_current.as_deref() == Some(original_id.as_str());
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         if matches!(app_type, AppType::Codex) {
@@ -1352,6 +1604,17 @@ impl ProviderService {
                 &mut provider,
                 Some(original_id.as_str()),
             )?;
+            migrate_codex_provider_credential(Some(&submitted_provider), &provider)?;
+            migrate_codex_provider_credential(existing_provider.as_ref(), &provider)?;
+            if is_current {
+                if let Some(config_text) = provider
+                    .settings_config
+                    .get("config")
+                    .and_then(Value::as_str)
+                {
+                    crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+                }
+            }
         }
         Self::validate_provider_settings(&app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
@@ -1490,8 +1753,6 @@ impl ProviderService {
         state.db.save_provider(app_type.as_str(), &provider)?;
 
         // For other apps: Check if this is current provider (use effective current, not just DB)
-        let effective_current =
-            crate::settings::get_effective_current_provider(&state.db, &app_type)?;
         let is_current = effective_current.as_deref() == Some(provider.id.as_str());
 
         // 非当前 Codex 供应商仍需预注册到配置中，便于之后切换；当前供应商
@@ -1893,6 +2154,23 @@ impl ProviderService {
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
         Self::validate_provider_settings(&app_type, provider)?;
+
+        // Resolve and persist the target provider's own credential before any
+        // current-provider state changes or live-config writes. This migrates
+        // legacy auth.OPENAI_API_KEY data without allowing cross-provider
+        // fallback, and keeps a failed switch atomic.
+        if matches!(app_type, AppType::Codex) {
+            if let Some(env_key) = codex_provider_env_key(provider) {
+                let _ = read_codex_provider_credential(state, id, &env_key)?;
+            }
+            if let Some(config_text) = provider
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+            {
+                crate::codex_config::ensure_codex_provider_env_ready(config_text)?;
+            }
+        }
 
         // Startup normally resolves this once. Keep the write boundary
         // self-contained as well so an early/manual switch can never fall back

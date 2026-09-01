@@ -619,10 +619,6 @@ function ProviderFormFull({
   // 确认框走的提交路径绕过了 react-hook-form 的 isSubmitting，单独追踪
   const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
 
-  useEffect(() => {
-    onSubmittingChange?.(isSubmitting || isConfirmSubmitting);
-  }, [isSubmitting, isConfirmSubmitting, onSubmittingChange]);
-
   // 订阅 settingsConfig 变化，确保 shouldShowApiKey / hasApiKeyField 等依赖它的计算能响应式更新
   const watchedSettingsConfig = form.watch("settingsConfig");
 
@@ -710,6 +706,9 @@ function ProviderFormFull({
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
   );
+  const [codexSubagentThreads, setCodexSubagentThreads] = useState<string>(
+    () => initialData?.meta?.codexSubagentThreads?.toString() ?? "",
+  );
 
   // Query existing codex providers for suffix computation
   const { data: existingCodexProviders } = useQuery({
@@ -734,6 +733,8 @@ function ProviderFormFull({
     codexModelName,
     codexCatalogModels,
     codexAuthError,
+    codexCredentialStatus,
+    codexCredentialError,
     setCodexAuth,
     setCodexConfig,
     setCodexEnvKey,
@@ -743,7 +744,21 @@ function ProviderFormFull({
     handleCodexModelNameChange,
     handleCodexConfigChange: originalHandleCodexConfigChange,
     resetCodexConfig,
-  } = useCodexConfigState({ initialData });
+    retryCodexCredentialLoad,
+  } = useCodexConfigState({ providerId, initialData });
+  useEffect(() => {
+    onSubmittingChange?.(
+      isSubmitting ||
+        isConfirmSubmitting ||
+        (appId === "codex" && codexCredentialStatus === "loading"),
+    );
+  }, [
+    appId,
+    codexCredentialStatus,
+    isSubmitting,
+    isConfirmSubmitting,
+    onSubmittingChange,
+  ]);
   const [codexChatReasoning, setCodexChatReasoning] =
     useState<CodexChatReasoning>(
       () => initialData?.meta?.codexChatReasoning ?? {},
@@ -1251,9 +1266,45 @@ function ProviderFormFull({
   const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
 
   const handleSubmit = async (values: ProviderFormData) => {
+    if (appId === "codex" && codexCredentialStatus === "loading") {
+      toast.info(
+        t("providerForm.codexCredentialLoading", {
+          defaultValue: "正在读取已保存的 API Key，请稍候",
+        }),
+      );
+      return;
+    }
+    if (
+      appId === "codex" &&
+      codexCredentialStatus === "error" &&
+      !codexApiKey.trim()
+    ) {
+      toast.error(
+        t("providerForm.codexCredentialLoadFailed", {
+          defaultValue: "已保存的 API Key 读取失败，请重试或重新填写",
+        }),
+      );
+      return;
+    }
+
     // 软性问题（业务约束，用户可选择仍要保存）
     const issues: string[] = [];
     let overriddenEnvKey = codexEnvKey;
+
+    const trimmedCodexSubagentThreads = codexSubagentThreads.trim();
+    if (
+      appId === "codex" &&
+      trimmedCodexSubagentThreads &&
+      (!/^[1-9][0-9]*$/.test(trimmedCodexSubagentThreads) ||
+        Number(trimmedCodexSubagentThreads) > 2147483647)
+    ) {
+      toast.error(
+        t("codexConfig.subagentThreadsInvalid", {
+          defaultValue: "请输入 1 到 2147483647 之间的整数",
+        }),
+      );
+      return;
+    }
 
     // 模板变量未填：A 类（空值）
     if (appId === "claude" && templateValueEntries.length > 0) {
@@ -1556,6 +1607,7 @@ function ProviderFormFull({
     values: ProviderFormData,
     resolvedEnvKeyOverride?: string,
   ) => {
+    const resolvedCodexSubagentThreads = codexSubagentThreads.trim();
     // OAuth / 其它身份识别（与 handleSubmit 保持一致）
     const isCopilotProvider =
       templatePreset?.providerType === "github_copilot" ||
@@ -1824,6 +1876,10 @@ function ProviderFormFull({
           ? selectedGitHubAccountId
           : undefined,
       codexFastMode: isCodexOauthProvider ? codexFastMode : undefined,
+      codexSubagentThreads:
+        appId === "codex" && resolvedCodexSubagentThreads
+          ? Number(resolvedCodexSubagentThreads)
+          : undefined,
       testConfig: testConfig.enabled ? testConfig : undefined,
       costMultiplier: pricingConfig.enabled
         ? pricingConfig.costMultiplier
@@ -2725,6 +2781,9 @@ function ProviderFormFull({
               envKeyError={codexEnvKeyError}
               codexApiKey={codexApiKey}
               onApiKeyChange={handleCodexApiKeyChange}
+              credentialStatus={codexCredentialStatus}
+              credentialError={codexCredentialError}
+              onRetryCredentialLoad={retryCodexCredentialLoad}
               category={category}
               shouldShowApiKeyLink={shouldShowCodexApiKeyLink}
               websiteUrl={form.watch("websiteUrl") || ""}
@@ -2745,6 +2804,8 @@ function ProviderFormFull({
               onApiFormatChange={handleCodexApiFormatChange}
               codexChatReasoning={codexChatReasoning}
               onCodexChatReasoningChange={setCodexChatReasoning}
+              subagentThreads={codexSubagentThreads}
+              onSubagentThreadsChange={setCodexSubagentThreads}
               catalogModels={codexCatalogModels}
               onCatalogModelsChange={setCodexCatalogModels}
               speedTestEndpoints={speedTestEndpoints}
