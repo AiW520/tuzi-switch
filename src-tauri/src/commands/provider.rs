@@ -752,7 +752,21 @@ fn codex_login_api_keys() -> std::collections::HashSet<String> {
         .into_iter()
         .filter_map(|auth_path| std::fs::read_to_string(auth_path).ok())
         .filter_map(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .filter_map(|auth| crate::codex_config::extract_codex_auth_api_key(&auth))
+        // OPENAI_API_KEY may be a legitimate legacy third-party credential.
+        // Equality with auth.json alone does not prove it was copied from OAuth.
+        .flat_map(|auth| {
+            ["access_token", "id_token", "refresh_token"]
+                .into_iter()
+                .filter_map(|key| {
+                    auth.get("tokens")?
+                        .get(key)?
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                })
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 

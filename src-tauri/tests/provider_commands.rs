@@ -115,6 +115,40 @@ requires_openai_auth = false
 }
 
 #[test]
+fn first_codex_coding_deeplink_persists_key_before_activating() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let state = create_test_state().expect("create test state");
+    for id in state.db.get_all_providers("codex").unwrap().keys() {
+        state.db.delete_provider("codex", id).unwrap();
+    }
+    let request = tuzi_switch_lib::parse_deeplink_url(
+        "tuziswitch://v1/import?resource=provider&app=codex&name=Coding&endpoint=https%3A%2F%2Fapi.tu-zi.com%2Fcoding&apiKey=explicit-import-key",
+    ).expect("parse import");
+    let id = tuzi_switch_lib::import_provider_from_deeplink(&state, request)
+        .expect("first import should activate without a preexisting env key");
+    let provider = state
+        .db
+        .get_provider_by_id(&id, "codex")
+        .expect("read provider")
+        .expect("imported provider");
+    let env_key = provider
+        .settings_config
+        .pointer("/env/envKey")
+        .and_then(serde_json::Value::as_str)
+        .expect("normalized env key");
+    let keys = read_all_codex_env_keys().expect("read env keys");
+    assert_eq!(
+        keys.get(env_key).map(String::as_str),
+        Some("explicit-import-key")
+    );
+    assert_eq!(
+        state.db.get_current_provider("codex").unwrap().as_deref(),
+        Some(id.as_str())
+    );
+}
+
+#[test]
 fn codex_provider_credential_cleanup_removes_login_key_without_trusting_legacy_auth() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -124,7 +158,11 @@ fn codex_provider_credential_cleanup_removes_login_key_without_trusting_legacy_a
     std::fs::create_dir_all(&codex_dir).expect("create codex dir");
     std::fs::write(
         codex_dir.join("auth.json"),
-        serde_json::to_vec(&json!({ "OPENAI_API_KEY": "login-key" })).expect("serialize auth"),
+        serde_json::to_vec(&json!({
+            "OPENAI_API_KEY": "real-provider-key",
+            "tokens": { "access_token": "login-key" }
+        }))
+        .expect("serialize auth"),
     )
     .expect("write auth.json");
 
@@ -176,6 +214,11 @@ env_key = "REAL_LEGACY_CODEX_API_KEY"
         "login-key".to_string(),
     )
     .expect("seed copied login env key");
+    write_codex_env_key(
+        "REAL_LEGACY_CODEX_API_KEY".to_string(),
+        "real-provider-key".to_string(),
+    )
+    .expect("seed legitimate legacy env key");
 
     assert_eq!(
         sanitize_codex_provider_credentials_test_hook(&state)
@@ -215,9 +258,12 @@ env_key = "REAL_LEGACY_CODEX_API_KEY"
         !env_keys.contains_key("COPIED_LOGIN_CODEX_API_KEY"),
         "the copied Codex login key should be removed from provider env storage"
     );
-    assert!(
-        !env_keys.contains_key("REAL_LEGACY_CODEX_API_KEY"),
-        "legacy provider auth must not be copied into env storage automatically"
+    assert_eq!(
+        env_keys
+            .get("REAL_LEGACY_CODEX_API_KEY")
+            .map(String::as_str),
+        Some("real-provider-key"),
+        "a legitimate key matching auth.json must remain in env storage"
     );
 }
 
