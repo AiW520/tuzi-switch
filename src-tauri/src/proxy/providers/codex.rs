@@ -1115,44 +1115,46 @@ impl CodexAdapter {
     where
         E: Display,
     {
+        // Env-backed Coding providers must use their managed credential as the
+        // single source of truth. Falling back to stale legacy fields can send
+        // a second, incorrect key and turn a local configuration issue into 401.
+        if let Some(env_key) = Self::eligible_env_key(provider) {
+            return match read_env_key(&env_key) {
+                Ok(Some(key)) => normalize_provider_api_key(&key),
+                Ok(None) => None,
+                Err(error) => {
+                    log::warn!("[Codex] 读取 env_key {env_key} 失败: {error}");
+                    None
+                }
+            };
+        }
+
         if let Some(key) = self.extract_explicit_key(provider) {
             return Some(key);
         }
 
-        // 5. 官方 Codex Provider 只保存 env_key，真实 Key 位于 ~/.codex/.env。
-        // TOML 是活动配置的权威来源，旧版 env.envKey 仅作为兼容回退。
-        if let Some(env_key) = Self::eligible_env_key(provider) {
-            match read_env_key(&env_key) {
-                Ok(Some(key)) => {
-                    if let Some(key) = normalize_provider_api_key(&key) {
-                        return Some(key);
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    log::warn!("[Codex] 读取 env_key {env_key} 失败: {error}");
-                }
-            }
-        }
-
-        // 6. 兼容旧版直接写入 TOML 的 Bearer Token。
+        // Compatibility fallback for providers that do not use managed env_key.
         Self::extract_legacy_bearer(provider)
     }
 }
 
-/// 解析 Codex 认证。显式 Key 优先；仅受信任 Coding 上游可异步读取 `.env`。
+/// Resolve Codex auth. Trusted Coding routes are env-first and fail closed;
+/// other providers retain legacy explicit-key compatibility.
 pub(crate) async fn resolve_codex_auth(provider: &Provider) -> Option<AuthInfo> {
     let adapter = CodexAdapter::new();
-    if let Some(key) = adapter.extract_explicit_key(provider) {
-        return Some(AuthInfo::new(key, AuthStrategy::Bearer));
+    if let Some(env_key) = CodexAdapter::eligible_env_key(provider) {
+        return match read_cached_codex_env_key(&env_key).await {
+            Ok(Some(key)) => Some(AuthInfo::new(key, AuthStrategy::Bearer)),
+            Ok(None) => None,
+            Err(error) => {
+                log::warn!("[Codex] 读取 env_key {env_key} 失败: {error}");
+                None
+            }
+        };
     }
 
-    if let Some(env_key) = CodexAdapter::eligible_env_key(provider) {
-        match read_cached_codex_env_key(&env_key).await {
-            Ok(Some(key)) => return Some(AuthInfo::new(key, AuthStrategy::Bearer)),
-            Ok(None) => {}
-            Err(error) => log::warn!("[Codex] 读取 env_key {env_key} 失败: {error}"),
-        }
+    if let Some(key) = adapter.extract_explicit_key(provider) {
+        return Some(AuthInfo::new(key, AuthStrategy::Bearer));
     }
 
     CodexAdapter::extract_legacy_bearer(provider)
@@ -1541,6 +1543,46 @@ env_key = "CODING02_CODEX_API_KEY"
     }
 
     #[test]
+    fn test_extract_auth_prefers_managed_env_key_over_stale_explicit_keys() {
+        let adapter = CodexAdapter::new();
+        let provider = create_provider(json!({
+            "auth": { "OPENAI_API_KEY": "stale-auth-key" },
+            "env": {
+                "OPENAI_API_KEY": "stale-env-key",
+                "envKey": "CODING02_CODEX_API_KEY"
+            },
+            "config": coding_toml(TUZI_CODING_BASE_URL, "CODING02_CODEX_API_KEY")
+        }));
+        let calls = Cell::new(0);
+
+        let key = adapter.extract_key_with_env_reader(&provider, |env_key| {
+            calls.set(calls.get() + 1);
+            assert_eq!(env_key, "CODING02_CODEX_API_KEY");
+            Ok::<_, &str>(Some("managed-key".to_string()))
+        });
+
+        assert_eq!(key.as_deref(), Some("managed-key"));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn test_extract_auth_does_not_fallback_when_managed_env_key_is_missing() {
+        let adapter = CodexAdapter::new();
+        let provider = create_provider(json!({
+            "auth": { "OPENAI_API_KEY": "stale-auth-key" },
+            "env": {
+                "OPENAI_API_KEY": "stale-env-key",
+                "envKey": "CODING02_CODEX_API_KEY"
+            },
+            "config": coding_toml(TUZI_CODING_BASE_URL, "CODING02_CODEX_API_KEY")
+        }));
+
+        assert!(adapter
+            .extract_key_with_env_reader(&provider, |_| Ok::<_, &str>(None))
+            .is_none());
+    }
+
+    #[test]
     fn test_extract_auth_explicit_key_bypasses_env_reader() {
         let adapter = CodexAdapter::new();
         let provider = create_provider(json!({
@@ -1597,7 +1639,7 @@ env_key = "CODING02_CODEX_API_KEY"
     }
 
     #[test]
-    fn test_extract_auth_uses_legacy_bearer_only_after_env_key() {
+    fn test_extract_auth_does_not_use_legacy_bearer_for_managed_env_key() {
         let adapter = CodexAdapter::new();
         let provider = create_provider(json!({
             "auth": {},
@@ -1615,8 +1657,8 @@ experimental_bearer_token = "legacy-key"
         });
         assert_eq!(env_key.as_deref(), Some("dotenv-key"));
 
-        let legacy_key = adapter.extract_key_with_env_reader(&provider, |_| Ok::<_, &str>(None));
-        assert_eq!(legacy_key.as_deref(), Some("legacy-key"));
+        let missing_key = adapter.extract_key_with_env_reader(&provider, |_| Ok::<_, &str>(None));
+        assert!(missing_key.is_none());
     }
 
     #[test]

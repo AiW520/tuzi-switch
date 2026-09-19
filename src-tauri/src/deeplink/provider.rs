@@ -141,17 +141,24 @@ pub fn import_provider_from_deeplink(
         None
     };
 
-    // Use ProviderService to add the provider
     if let Err(error) = ProviderService::add(state, app_type.clone(), provider, true) {
-        if let Some((env_key, previous_value)) = codex_env_rollback {
-            let rollback = match previous_value {
-                Some(value) => crate::codex_config::write_managed_env_key(&env_key, &value),
-                None => crate::codex_config::remove_managed_env_key(&env_key),
-            };
-            if let Err(rollback_error) = rollback {
-                log::error!(
-                    "Failed to roll back Codex env key after deep-link import error: {rollback_error}"
-                );
+        let provider_was_saved = state
+            .db
+            .get_provider_by_id(&provider_id, app_type.as_str())
+            .ok()
+            .flatten()
+            .is_some();
+        if !provider_was_saved {
+            if let Some((env_key, previous_value)) = codex_env_rollback {
+                let rollback = match previous_value {
+                    Some(value) => crate::codex_config::write_managed_env_key(&env_key, &value),
+                    None => crate::codex_config::remove_managed_env_key(&env_key),
+                };
+                if let Err(rollback_error) = rollback {
+                    log::error!(
+                        "Failed to roll back Codex env key after deep-link import error: {rollback_error}"
+                    );
+                }
             }
         }
         return Err(error);
