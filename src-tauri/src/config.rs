@@ -20,17 +20,26 @@ use crate::error::AppError;
 /// 为了让 Windows CI/本地测试能稳定隔离真实用户数据，可通过 `CC_SWITCH_TEST_HOME`
 /// 显式覆盖 home dir（仅用于测试/调试场景）。
 pub fn get_home_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("CC_SWITCH_TEST_HOME") {
-        let trimmed = home.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
+    // A preview bundle must never import or write the user's real tool settings.
+    #[cfg(feature = "local-preview")]
+    return dirs::data_local_dir()
+        .expect("local preview requires a local data directory")
+        .join("com.tuziswitch.desktop.preview/home");
 
-    dirs::home_dir().unwrap_or_else(|| {
-        log::warn!("无法获取用户主目录，回退到当前目录");
-        PathBuf::from(".")
-    })
+    #[cfg(not(feature = "local-preview"))]
+    {
+        if let Ok(home) = std::env::var("CC_SWITCH_TEST_HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+
+        dirs::home_dir().unwrap_or_else(|| {
+            log::warn!("无法获取用户主目录，回退到当前目录");
+            PathBuf::from(".")
+        })
+    }
 }
 
 /// 获取 Claude Code 配置目录路径
@@ -194,6 +203,7 @@ pub fn write_text_file(path: &Path, data: &str) -> Result<(), AppError> {
 
 /// 原子写入：写入临时文件后 rename 替换，避免半写状态
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), AppError> {
+    crate::services::tuzi_provider::before_config_write(path, Some(data))?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
     }
@@ -333,6 +343,7 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), AppError> {
             source: e,
         })?;
     }
+    crate::services::tuzi_provider::after_config_write(path);
     Ok(())
 }
 
@@ -504,9 +515,11 @@ pub fn copy_file(from: &Path, to: &Path) -> Result<(), AppError> {
 
 /// 删除文件
 pub fn delete_file(path: &Path) -> Result<(), AppError> {
+    crate::services::tuzi_provider::before_config_write(path, None)?;
     if path.exists() {
         fs::remove_file(path).map_err(|e| AppError::io(path, e))?;
     }
+    crate::services::tuzi_provider::after_config_write(path);
     Ok(())
 }
 

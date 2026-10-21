@@ -55,6 +55,8 @@ import {
 } from "@/utils/providerConfigUtils";
 
 interface ProviderListProps {
+  focusRequest?: { providerId?: string };
+  onFocusComplete?: () => void;
   providers: Record<string, Provider>;
   currentProviderId: string;
   appId: AppId;
@@ -79,6 +81,8 @@ interface ProviderListProps {
 }
 
 export function ProviderList({
+  focusRequest,
+  onFocusComplete,
   providers,
   currentProviderId,
   appId,
@@ -102,6 +106,40 @@ export function ProviderList({
   onSetAsDefault,
 }: ProviderListProps) {
   const { t } = useTranslation();
+  const focusProviderId = focusRequest?.providerId;
+  const focusAvailable = !!focusProviderId && !!providers[focusProviderId];
+  const [locatedProviderId, setLocatedProviderId] = useState<string>();
+  useEffect(() => {
+    setLocatedProviderId(undefined);
+    if (!focusProviderId || !focusAvailable || isLoading) return;
+    setSearchTerm("");
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`account-provider-${focusProviderId}`)
+        ?.scrollIntoView({
+          block: "center",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+            .matches
+            ? "auto"
+            : "smooth",
+        });
+      setLocatedProviderId(focusProviderId);
+    }, 100);
+    const finish = window.setTimeout(() => {
+      setLocatedProviderId(undefined);
+      onFocusComplete?.();
+    }, 2500);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(finish);
+    };
+  }, [
+    focusRequest,
+    focusProviderId,
+    focusAvailable,
+    isLoading,
+    onFocusComplete,
+  ]);
   const { checkProvider, isChecking } = useStreamCheck(appId);
   const { sortedProviders, sensors, handleDragEnd } = useDragSort(
     providers,
@@ -530,6 +568,7 @@ export function ProviderList({
             return (
               <SortableProviderCard
                 key={provider.id}
+                accountFocused={provider.id === locatedProviderId}
                 provider={provider}
                 isCurrent={
                   isOmo
@@ -709,6 +748,7 @@ export function ProviderList({
 }
 
 interface SortableProviderCardProps {
+  accountFocused?: boolean;
   provider: Provider;
   isCurrent: boolean;
   appId: AppId;
@@ -743,6 +783,7 @@ interface SortableProviderCardProps {
 }
 
 function SortableProviderCard({
+  accountFocused,
   provider,
   isCurrent,
   appId,
@@ -789,7 +830,12 @@ function SortableProviderCard({
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      id={`account-provider-${provider.id}`}
+      data-account-focused={accountFocused || undefined}
+    >
       <ProviderCard
         provider={provider}
         isCurrent={isCurrent}

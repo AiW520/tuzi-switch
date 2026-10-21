@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 
 /**
  * Detects whether the container's children overflow the available width
@@ -11,18 +17,33 @@ import { useEffect, useRef, useState, type RefObject } from "react";
  */
 export function useAutoCompact(
   containerRef: RefObject<HTMLDivElement | null>,
+  layoutKey?: string,
 ): boolean {
   const [compact, setCompact] = useState(false);
   const normalWidthRef = useRef(0);
   const lockUntilRef = useRef(0);
 
+  // Account and individual tools have different toolbar actions. A width cached
+  // for the previous layout must not keep a shorter toolbar collapsed.
+  useLayoutEffect(() => {
+    normalWidthRef.current = 0;
+    lockUntilRef.current = 0;
+    setCompact(false);
+  }, [layoutKey]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const ro = new ResizeObserver(() => {
+    let pendingMeasure: ReturnType<typeof setTimeout> | undefined;
+    const measure = () => {
+      clearTimeout(pendingMeasure);
       // During expand animation, ignore resize events to prevent flicker
-      if (Date.now() < lockUntilRef.current) return;
+      const remaining = lockUntilRef.current - Date.now();
+      if (remaining > 0) {
+        pendingMeasure = setTimeout(measure, remaining);
+        return;
+      }
 
       if (!compact) {
         // Overflow detected → switch to compact
@@ -43,10 +64,18 @@ export function useAutoCompact(
           setCompact(false);
         }
       }
-    });
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [compact]);
+    // Tool actions are replaced after their exit animation. Their width can
+    // change while the available container width stays exactly the same.
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    measure();
+    return () => {
+      ro.disconnect();
+      clearTimeout(pendingMeasure);
+    };
+  }, [compact, layoutKey]);
 
   return compact;
 }

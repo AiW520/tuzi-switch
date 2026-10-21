@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -61,6 +61,12 @@ import {
   DRAG_REGION_ATTR,
   DRAG_REGION_STYLE,
 } from "@/lib/platform";
+import { ConfigureTool } from "@/components/account/ConfigureTool";
+import { TuziProviderDialog } from "@/components/providers/TuziProviderDialog";
+import type { TuziProviderDraft } from "@/lib/tuziToolCompatibility";
+import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
+import { AccountPage } from "@/components/account/AccountPage";
+import { useAccount } from "@/lib/query/account";
 import { AppSwitcher } from "@/components/AppSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
@@ -96,6 +102,7 @@ import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
 import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
 
 type View =
+  | "account"
   | "providers"
   | "settings"
   | "prompts"
@@ -141,6 +148,7 @@ const getInitialApp = (): AppId => {
 
 const VIEW_STORAGE_KEY = "tuzi-switch-last-view";
 const VALID_VIEWS: View[] = [
+  "account",
   "providers",
   "settings",
   "prompts",
@@ -168,9 +176,74 @@ const getInitialView = (): View => {
 function App() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const account = useAccount();
+  const [configureKey, setConfigureKey] = useState<{
+    key: DesktopKey;
+    model?: DesktopPricing;
+  } | null>(null);
+  const [accountProviderFocus, setAccountProviderFocus] = useState<{
+    app: AppId;
+    providerId?: string;
+  } | null>(null);
+  const [tuziDraft, setTuziDraft] = useState<TuziProviderDraft | null>(null);
+  const clearAccountProviderFocus = useCallback(
+    () => setAccountProviderFocus(null),
+    [],
+  );
+  useEffect(() => {
+    setConfigureKey(null);
+    setTuziDraft(null);
+    setAccountProviderFocus(null);
+  }, [account.state.generation, account.state.identity?.connectionId]);
+  useEffect(() => {
+    if (!["connected", "refreshing"].includes(account.state.status)) {
+      setConfigureKey(null);
+      setTuziDraft(null);
+    }
+  }, [account.state.status]);
 
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
+  const [accountReturnRequest, setAccountReturnRequest] = useState(0);
   const [currentView, setCurrentView] = useState<View>(getInitialView);
+  useEffect(() => {
+    if (
+      accountProviderFocus &&
+      (currentView !== "providers" || activeApp !== accountProviderFocus.app)
+    )
+      setAccountProviderFocus(null);
+  }, [activeApp, currentView, accountProviderFocus]);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const receive = async () => {
+      const pending = await invoke<boolean>("account_take_open_request");
+      if (pending && !disposed) {
+        setConfigureKey(null);
+        setTuziDraft(null);
+        setCurrentView("account");
+        setAccountReturnRequest((value) => value + 1);
+        requestAnimationFrame(() =>
+          document.getElementById("account-system-token")?.focus(),
+        );
+      }
+    };
+    void listen("account-open-requested", () => {
+      void receive().catch(() => {});
+    })
+      .then((stop) => {
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlisten = stop;
+        void receive().catch(() => {});
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
@@ -272,7 +345,10 @@ function App() {
   const effectiveUsageProvider = useLastValidValue(usageProvider);
 
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const isToolbarCompact = useAutoCompact(toolbarRef);
+  const isToolbarCompact = useAutoCompact(
+    toolbarRef,
+    `${currentView}:${activeApp}`,
+  );
 
   useUsageCacheBridge();
 
@@ -999,6 +1075,19 @@ function App() {
   const renderContent = () => {
     const content = (() => {
       switch (currentView) {
+        case "account":
+          return (
+            <AccountPage
+              tokenReturnRequest={accountReturnRequest}
+              account={account}
+              localStatus={t(
+                isProxyRunning
+                  ? "account.business.proxyRunning"
+                  : "account.business.proxyStopped",
+              )}
+              onConfigureKey={(key, model) => setConfigureKey({ key, model })}
+            />
+          );
         case "settings":
           return (
             <SettingsPage
@@ -1076,6 +1165,12 @@ function App() {
                     className="space-y-4"
                   >
                     <ProviderList
+                      focusRequest={
+                        accountProviderFocus?.app === activeApp
+                          ? accountProviderFocus
+                          : undefined
+                      }
+                      onFocusComplete={clearAccountProviderFocus}
                       providers={providers}
                       currentProviderId={currentProviderId}
                       appId={activeApp}
@@ -1268,7 +1363,7 @@ function App() {
             className="flex items-center gap-1"
             style={{ WebkitAppRegion: "no-drag" } as any}
           >
-            {currentView !== "providers" ? (
+            {currentView !== "providers" && currentView !== "account" ? (
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -1319,7 +1414,7 @@ function App() {
                         : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
                     )}
                   >
-                    兔子switch
+                    兔子助手
                   </a>
                 </div>
                 <Button
@@ -1491,15 +1586,21 @@ function App() {
                     </Button>
                   </>
                 )}
+                {(currentView === "providers" || currentView === "account") && (
+                  <AppSwitcher
+                    activeApp={activeApp}
+                    accountSelected={currentView === "account"}
+                    onSelectAccount={() => setCurrentView("account")}
+                    onSwitch={(app) => {
+                      setActiveApp(app);
+                      setCurrentView("providers");
+                    }}
+                    visibleApps={visibleApps}
+                    compact={isToolbarCompact}
+                  />
+                )}
                 {currentView === "providers" && (
                   <>
-                    <AppSwitcher
-                      activeApp={activeApp}
-                      onSwitch={setActiveApp}
-                      visibleApps={visibleApps}
-                      compact={isToolbarCompact}
-                    />
-
                     <div className="flex items-center gap-1 p-1 bg-muted rounded-xl">
                       <AnimatePresence mode="wait">
                         <motion.div
@@ -1685,6 +1786,38 @@ function App() {
         {renderContent()}
       </main>
 
+      {configureKey && account.state.identity && (
+        <ConfigureTool
+          key={`${account.state.generation}:${configureKey.key.id}`}
+          state={account.state}
+          keyDto={configureKey.key}
+          model={configureKey.model}
+          onClose={() => setConfigureKey(null)}
+          onExisting={(app, providerId) => {
+            setConfigureKey(null);
+            setActiveApp(app);
+            setCurrentView("providers");
+            setAccountProviderFocus({ app, providerId });
+          }}
+          onReady={(draft) => {
+            setConfigureKey(null);
+            setActiveApp(draft.appId);
+            setCurrentView("providers");
+            setAccountProviderFocus({ app: draft.appId });
+            setTuziDraft(draft);
+          }}
+        />
+      )}
+      {tuziDraft && tuziDraft.generation === account.state.generation && (
+        <TuziProviderDialog
+          draft={tuziDraft}
+          onClose={() => setTuziDraft(null)}
+          onSaved={(providerId) => {
+            setAccountProviderFocus({ app: tuziDraft.appId, providerId });
+            setTuziDraft(null);
+          }}
+        />
+      )}
       <AddProviderDialog
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
