@@ -1,3 +1,13 @@
+# R01 v1.4.1 正式安装包已发布（2026-10-21）
+
+用户本轮授权的合并核查、版本更新、构建及 GitHub Release 发布完成。客户端 PR #48 已合入 main（`25b76e9be74c63ccc131be91ae3faa48811faf65`），API PR #277 已合入 dev（`70e5f2b2f624c7b721064cedc9994238973a8875`）。本次客户端发行代码/标签 `v1.4.1` 指向 `9b4e702b2ae973571221c9aa877f8fec0498c045`，契约仍为 `system-token-v1`；API 工作区未修改、未执行服务端部署或迁移。
+
+- [Build & Release 39569723161](https://github.com/tuziapi/tuzi-switch/actions/runs/39569723161) 全部成功，Windows MSI/NSIS、macOS Apple Silicon、Linux x86_64 安装包均生成并上传。
+- [兔子switch v1.4.1](https://github.com/tuziapi/tuzi-switch/releases/tag/v1.4.1) 于北京时间 2026-10-21 16:51 发布；非草稿、非预发布，GitHub latest 指向该版本。12 个附件涵盖安装包、三平台更新签名、安装脚本及 latest.json。
+- 已下载核对 Release latest.json 与 release-manifest 分支清单完全一致；版本 1.4.1，darwin-aarch64/windows-x86_64/linux-x86_64 三平台均具非空签名且下载 URL 对应实际附件。此处是清单/附件核查，未另做安装包签名密码学复验。
+- 发布前 typecheck、账户前端112项、更新器2项、图片回退脚本3项、Rust账户40项（另1项默认忽略）、供应商14项及 renderer build 通过。Windows 打包元数据修正后的三平台正式构建通过；未替用户安装覆盖应用，也未完成三平台安装/运行人工验收或完整产品验收。
+- v1.4.0 首次构建 Windows MSI 失败、未公开 Release，其标签保留；v1.4.1 恢复正式旧版英文发行产品名对应的 MSI 升级标识及参数化 WiX 路径，详见 ADR-009。旧账户 OAuth/钥匙串预览用户升级后需重新粘贴系统令牌，不自动迁移或删除旧钥匙串。
+
 # B13 本地账户配置文件与隐藏环境变量（2026-10-19）
 
 按用户明确要求，账户系统令牌改用原生独立本地JSON，不再访问钥匙串；旧用户首次需重新粘贴。Codex新增/编辑移除环境变量输入与说明，新增自动避重、编辑保留原名、旧缺失兼容。代码 `d7b41dcdbae715d9ece2762753ae339c16e8a8ff` 配对未修改API `21cd7acd51349407cdc5d332a763907d065f9a86`，两仓指定B分支、契约system-token-v1。47前端、35账户原生（1默认忽略）、29供应商原生、七工具隔离回归、类型和macOS构建通过；实际新包启动无账户钥匙串框、新增字段移除及最终重启恢复本地合成账户已核验，其他平台和用户验收未完成。保留先前未提交补丁；详见 [B13验证](local-account-file-verification.md) / [ADR-011](decisions/0011-local-account-file-and-hidden-codex-env.md)。未推送或发布。
