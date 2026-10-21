@@ -413,3 +413,14 @@ G3的T19/T20/T21与Q02/Q04/Q09环境门槛保持待办；不把本地通过等�
 ### B18 保留原发布文案
 
 用户明确要求撤回工作流中3处名称修改：两处Release标题及一处更新清单notes继续使用“兔子switch”，`.github/workflows/build.yml` 与目标main保持一致。客户端窗口/图标/账户品牌及其他已提交实现均保留；此次仅恢复发布文案，无运行逻辑改动。完成精确3处差异及diff检查后提交，再推送并创建目标main的PR。
+
+
+## R01 v1.4.0 安装包发布准备（2026-10-21）
+
+用户本轮明确授权检查已合并 PR、更新版本、构建安装包并发布 GitHub Release。客户端 PR #48 已于北京时间 2026-10-21 15:04 合入 main，合并 SHA `25b76e9be74c63ccc131be91ae3faa48811faf65`。本次从该 main 建立 `codex/release-1.4.0`，仅将 package.json、Tauri 配置、Cargo.toml 和 Cargo.lock 的应用版本由 1.3.1 同步更新至 1.4.0；使用显式 Git 操作，不执行带自动 push 的 npm version/postversion。基线 B4 / system-token-v1 不变。
+
+API PR #277 已合入 dev；公开入口响应头 `x-new-api-version: dev-20261020-09db95bd7440`，GitHub compare 确认该 SHA 包含 #277 合并提交 `70e5f2b2f624c7b721064cedc9994238973a8875`。这只核实公开入口版本标识，不替代所有实例或生产数据库验收。API 本地目录未修改。
+
+发布前本机 macOS 验证：`pnpm typecheck`、账户与工具配置 6 文件112项测试、updater 2项测试、`pnpm build:renderer`、内置图片兼容脚本3项Python测试通过；`cargo test --locked --lib tuzi_account` 40通过/1既有真实配对测试忽略，`cargo test --locked --lib services::tuzi_provider` 14通过，均使用合成数据。四份版本一致，`git diff --check` 通过。保留既有 React DOM 嵌套、浏览器数据和打包体积警告；不宣称完成三平台安装运行或新的真实账户联调。
+
+计划通过 v1.4.0 标签触发现有 Build & Release，生成 macOS Apple Silicon、Windows x86_64 和 Linux x86_64 安装包及已配置签名的更新清单；此条记录时远程构建/Release 尚未完成，以 GitHub 工作流和 Release 附件为准。历史未授权发布文字属于各阶段时点状态。旧 A 预览用户需重新粘贴系统令牌，原钥匙串不自动迁移或删除。回退保留旧 Release 和用户数据，客户端优先于 API，不重写标签、不清表或轮换令牌。
