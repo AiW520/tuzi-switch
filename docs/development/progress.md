@@ -438,3 +438,35 @@ API PR #277 已合入 dev；公开入口响应头 `x-new-api-version: dev-202610
 发布前本机 macOS 验证：`pnpm typecheck`、账户与工具配置 6 文件112项测试、updater 2项测试、`pnpm build:renderer`、内置图片兼容脚本3项Python测试通过；`cargo test --locked --lib tuzi_account` 40通过/1既有真实配对测试忽略，`cargo test --locked --lib services::tuzi_provider` 14通过，均使用合成数据。四份版本一致，`git diff --check` 通过。保留既有 React DOM 嵌套、浏览器数据和打包体积警告；不宣称完成三平台安装运行或新的真实账户联调。
 
 计划通过 v1.4.0 标签触发现有 Build & Release，生成 macOS Apple Silicon、Windows x86_64 和 Linux x86_64 安装包及已配置签名的更新清单；此条记录时远程构建/Release 尚未完成，以 GitHub 工作流和 Release 附件为准。历史未授权发布文字属于各阶段时点状态。旧 A 预览用户需重新粘贴系统令牌，原钥匙串不自动迁移或删除。回退保留旧 Release 和用户数据，客户端优先于 API，不重写标签、不清表或轮换令牌。
+
+## R02 v1.4.1 本地缺陷修复（2026-10-21）
+
+用户授权在 `codex/tuzi-assistant-system-token` 修复 Key 模型列表、下拉滚动和 Codex TOML 编辑/保存，并打开本地构建测试。客户端实现与145项前端、41项账户测试通过；全库原生1405通过、1项历史恢复测试失败、1忽略，明确保留限制。独立测试应用已构建并打开，API未改动，未推送/发布，实际Key及用户验收待完成。详见 [R02验证](r02-model-editor-verification.md) 和 [ADR-012](decisions/0012-key-model-list-and-toml-drafts.md)。
+
+## R03 Codex 模型列表实际验收纠正（2026-10-21）
+
+R02 用户实际验收未通过：额外协议过滤导致模型仍缺失。R03 将 Codex 展示/选择与手动获取列表统一，保存保持 Key 权限及成员检查，其他工具不变。前端96项、原生账户42项通过（1真实配对忽略），API未改，详见 [R03验证](r03-codex-model-list-verification.md)。实际账户验收仍待完成。
+
+## R04 Codex 首次添加保留自定义名称（2026-10-21）
+
+用户批准统一修复Codex各线路首次添加、再次编辑及落盘命名。仅凭证索引仍受程序管理，不再自动重命名用户provider；增加冲突提示及初始账户草稿独立标识。110项前端、29项供应商、67项Codex、14项账户工具和3项真实文件回归通过；独立R04测试包构建完成。API未改、未推送/发布，实际验收待完成。详见 [R04记录](r04-codex-provider-identity.md)。
+
+## R05 密钥搜索交互（2026-10-21）
+
+客户端修复筛选栏跳动、搜索输入期间报错及后4位精确匹配错误；固定反馈区域、300ms防抖、同账户保留列表及失败重试。类型检查、100项前端及43项原生账户测试通过（1项既有忽略），合成UI确认筛选栏位置稳定。API未改，实际用户验收待完成，见 [R05验证](r05-key-search-verification.md)。
+
+## R06 模型选择器三项修复（2026-10-21）
+
+按用户授权完成第1、2、4项：统一“已获取 N 个模型”、隐藏未知协议禁用项并补空态、修复模型接口缺少端点详情时Claude/Gemini已知标签被误过滤。共享协议表同时影响前端和原生保存，Codex完整列表规则保留；第3项搜索清空明确未修改。客户端基于fa0f078在system-token分支本地实施，API 2e72a8b保持不变。类型、110项前端、43项原生账户（1既有忽略）和renderer构建通过；完整边界见 [R06验证](r06-model-picker-verification.md)。未push或发布，实际Key及安装包验收未执行。
+
+## R07 Codex账户凭证读取（2026-10-21）
+
+按用户修复及重新构建授权，新增TUZI_SWITCH独立引用识别并接入资格/缓存门；不再错误拒绝账户保存生成的env_key。58项Codex、14项账户工具、31项模型检查、29项供应商定向测试通过，包含真实隔离保存→数据库去明文→异步读取两条不同Key。API与搜索清空逻辑未改；R07沿用R06隔离数据，仍不切换日常Codex。详见 [R07记录](r07-codex-credential-verification.md)，无push/PR/发布，实际Key验收待用户执行。
+
+## R08 Codex 同名 provider（2026-10-21）
+
+用户批准不同供应商卡片共享 `custom` 等 TOML 标识，替代 R04 全局唯一及未启用预注册规则。保存与生效分离，启用时整体替换目标表，独立凭证和账户事务保留；同名往返切换、未启用编辑、删除、MCP及账户恢复合成回归通过。API、搜索清空未改；仅本地，未推送/发布，实际验收待用户完成。见 [R08验证](r08-codex-duplicate-provider-verification.md) 与 [ADR-013](decisions/0013-codex-card-local-provider-ids.md)。
+
+## R09 Codex 配置失败补偿（2026-10-21）
+
+用户明确授权修复后提交、推送并创建客户端目标 main 的 PR；不含合并或发布。普通表单准备不提前写Key；Codex普通保存/启用及供应商页代理热切换加入补偿，覆盖数据库、当前状态、配置文件和独立凭证；账户事务继续复用。逐写入点错误、数据库/代理备份错误及外部冲突回归通过。全库单元1415通过、1既有历史恢复失败、1忽略，详细限制见 [R09验证](r09-codex-transaction-verification.md) 与 [ADR-014](decisions/0014-codex-save-activation-compensation.md)。API与暂缓的搜索清空未改。

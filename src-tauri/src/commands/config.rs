@@ -9,7 +9,6 @@ use crate::codex_config;
 use crate::config::{self, get_claude_settings_path, ConfigStatus};
 use crate::settings;
 use crate::store::AppState;
-use toml_edit::{DocumentMut, Item};
 
 #[tauri::command]
 pub async fn get_claude_config_status() -> Result<ConfigStatus, String> {
@@ -469,38 +468,6 @@ fn codex_active_provider_field(config_text: &str, field: &str) -> Option<String>
         .map(ToString::to_string)
 }
 
-fn merge_codex_config_edits(existing: &str, edited: &str) -> Result<String, String> {
-    fn merge_item(target: &mut Item, source: &Item) {
-        if let (Some(target_table), Some(source_table)) =
-            (target.as_table_like_mut(), source.as_table_like())
-        {
-            for (key, source_item) in source_table.iter() {
-                match target_table.get_mut(key) {
-                    Some(target_item) => merge_item(target_item, source_item),
-                    None => {
-                        target_table.insert(key, source_item.clone());
-                    }
-                }
-            }
-        } else {
-            *target = source.clone();
-        }
-    }
-
-    let mut target = if existing.trim().is_empty() {
-        DocumentMut::new()
-    } else {
-        existing
-            .parse::<DocumentMut>()
-            .map_err(|e| format!("Invalid existing Codex config.toml: {e}"))?
-    };
-    let source = edited
-        .parse::<DocumentMut>()
-        .map_err(|e| format!("Invalid edited Codex config.toml: {e}"))?;
-    merge_item(target.as_item_mut(), source.as_item());
-    Ok(target.to_string())
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveCodexRouteResult {
@@ -522,11 +489,16 @@ fn save_codex_route_inner(
     providerId: Option<String>,
     configText: Option<String>,
 ) -> Result<SaveCodexRouteResult, String> {
+    let _operation =
+        crate::services::provider::OperationGuard::acquire().map_err(|e| e.to_string())?;
     let source_config = configText
         .as_deref()
         .map(str::trim)
         .filter(|config| !config.is_empty());
 
+    if let Some(config) = source_config {
+        codex_config::validate_provider_tables(config).map_err(|e| e.to_string())?;
+    }
     let route_draft = if let Some(config) = source_config {
         codex_config::save_route_to_config_with_provider_config(
             config,
@@ -571,19 +543,12 @@ fn save_codex_route_inner(
         serde_json::json!({ "auth": {}, "config": route_draft }),
         None,
     );
-    let submitted_provider = provider.clone();
     crate::services::provider::normalize_codex_managed_provider_for_storage(
         state.db.as_ref(),
         &mut provider,
         providerId.as_deref(),
     )
     .map_err(|e| e.to_string())?;
-    crate::services::provider::migrate_codex_provider_credential(
-        Some(&submitted_provider),
-        &provider,
-    )
-    .map_err(|e| e.to_string())?;
-
     let normalized_config = provider
         .settings_config
         .get("config")
@@ -593,51 +558,12 @@ fn save_codex_route_inner(
         codex_route_id_from_config(normalized_config).unwrap_or_else(|| routeId.clone());
     let normalized_env_key =
         codex_active_provider_field(normalized_config, "env_key").unwrap_or_else(|| envKey.clone());
-    let normalized_base_url = codex_active_provider_field(normalized_config, "base_url")
-        .unwrap_or_else(|| baseUrl.clone());
+    // Prepare the card only. ProviderService applies it if/when it becomes current.
+    codex_config::validate_provider_tables(normalized_config).map_err(|e| e.to_string())?;
 
-    // Write API key to shell rc
-    if !apiKey.is_empty() {
-        codex_config::write_managed_env_key(&normalized_env_key, &apiKey)
-            .map_err(|e| e.to_string())?;
-    }
-
-    codex_config::ensure_codex_provider_env_ready(normalized_config).map_err(|e| e.to_string())?;
-
-    // Write route section to config.toml
-    let existing = codex_config::read_codex_config_text().map_err(|e| e.to_string())?;
-    let existing_with_edits = if source_config.is_some() {
-        merge_codex_config_edits(&existing, normalized_config)?
-    } else {
-        existing
-    };
-    let updated = codex_config::save_route_to_config_with_provider_config(
-        &existing_with_edits,
-        &normalized_route_id,
-        &normalized_base_url,
-        &normalized_env_key,
-        &model,
-        &modelReasoningEffort,
-        Some(normalized_config),
-    )
-    .map_err(|e| e.to_string())?;
-
-    let profile_config = codex_config::switch_codex_profile(
-        &updated,
-        &normalized_route_id,
-        Some(&model),
-        Some(&modelReasoningEffort),
-    )
-    .map_err(|e| e.to_string())?;
-
-    let profile_name = profileName
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .unwrap_or(&normalized_route_id);
-    codex_config::write_codex_profile_config(profile_name, &profile_config)
-        .map_err(|e| e.to_string())?;
-    codex_config::write_codex_live_config_atomic(Some(&updated)).map_err(|e| e.to_string())?;
+    // Compatibility argument only: preparation must not mutate any credential.
+    // The final add/update receives the key transiently and persists it transactionally.
+    let _ = apiKey;
 
     Ok(SaveCodexRouteResult {
         route_id: normalized_route_id,

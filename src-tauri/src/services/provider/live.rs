@@ -242,56 +242,25 @@ fn next_codex_managed_index(
     )))
 }
 
-fn rewrite_codex_active_provider(
-    config_text: &str,
-    route_id: &str,
-    env_key: &str,
-) -> Result<String, AppError> {
-    let source_route = codex_active_route_id(config_text).unwrap_or_else(|| "tuzi".to_string());
-    let mut doc = config_text
-        .parse::<DocumentMut>()
-        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
-
-    doc["model_provider"] = toml_edit::value(route_id);
-
-    if let Some(profiles) = doc.get_mut("profiles").and_then(|item| item.as_table_mut()) {
-        if let Some(profile) = profiles
-            .get_mut(source_route.as_str())
-            .and_then(|item| item.as_table_mut())
-        {
-            profile["model_provider"] = toml_edit::value(route_id);
-        }
-    }
-
-    if let Some(model_providers) = doc
-        .get_mut("model_providers")
-        .and_then(|item| item.as_table_mut())
-    {
-        if source_route != route_id {
-            if let Some(provider_table) = model_providers.remove(source_route.as_str()) {
-                model_providers[route_id] = provider_table;
-            }
-        }
-        if let Some(provider_table) = model_providers
-            .get_mut(route_id)
-            .and_then(|item| item.as_table_mut())
-        {
-            provider_table["name"] = toml_edit::value(route_id);
-            provider_table["env_key"] = toml_edit::value(env_key);
-        }
-    }
-
-    Ok(doc.to_string())
-}
-
 pub(crate) fn normalize_codex_managed_provider_for_storage(
     db: &Database,
     provider: &mut Provider,
     exclude_provider_id: Option<&str>,
 ) -> Result<(), AppError> {
+    // Provider IDs are local to each saved card; only credentials must be independent.
+    normalize_codex_credential_for_storage(db, provider, exclude_provider_id)
+}
+
+fn normalize_codex_credential_for_storage(
+    db: &Database,
+    provider: &mut Provider,
+    exclude_provider_id: Option<&str>,
+) -> Result<(), AppError> {
     let existing_env_key = match exclude_provider_id {
-        Some(id) => db.get_provider_by_id(id, AppType::Codex.as_str())?
-            .as_ref().and_then(codex_provider_env_key),
+        Some(id) => db
+            .get_provider_by_id(id, AppType::Codex.as_str())?
+            .as_ref()
+            .and_then(codex_provider_env_key),
         None => None,
     };
     let Some(obj) = provider.settings_config.as_object_mut() else {
@@ -309,9 +278,11 @@ pub(crate) fn normalize_codex_managed_provider_for_storage(
     if let Some(existing_env_key) = existing_env_key {
         // Editing must not renumber or migrate an already-bound credential,
         // even when the endpoint or route family has changed.
-        let mut doc = config_str.parse::<DocumentMut>()
+        let mut doc = config_str
+            .parse::<DocumentMut>()
             .map_err(|_| AppError::Config("Codex 配置格式无效，请重新导入配置".into()))?;
-        if let Some(table) = doc.get_mut("model_providers")
+        if let Some(table) = doc
+            .get_mut("model_providers")
             .and_then(|providers| providers.get_mut(&route_id))
             .and_then(|provider| provider.as_table_mut())
         {
@@ -323,39 +294,61 @@ pub(crate) fn normalize_codex_managed_provider_for_storage(
     }
     let env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
     let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
-    if route_id == "custom" {
+    // Credential allocation must never rename the user's route or display name.
+    // In particular, a third-party route named `codex` is not a coding preset.
+    let env_used = db
+        .get_all_providers(AppType::Codex.as_str())?
+        .iter()
+        .any(|(id, other)| {
+            exclude_provider_id != Some(id.as_str())
+                && codex_provider_env_key(other).as_deref() == Some(env_key.as_str())
+        });
+    let family = detect_codex_managed_route_family("", &env_key, &base_url);
+    if !env_key.is_empty()
+        && !env_used
+        && !family.is_some_and(|f| f.legacy_env_keys.contains(&env_key.as_str()))
+    {
+        obj.insert("env".to_string(), json!({ "envKey": env_key }));
+        return Ok(());
+    }
+    let Some(family) = family else {
+        if env_used {
+            return Err(AppError::Config(
+                "Codex 凭证索引已被其他供应商使用，请重新添加以分配独立索引".into(),
+            ));
+        }
+
         if !env_key.is_empty() {
             obj.insert("env".to_string(), json!({ "envKey": env_key }));
         }
         return Ok(());
-    }
-    let Some(family) = detect_codex_managed_route_family(&route_id, &env_key, &base_url) else {
-        return Ok(());
     };
-
-    let Some(index) = codex_managed_index(&route_id, &env_key, family) else {
-        let index = next_codex_managed_index(db, family, exclude_provider_id)?;
-        let next_route_id = format!("{}{index:02}", family.route_prefix);
-        let next_env_key = format!("{}{index:02}_CODEX_API_KEY", family.env_prefix);
-        let rewritten = rewrite_codex_active_provider(config_str, &next_route_id, &next_env_key)?;
-        obj.insert("config".to_string(), Value::String(rewritten));
-        obj.insert("env".to_string(), json!({ "envKey": next_env_key }));
-        return Ok(());
+    let index = match codex_managed_index("", &env_key, family) {
+        Some(index)
+            if !codex_managed_index_used_by_other_provider(
+                db,
+                index,
+                family,
+                exclude_provider_id,
+            )? =>
+        {
+            index
+        }
+        _ => next_codex_managed_index(db, family, exclude_provider_id)?,
     };
-
-    let mut normalized_index = index;
-    if codex_managed_index_used_by_other_provider(db, index, family, exclude_provider_id)? {
-        normalized_index = next_codex_managed_index(db, family, exclude_provider_id)?;
+    let expected_env_key = format!("{}{index:02}_CODEX_API_KEY", family.env_prefix);
+    let mut doc = config_str
+        .parse::<DocumentMut>()
+        .map_err(|_| AppError::Config("Codex 配置格式无效".into()))?;
+    if let Some(table) = doc
+        .get_mut("model_providers")
+        .and_then(|p| p.get_mut(&route_id))
+        .and_then(|p| p.as_table_mut())
+    {
+        table["env_key"] = toml_edit::value(&expected_env_key);
     }
-
-    let expected_route_id = format!("{}{normalized_index:02}", family.route_prefix);
-    let expected_env_key = format!("{}{normalized_index:02}_CODEX_API_KEY", family.env_prefix);
-    if normalized_index != index || route_id != expected_route_id || env_key != expected_env_key {
-        let rewritten =
-            rewrite_codex_active_provider(config_str, &expected_route_id, &expected_env_key)?;
-        obj.insert("config".to_string(), Value::String(rewritten));
-        obj.insert("env".to_string(), json!({ "envKey": expected_env_key }));
-    }
+    obj.insert("config".to_string(), Value::String(doc.to_string()));
+    obj.insert("env".to_string(), json!({ "envKey": expected_env_key }));
 
     Ok(())
 }
@@ -395,47 +388,6 @@ pub(crate) fn migrate_codex_provider_credential(
         return Ok(false);
     };
     crate::codex_config::copy_managed_env_key_if_missing(&previous_env_key, &normalized_env_key)
-}
-
-pub(crate) fn ensure_codex_provider_registered(provider: &Provider) -> Result<(), AppError> {
-    let obj = provider
-        .settings_config
-        .as_object()
-        .ok_or_else(|| AppError::Config("Codex 供应商配置必须是 JSON 对象".to_string()))?;
-    let config_str = obj.get("config").and_then(|v| v.as_str()).unwrap_or("");
-    if config_str.trim().is_empty() {
-        return Ok(());
-    }
-
-    let route_id = codex_active_route_id(config_str).unwrap_or_else(|| "tuziswitch".to_string());
-    let existing = crate::codex_config::read_codex_config_text().unwrap_or_default();
-    let mut env_key = codex_active_provider_string_field(config_str, "env_key").unwrap_or_default();
-    if env_key.is_empty() {
-        if let Some(env_obj) = provider.settings_config.get("env") {
-            if let Some(ek) = env_obj.get("envKey").and_then(|v| v.as_str()) {
-                env_key = ek.to_string();
-            }
-        }
-    }
-
-    let model =
-        codex_top_level_string_field(config_str, "model").unwrap_or_else(|| "gpt-5.5".to_string());
-    let effort = codex_top_level_string_field(config_str, "model_reasoning_effort")
-        .unwrap_or_else(|| "high".to_string());
-    let base_url = codex_active_provider_string_field(config_str, "base_url").unwrap_or_default();
-
-    let updated = crate::codex_config::save_route_to_config_with_provider_config(
-        &existing,
-        &route_id,
-        &base_url,
-        &env_key,
-        &model,
-        &effort,
-        Some(config_str),
-    )?;
-    crate::codex_config::write_codex_live_config_atomic(Some(&updated))?;
-    crate::codex_config::write_codex_profile_config(&provider.name, config_str)?;
-    Ok(())
 }
 
 pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
@@ -1210,7 +1162,8 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             }
 
             write_codex_profile_config(&provider.name, config_str)?;
-            let existing = read_codex_config_text().unwrap_or_default();
+            let existing = read_codex_config_text()?;
+            let existing = crate::codex_config::merge_codex_config_edits(&existing, config_str)?;
 
             let model = codex_top_level_string_field(config_str, "model")
                 .unwrap_or_else(|| "gpt-5.5".to_string());
@@ -2099,15 +2052,31 @@ mod tests {
             "auth": {}, "env": { "envKey": "STALE_METADATA_KEY" },
             "config": "model_provider = \"legacy\"\n[model_providers.legacy]\nbase_url = \"https://api.tu-zi.com/coding\"\nenv_key = \"CODING_CODEX_API_KEY\"\n"
         });
-        let original = Provider::with_id("synthetic-edit".into(), "Synthetic".into(), settings.clone(), None);
+        let original = Provider::with_id(
+            "synthetic-edit".into(),
+            "Synthetic".into(),
+            settings.clone(),
+            None,
+        );
         db.save_provider("codex", &original).unwrap();
-        let other = Provider::with_id("synthetic-shared".into(), "Synthetic shared".into(), settings, None);
+        let other = Provider::with_id(
+            "synthetic-shared".into(),
+            "Synthetic shared".into(),
+            settings,
+            None,
+        );
         db.save_provider("codex", &other).unwrap();
         let mut edited = original.clone();
         edited.settings_config["config"] = json!("model_provider = \"provider-tuzi01\"\n[model_providers.provider-tuzi01]\nbase_url = \"https://api.tu-zi.com/v1\"\nenv_key = \"TUZI01_CODEX_API_KEY\"\n");
         normalize_codex_managed_provider_for_storage(&db, &mut edited, Some(&original.id)).unwrap();
-        assert_eq!(codex_provider_env_key(&edited).as_deref(), Some("CODING_CODEX_API_KEY"));
-        assert_eq!(edited.settings_config["env"]["envKey"], "CODING_CODEX_API_KEY");
+        assert_eq!(
+            codex_provider_env_key(&edited).as_deref(),
+            Some("CODING_CODEX_API_KEY")
+        );
+        assert_eq!(
+            edited.settings_config["env"]["envKey"],
+            "CODING_CODEX_API_KEY"
+        );
         let text = edited.settings_config["config"].as_str().unwrap();
         assert!(text.contains("https://api.tu-zi.com/v1"));
         assert!(!text.contains("TUZI01_CODEX_API_KEY"));
@@ -2268,7 +2237,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn normalize_codex_managed_provider_assigns_unique_coding_route_indexes() {
+    fn normalize_codex_managed_provider_allocates_credentials_without_renaming_route() {
         with_test_home(|| {
             let db = Database::memory().expect("memory db");
             let existing = Provider::with_id(
@@ -2327,8 +2296,9 @@ requires_openai_auth = false
                 .get("config")
                 .and_then(|value| value.as_str())
                 .expect("normalized config");
-            assert!(normalized.contains(r#"model_provider = "provider-coding02""#));
-            assert!(normalized.contains(r#"[model_providers.provider-coding02]"#));
+            assert!(normalized.contains(r#"model_provider = "codex""#));
+            assert!(normalized.contains(r#"[model_providers.codex]"#));
+            assert!(normalized.contains(r#"name = "codex""#));
             assert!(normalized.contains(r#"env_key = "CODING02_CODEX_API_KEY""#));
         });
     }

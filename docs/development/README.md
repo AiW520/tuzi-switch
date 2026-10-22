@@ -46,3 +46,35 @@ B4 的批准来源为本轮目标文件（2026-10-18，`goal-objective.md`）：
 迁移开始核查：C `codex/tuzi-assistant-dev` / `c3902fe7c4fc847e769b23d7712092a30aa67c57`，只有既有未跟踪 Word/产品附件；S 最新网站 `codex/unified-currency-display` / `dded57caedc376c4399f778ebb2147748bc24743`，工作区干净；A API 分支 `codex/tuzi-assistant-dev` / `111497e6f` 仅用于差异审计。B 服务端以最新网站为底，不整体回退或整批挑入 A。
 
 本地阶段提交、相称检查、隔离合成数据及预览已授权；远程和生产仍需新授权。文档改动仅跑链接、编号和一致性检查；代码负责人记录实际命令、环境及结果，Mock、构建、HTTP、原生层和真实 UI 分层报告。发布前仍需三平台本地凭证文件权限/恢复、实际 MySQL/其他数据库、性能、网站旧接入和用户验收证据，不能用限制说明替代通过。
+
+## R02 v1.4.1 本地缺陷修复（2026-10-21）
+
+用户授权在 `codex/tuzi-assistant-system-token` 修复 Key 模型列表、下拉滚动和 Codex TOML 编辑/保存，并打开本地构建测试。客户端实现与145项前端、41项账户测试通过；全库原生1405通过、1项历史恢复测试失败、1忽略，明确保留限制。独立测试应用已构建并打开，API未改动，未推送/发布，实际Key及用户验收待完成。详见 [R02验证](r02-model-editor-verification.md) 和 [ADR-012](decisions/0012-key-model-list-and-toml-drafts.md)。
+
+## R03 Codex 模型列表实际验收纠正（2026-10-21）
+
+R02 用户实际验收未通过：额外协议过滤导致模型仍缺失。R03 将 Codex 展示/选择与手动获取列表统一，保存保持 Key 权限及成员检查，其他工具不变。前端96项、原生账户42项通过（1真实配对忽略），API未改，详见 [R03验证](r03-codex-model-list-verification.md)。实际账户验收仍待完成。
+
+## R04 Codex 首次添加保留自定义名称（2026-10-21）
+
+用户批准统一修复Codex各线路首次添加、再次编辑及落盘命名。仅凭证索引仍受程序管理，不再自动重命名用户provider；增加冲突提示及初始账户草稿独立标识。110项前端、29项供应商、67项Codex、14项账户工具和3项真实文件回归通过；独立R04测试包构建完成。API未改、未推送/发布，实际验收待完成。详见 [R04记录](r04-codex-provider-identity.md)。
+
+## R05 密钥搜索交互（2026-10-21）
+
+客户端修复筛选栏跳动、搜索输入期间报错及后4位精确匹配错误；固定反馈区域、300ms防抖、同账户保留列表及失败重试。类型检查、100项前端及43项原生账户测试通过（1项既有忽略），合成UI确认筛选栏位置稳定。API未改，实际用户验收待完成，见 [R05验证](r05-key-search-verification.md)。
+
+## R06 模型选择器修复（2026-10-21）
+
+用户授权的文案、隐藏未知项及协议识别修复已本地完成，后四位搜索清空问题暂缓。当前行为与验证限制见 [R06记录](r06-model-picker-verification.md) 和 ADR-012 追加决定。未发布。
+
+## R07 Codex账户凭证读取（2026-10-21）
+
+修复账户生成的TUZI_SWITCH独立凭证引用被模型检查/代理读取规则拒绝的问题；旧引用和安全边界保留，无凭证迁移。定向回归及复用R06数据的R07测试包见 [R07验证](r07-codex-credential-verification.md)。本地实施，未发布。
+
+## R08 Codex 同名 provider（2026-10-21）
+
+不同卡片可使用相同 provider 标识，独立保存凭证，只有生效卡片写入当前配置；替代 R04 全局唯一和未启用预注册规则。见 [ADR-013](decisions/0013-codex-card-local-provider-ids.md)、[R08验证](r08-codex-duplicate-provider-verification.md)。API 契约不变，仅本地验证，未发布。
+
+## R09 Codex 保存与启用失败补偿（2026-10-21）
+
+普通配置准备不再提前写Key，最终保存/启用在原生层处理写入和失败恢复；设计与验证见 [ADR-014](decisions/0014-codex-save-activation-compensation.md)、[R09记录](r09-codex-transaction-verification.md)。用户已授权提交、推送和创建客户端 PR；不包含合并/发布。此前“仅本地、不推送”是各阶段历史授权记录。全量单元仍有1项既有历史恢复失败，实际发布验收尚未完成。

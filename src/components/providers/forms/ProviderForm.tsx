@@ -1,3 +1,4 @@
+import { validateCodexConfigDocument } from "@/utils/codexConfigValidation";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { useForm } from "react-hook-form";
@@ -70,7 +71,6 @@ import {
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
 import {
   applyTemplateValues,
-  extractCodexBaseUrl,
   extractCodexWireApi,
   getCodexProviderEnvKeyFromSettings,
   hasApiKeyField,
@@ -831,32 +831,6 @@ function ProviderFormFull({
     [setCodexConfig, debouncedValidate],
   );
 
-  useEffect(() => {
-    if (appId !== "codex" || category === "official") return;
-
-    const selectedBaseUrl = codexBaseUrl.trim();
-    if (!selectedBaseUrl) return;
-
-    const configBaseUrl = extractCodexBaseUrl(codexConfig)?.trim() ?? "";
-    if (configBaseUrl === selectedBaseUrl) return;
-
-    setCodexConfig((prev) => {
-      const prevBaseUrl = extractCodexBaseUrl(prev)?.trim() ?? "";
-      if (prevBaseUrl === selectedBaseUrl) return prev;
-
-      const updated = setCodexBaseUrlInConfig(prev, selectedBaseUrl);
-      debouncedValidate(updated);
-      return updated;
-    });
-  }, [
-    appId,
-    category,
-    codexBaseUrl,
-    codexConfig,
-    setCodexConfig,
-    debouncedValidate,
-  ]);
-
   const handleFetchModels = useCallback(() => {
     if (!codexBaseUrl || !codexApiKey) {
       showFetchModelsError(null, t, {
@@ -1337,6 +1311,14 @@ function ProviderFormFull({
       );
     }
     if (appId === "codex") {
+      const validation = validateCodexConfigDocument(
+        codexConfig,
+        category !== "official",
+      );
+      if (validation) {
+        toast.error(validation);
+        return;
+      }
       const rawSubmittedEnvKey = (
         getCodexProviderEnvKeyFromSettings({
           config: codexConfig,
@@ -1654,6 +1636,12 @@ function ProviderFormFull({
           normalizedCatalogModels[0]?.model || codexModelName,
         );
 
+        const validation = validateCodexConfigDocument(
+          normalizedCodexConfig,
+          category !== "official",
+        );
+        if (validation) throw new Error(validation);
+
         const routeIdMatch = normalizedCodexConfig.match(
           /^\s*model_provider\s*=\s*"([^"]+)"/m,
         );
@@ -1690,11 +1678,12 @@ function ProviderFormFull({
           env: { envKey: string };
           modelCatalog?: { models: CodexCatalogModel[] };
         } = {
-          auth: creationPrefill
-            ? { OPENAI_API_KEY: codexApiKey }
-            : resolvedCodexEnvKey
-              ? {}
-              : codexAuthObject,
+          auth:
+            creationPrefill || (resolvedCodexEnvKey && codexApiKey)
+              ? { OPENAI_API_KEY: codexApiKey }
+              : resolvedCodexEnvKey
+                ? {}
+                : codexAuthObject,
           config: normalizedCodexConfig,
           env: { envKey: resolvedCodexEnvKey },
         };
@@ -1702,8 +1691,17 @@ function ProviderFormFull({
           configObj.modelCatalog = { models: normalizedCatalogModels };
         }
         settingsConfig = JSON.stringify(configObj);
-      } catch {
-        toast.error(t("providerForm.codexSaveFailed"));
+      } catch (error) {
+        const detail =
+          typeof error === "string"
+            ? error
+            : error instanceof Error
+              ? error.message
+              : "";
+        const conflict =
+          detail.includes("Codex provider 标识") ||
+          detail.includes("Codex 凭证索引");
+        toast.error(conflict ? detail : t("providerForm.codexSaveFailed"));
         throw new Error("Codex configuration save failed");
       }
     } else if (appId === "gemini") {
@@ -2087,6 +2085,7 @@ function ProviderFormFull({
           preset.endpointCandidates?.[0] || "https://api.tu-zi.com/v1",
           envKey,
           "gpt-6-astra",
+          nextTuziRoute.routeId,
         );
         defaultApiKey = shellEnvKeys?.[envKey] ?? "";
         if (nextTuziRoute.index > 1) {
@@ -2103,6 +2102,7 @@ function ProviderFormFull({
           preset.endpointCandidates?.[0] || "https://api.tu-zi.com/coding",
           envKey,
           "gpt-6-astra",
+          nextCodingRoute.routeId,
         );
         defaultApiKey = shellEnvKeys?.[envKey] ?? "";
         if (nextCodingRoute.index > 1) {
@@ -2155,6 +2155,7 @@ function ProviderFormFull({
             preset.endpointCandidates?.[0] || "",
             envKey,
             "gpt-6-astra",
+            newRouteId,
           );
         }
       }

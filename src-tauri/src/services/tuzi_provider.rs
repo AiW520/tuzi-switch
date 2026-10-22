@@ -1,4 +1,5 @@
 //! Account-originated creation backs up the complete adapter write set before any write.
+pub(crate) mod codex_transaction;
 use crate::{
     app_config::AppType, database::Database, error::AppError, provider::Provider, store::AppState,
 };
@@ -676,6 +677,7 @@ fn validate_provider(app: &AppType, provider: &Provider) -> Result<(), AppError>
                     "Codex 账户配置不能夹带其他认证字段".into(),
                 ));
             }
+            crate::codex_config::validate_provider_tables(&toml)?;
             let doc = toml
                 .parse::<toml_edit::DocumentMut>()
                 .map_err(|_| AppError::Config("Codex TOML 无效".into()))?;
@@ -754,7 +756,10 @@ fn validate_provider(app: &AppType, provider: &Provider) -> Result<(), AppError>
         || endpoint.trim_end_matches('/') != expected
         || !key.starts_with("sk-")
         || key.contains(['\r', '\n'])
-        || !matches!(provider.category.as_deref(), Some("third_party" | "aggregator"))
+        || !matches!(
+            provider.category.as_deref(),
+            Some("third_party" | "aggregator")
+        )
     {
         return Err(AppError::Config(
             "账户 Key 配置必须使用主站兼容协议、固定端点和模型 Key".into(),
@@ -1104,7 +1109,13 @@ pub async fn tuzi_provider_save(
         .to_owned();
     let (protocol, models) = selected_models(&target, &provider)?;
     service
-        .provider_qualification(source.generation, &source.token_id, &models, protocol)
+        .provider_qualification(
+            source.generation,
+            &source.token_id,
+            &models,
+            protocol,
+            target.as_str(),
+        )
         .await?;
     service.with_confirmed_model_source(
         &source.user_id,
@@ -1426,6 +1437,272 @@ mod tests {
     use super::*;
     use serde_json::json;
     use serial_test::serial;
+    fn ordinary_codex(id: &str, key: &str) -> Provider {
+        Provider::with_id(
+            id.into(),
+            format!("Synthetic-{id}"),
+            json!({
+                "auth":{"OPENAI_API_KEY":key},
+                "config":format!("model_provider = \"custom\"\nmodel = \"synthetic-model\"\n[model_providers.custom]\nname = {id:?}\nbase_url = \"https://{id}.invalid/v1\"\nenv_key = \"TUZI_SWITCH_{id}_CODEX_API_KEY\"\nwire_api = \"responses\"\n")
+            }),
+            None,
+        )
+    }
+
+    #[test]
+    #[serial]
+    fn ordinary_codex_add_update_switch_compensate_each_file_write_failure() {
+        for operation in ["add", "update", "switch"] {
+            let mut failures = 0;
+            let mut completed = false;
+            for failure_at in 1..25 {
+                let _home = Home::new();
+                let state = state();
+                let a = ordinary_codex("R09A", "sk-synthetic-original");
+                let b = ordinary_codex("R09B", "sk-synthetic-second");
+                if operation != "add" {
+                    super::super::ProviderService::add(&state, AppType::Codex, a.clone(), false)
+                        .unwrap();
+                }
+                if operation != "add" {
+                    state.db.conn.lock().unwrap().execute("INSERT INTO provider_health(provider_id,app_type,updated_at) VALUES ('R09A','codex','synthetic')", []).unwrap();
+                }
+                if operation == "switch" {
+                    super::super::ProviderService::add(&state, AppType::Codex, b.clone(), false)
+                        .unwrap();
+                }
+                state
+                    .db
+                    .set_setting("synthetic-unrelated", "preserved")
+                    .unwrap();
+                let target = if operation == "switch" {
+                    b
+                } else {
+                    let mut edited = a;
+                    edited.settings_config["auth"]["OPENAI_API_KEY"] = json!("sk-synthetic-edited");
+                    edited
+                };
+                let files = write_set(&AppType::Codex, &target)
+                    .unwrap()
+                    .into_iter()
+                    .map(capture)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap();
+                let before = db_signature(&state.db.snapshot_to_memory().unwrap()).unwrap();
+                let current =
+                    super::super::ProviderService::current(&state, AppType::Codex).unwrap();
+                FAIL_WRITE_AT.with(|f| f.set(Some(failure_at)));
+                let result = match operation {
+                    "add" => super::super::ProviderService::add(
+                        &state,
+                        AppType::Codex,
+                        target.clone(),
+                        false,
+                    )
+                    .map(|_| ()),
+                    "update" => super::super::ProviderService::update(
+                        &state,
+                        AppType::Codex,
+                        None,
+                        target.clone(),
+                    )
+                    .map(|_| ()),
+                    _ => super::super::ProviderService::switch(&state, AppType::Codex, &target.id)
+                        .map(|_| ()),
+                };
+                let injected = FAIL_WRITE_AT.with(|f| f.replace(None)).is_none();
+                if !injected {
+                    result.unwrap();
+                    let saved = state
+                        .db
+                        .get_provider_by_id(&target.id, "codex")
+                        .unwrap()
+                        .unwrap();
+                    assert!(saved
+                        .settings_config
+                        .pointer("/auth/OPENAI_API_KEY")
+                        .is_none());
+                    completed = true;
+                    break;
+                }
+                assert!(result.is_err(), "{operation} write {failure_at} must fail");
+                failures += 1;
+                files_unchanged(&files).unwrap_or_else(|e| panic!("{operation}/{failure_at}: {e}"));
+                assert_eq!(
+                    db_signature(&state.db.snapshot_to_memory().unwrap()).unwrap(),
+                    before,
+                    "{operation}/{failure_at}"
+                );
+                assert_eq!(
+                    super::super::ProviderService::current(&state, AppType::Codex).unwrap(),
+                    current
+                );
+                if operation != "add" {
+                    assert_eq!(
+                        state
+                            .db
+                            .conn
+                            .lock()
+                            .unwrap()
+                            .query_row(
+                                "SELECT COUNT(*) FROM provider_health WHERE provider_id='R09A'",
+                                [],
+                                |r| r.get::<_, i64>(0)
+                            )
+                            .unwrap(),
+                        1
+                    );
+                }
+            }
+            assert!(
+                completed,
+                "{operation} must eventually complete successfully"
+            );
+            assert!(
+                failures >= 3,
+                "exercise failures after partial writes for {operation}"
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn ordinary_codex_proxy_backup_failure_restores_current_and_backup() {
+        let _home = Home::new();
+        let state = state();
+        let a = ordinary_codex("R09PA", "sk-synthetic-a");
+        let b = ordinary_codex("R09PB", "sk-synthetic-b");
+        super::super::ProviderService::add(&state, AppType::Codex, a.clone(), false).unwrap();
+        super::super::ProviderService::add(&state, AppType::Codex, b.clone(), false).unwrap();
+        futures::executor::block_on(
+            state
+                .db
+                .save_live_backup("codex", &a.settings_config.to_string()),
+        )
+        .unwrap();
+        let before = state.db.snapshot_to_memory().unwrap();
+        let files = write_set(&AppType::Codex, &b)
+            .unwrap()
+            .into_iter()
+            .map(capture)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        state.db.conn.lock().unwrap().execute_batch("CREATE TRIGGER synthetic_fail_backup BEFORE INSERT ON proxy_live_backup BEGIN SELECT RAISE(ABORT,'synthetic backup failure'); END;").unwrap();
+        assert!(super::super::ProviderService::switch(&state, AppType::Codex, &b.id).is_err());
+        files_unchanged(&files).unwrap();
+        assert_eq!(
+            db_signature(&state.db.snapshot_to_memory().unwrap()).unwrap(),
+            db_signature(&before).unwrap()
+        );
+        assert_eq!(
+            super::super::ProviderService::current(&state, AppType::Codex).unwrap(),
+            a.id
+        );
+        assert_eq!(
+            futures::executor::block_on(state.db.get_live_backup("codex"))
+                .unwrap()
+                .unwrap()
+                .original_config,
+            a.settings_config.to_string()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn ordinary_codex_database_failure_restores_submitted_key() {
+        let _home = Home::new();
+        let state = state();
+        let provider = ordinary_codex("R09DB", "sk-synthetic-before");
+        super::super::ProviderService::add(&state, AppType::Codex, provider.clone(), false)
+            .unwrap();
+        let files = write_set(&AppType::Codex, &provider)
+            .unwrap()
+            .into_iter()
+            .map(capture)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let before = db_signature(&state.db.snapshot_to_memory().unwrap()).unwrap();
+        state.db.conn.lock().unwrap().execute_batch("CREATE TRIGGER synthetic_fail_update BEFORE UPDATE ON providers WHEN NEW.id='R09DB' BEGIN SELECT RAISE(ABORT,'synthetic database failure'); END;").unwrap();
+        let mut changed = provider;
+        changed.settings_config["auth"]["OPENAI_API_KEY"] = json!("sk-synthetic-after");
+        assert!(
+            super::super::ProviderService::update(&state, AppType::Codex, None, changed).is_err()
+        );
+        files_unchanged(&files).unwrap();
+        assert_eq!(
+            db_signature(&state.db.snapshot_to_memory().unwrap()).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn ordinary_codex_restore_failure_reports_retained_private_backup() {
+        let _home = Home::new();
+        let state = state();
+        let provider = ordinary_codex("R09RECOVERY", "sk-synthetic-key");
+        FAIL_WRITE_AT.with(|f| f.set(Some(3)));
+        RESTORE_FAIL_AT.with(|f| f.set(Some(1)));
+        let result = super::super::ProviderService::add(&state, AppType::Codex, provider, false);
+        FAIL_WRITE_AT.with(|f| f.set(None));
+        RESTORE_FAIL_AT.with(|f| f.set(None));
+        assert!(result.unwrap_err().to_string().contains("保留备份"));
+        let dir = fs::read_dir(crate::config::get_app_config_dir().join("codex-operation-backups"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(dir.join("before.db").is_file());
+        assert!(dir.join("before.json").is_file());
+        let backup = Connection::open(dir.join("before.db")).unwrap();
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='proxy_request_logs'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(dir.join("before.db"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn ordinary_codex_external_edit_is_not_overwritten_and_keeps_private_backup() {
+        let _home = Home::new();
+        let state = state();
+        let provider = ordinary_codex("R09EXTERNAL", "sk-synthetic-key");
+        let _operation = super::super::provider::OperationGuard::acquire().unwrap();
+        let path = crate::codex_config::get_codex_config_path();
+        let result: Result<(), AppError> = codex_transaction::run(&state, &provider, || {
+            crate::config::atomic_write(&path, b"model = \"synthetic\"\n")?;
+            fs::write(&path, b"# synthetic external edit\n").unwrap();
+            Err(AppError::Config("synthetic operation failure".into()))
+        });
+        assert!(result.unwrap_err().to_string().contains("保留备份"));
+        assert_eq!(fs::read(&path).unwrap(), b"# synthetic external edit\n");
+        let backups = crate::config::get_app_config_dir().join("codex-operation-backups");
+        assert_eq!(fs::read_dir(backups).unwrap().count(), 1);
+    }
+
     #[test]
     fn configured_sources_only_include_existing_matching_tool_providers() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -1439,11 +1716,19 @@ mod tests {
         let sources = read_provider_sources(&conn, None).unwrap();
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].provider_id, "existing");
-        assert!(read_provider_sources(&conn, Some("claude".into())).unwrap().is_empty());
-        conn.execute("DELETE FROM providers WHERE id='existing'", []).unwrap();
+        assert!(read_provider_sources(&conn, Some("claude".into()))
+            .unwrap()
+            .is_empty());
+        conn.execute("DELETE FROM providers WHERE id='existing'", [])
+            .unwrap();
         assert!(read_provider_sources(&conn, None).unwrap().is_empty());
         // Projection must preserve source history for transaction backups/recovery.
-        assert_eq!(conn.query_row("SELECT COUNT(*) FROM tuzi_provider_sources", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM tuzi_provider_sources", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
     }
     struct Home {
         _temp: tempfile::TempDir,
@@ -1526,27 +1811,68 @@ mod tests {
     fn actual_frontend_form_payloads_save_and_restore_all_seven_tools() {
         // These synthetic payloads are checked against actual React form submissions.
         for (app, payload) in [
-            (AppType::Claude, include_str!("../../../tests/fixtures/b11-provider-claude.json")),
-            (AppType::ClaudeDesktop, include_str!("../../../tests/fixtures/b11-provider-claude-desktop.json")),
-            (AppType::Codex, include_str!("../../../tests/fixtures/b11-provider-codex.json")),
-            (AppType::Gemini, include_str!("../../../tests/fixtures/b11-provider-gemini.json")),
-            (AppType::OpenCode, include_str!("../../../tests/fixtures/b11-provider-opencode.json")),
-            (AppType::OpenClaw, include_str!("../../../tests/fixtures/b11-provider-openclaw.json")),
-            (AppType::Hermes, include_str!("../../../tests/fixtures/b11-provider-hermes.json")),
+            (
+                AppType::Claude,
+                include_str!("../../../tests/fixtures/b11-provider-claude.json"),
+            ),
+            (
+                AppType::ClaudeDesktop,
+                include_str!("../../../tests/fixtures/b11-provider-claude-desktop.json"),
+            ),
+            (
+                AppType::Codex,
+                include_str!("../../../tests/fixtures/b11-provider-codex.json"),
+            ),
+            (
+                AppType::Gemini,
+                include_str!("../../../tests/fixtures/b11-provider-gemini.json"),
+            ),
+            (
+                AppType::OpenCode,
+                include_str!("../../../tests/fixtures/b11-provider-opencode.json"),
+            ),
+            (
+                AppType::OpenClaw,
+                include_str!("../../../tests/fixtures/b11-provider-openclaw.json"),
+            ),
+            (
+                AppType::Hermes,
+                include_str!("../../../tests/fixtures/b11-provider-hermes.json"),
+            ),
         ] {
             let _home = Home::new();
             let state = state();
             let provider: Provider = serde_json::from_str(payload).unwrap();
             #[cfg(not(any(target_os = "macos", windows)))]
-            if matches!(app, AppType::ClaudeDesktop) { continue; }
-            let plan = preview(&state, app.clone(), &provider).unwrap_or_else(|e| panic!("{} preview: {e}", app.as_str()));
-            assert!(plan.changes.iter().all(|value| !value.contains("sk-SYNTHETIC_ACCOUNT_MODEL_KEY")));
-            let saved = save_confirmed(&state, app.as_str().into(), provider.clone(), plan.id, &source())
-                .unwrap_or_else(|e| panic!("{} save: {e}", app.as_str()));
+            if matches!(app, AppType::ClaudeDesktop) {
+                continue;
+            }
+            let plan = preview(&state, app.clone(), &provider)
+                .unwrap_or_else(|e| panic!("{} preview: {e}", app.as_str()));
+            assert!(plan
+                .changes
+                .iter()
+                .all(|value| !value.contains("sk-SYNTHETIC_ACCOUNT_MODEL_KEY")));
+            let saved = save_confirmed(
+                &state,
+                app.as_str().into(),
+                provider.clone(),
+                plan.id,
+                &source(),
+            )
+            .unwrap_or_else(|e| panic!("{} save: {e}", app.as_str()));
             assert!(!saved.tested);
-            assert!(state.db.get_provider_by_id(&provider.id, app.as_str()).unwrap().is_some());
+            assert!(state
+                .db
+                .get_provider_by_id(&provider.id, app.as_str())
+                .unwrap()
+                .is_some());
             restore_backup(&state, &saved.backup_id).unwrap();
-            assert!(state.db.get_provider_by_id(&provider.id, app.as_str()).unwrap().is_none());
+            assert!(state
+                .db
+                .get_provider_by_id(&provider.id, app.as_str())
+                .unwrap()
+                .is_none());
         }
     }
     #[test]
@@ -1838,6 +2164,8 @@ mod tests {
         let first_bytes = fs::read(&managed).unwrap();
         let mut second = provider(&AppType::Codex);
         second.name = "Synthetic second Codex".into();
+        second.settings_config["auth"]["OPENAI_API_KEY"] =
+            json!("sk-synthetic-second-model-key-R07");
         second.settings_config["env"]["envKey"] = json!("TUZI_SWITCH_SECOND_CODEX_API_KEY");
         second.settings_config["config"] =
             json!(second.settings_config["config"].as_str().unwrap().replace(
@@ -1854,6 +2182,21 @@ mod tests {
         let both = fs::read_to_string(&managed).unwrap();
         assert!(both.contains("TUZI_SWITCH_SYNTHETIC_CODEX_API_KEY"));
         assert!(both.contains("TUZI_SWITCH_SECOND_CODEX_API_KEY"));
+        // Use the production async resolver used by model checks and proxying,
+        // after the real account save has stripped inline auth from the DB.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        for (id, expected) in [
+            (&first.id, "sk-synthetic-model-key-T15"),
+            (&second.id, "sk-synthetic-second-model-key-R07"),
+        ] {
+            let stored = state.db.get_provider_by_id(id, "codex").unwrap().unwrap();
+            assert_eq!(stored.settings_config["auth"], json!({}));
+            let auth = runtime
+                .block_on(crate::proxy::providers::resolve_codex_auth(&stored))
+                .expect("saved provider credential must resolve");
+            assert_eq!(auth.api_key, expected);
+        }
+
         restore_backup(&state, &saved.backup_id).unwrap();
         assert_eq!(fs::read(managed).unwrap(), first_bytes);
         assert!(state
