@@ -51,6 +51,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
 import type { SettingsFormState } from "@/hooks/useSettings";
+import "./settings-page.css";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -194,7 +195,7 @@ export function SettingsPage({
   const isBusy = useMemo(() => isLoading && !settings, [isLoading, settings]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6">
+    <div className="settings-page-shell flex flex-col h-full overflow-hidden px-6">
       {isBusy ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -203,9 +204,13 @@ export function SettingsPage({
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex h-full gap-5"
+          orientation="vertical"
+          className="settings-layout flex h-full min-h-0 gap-5"
         >
-          <TabsList className="flex w-40 shrink-0 flex-col items-stretch justify-start gap-1 rounded-xl border border-border bg-muted/45 p-2 shadow-none">
+          <TabsList
+            aria-label={t("settings.title")}
+            className="settings-directory"
+          >
             <TabsTrigger value="general">
               {t("settings.tabGeneral")}
             </TabsTrigger>
@@ -220,15 +225,15 @@ export function SettingsPage({
             <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-            <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2">
+          <div className="settings-detail flex-1 min-w-0 min-h-0 flex flex-col">
+            <div className="settings-detail-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
               <TabsContent value="general" className="space-y-6 mt-0">
                 {settings ? (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="space-y-6"
+                    className="settings-general-sections"
                   >
                     <LanguageSettings
                       value={settings.language}

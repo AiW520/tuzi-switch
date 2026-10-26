@@ -1285,7 +1285,7 @@ function App() {
       />
       {(dragBarHeight > 0 || useAppWindowControls) && (
         <div
-          className="fixed top-0 left-0 right-0 z-[70] flex items-center justify-end px-2"
+          className="fixed top-0 left-0 right-0 z-[35] flex items-center justify-end px-2"
           data-tauri-drag-region
           style={{ WebkitAppRegion: "drag", height: dragBarHeight } as any}
         >
@@ -1359,7 +1359,7 @@ function App() {
       )}
 
       <header
-        className="fixed z-50 transition-all duration-300 border-b border-border bg-background/90 backdrop-blur-md"
+        className="fixed z-30 transition-all duration-300 border-b border-border bg-background/90 backdrop-blur-md"
         {...DRAG_REGION_ATTR}
         style={
           {

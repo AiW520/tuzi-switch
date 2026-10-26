@@ -106,7 +106,7 @@ export function TuziSidebar({
   return (
     <aside
       className={cn(
-        "fixed left-0 z-[80] flex flex-col border-r border-border bg-muted/45 pt-3 transition-[width] duration-200",
+        "fixed left-0 z-30 flex flex-col border-r border-border bg-muted/45 pt-3 transition-[width] duration-200",
         collapsed ? "w-[68px]" : "w-[228px]",
       )}
       style={{ top: topOffset, bottom: 0 }}

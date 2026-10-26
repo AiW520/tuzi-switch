@@ -148,6 +148,7 @@ import { HERMES_DEFAULT_CONFIG } from "./hooks/useHermesFormState";
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import { useOpenClawLiveProviderIds } from "@/hooks/useOpenClaw";
 import { useHermesLiveProviderIds } from "@/hooks/useHermes";
+import "./provider-form.css";
 
 type PresetEntry = {
   id: string;
@@ -2327,7 +2328,7 @@ function ProviderFormFull({
         <form
           id="provider-form"
           onSubmit={form.handleSubmit(handleSubmit)}
-          className="space-y-6 glass rounded-xl p-6 border border-white/10"
+          className="provider-form-shell space-y-6"
         >
           {!initialData && (
             <ProviderPresetSelector

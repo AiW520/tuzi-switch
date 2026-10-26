@@ -4,6 +4,12 @@
 
 验证：全量 Vitest `66 files / 457 tests` 通过；`pnpm typecheck`、`pnpm build:renderer`、Prettier 检查和 `git diff --check` 通过。构建仍有既有 chunk 体积、Browserslist 过期和动态导入提示；测试中有既有未处理 `account_cancel_token_prefill` MSW 警告，不影响通过结果。客户端本地提交 `e7603cbb`，未 push/PR；尚未执行 Tauri 三平台打包或完整人工 UI 验收。
 
+# UI-02 账户、表单与设置视觉适配（2026-10-26）
+
+第二批将账户工作区的连接条、指标卡、Key 表格、空态和配置弹窗统一为 CC Switch 的中性卡片与间距；供应商编辑表单采用实色卡片、统一边框/聚焦状态和窄窗口布局；设置页保留左侧分类目录并将内容卡片、开关行和页签限制在设置页面范围内。同步修正全屏表单与侧栏层级，避免侧栏覆盖表单/弹窗；不改变账户令牌、Key 配置、供应商保存、失败恢复或设置写入逻辑。
+
+验证：账户、供应商表单、设置相关定向测试通过；全量 Vitest `66 files / 457 tests`、类型检查、renderer 构建和差异检查通过。构建保留既有 chunk 体积、Browserslist 和动态导入提示；MSW 仍会提示未注册的 `account_cancel_token_prefill` 合成请求。尚未执行 Tauri 三平台打包或完整人工 UI 验收。
+
 # R01 v1.4.1 正式安装包已发布（2026-10-21）
 
 用户本轮授权的合并核查、版本更新、构建及 GitHub Release 发布完成。客户端 PR #48 已合入 main（`25b76e9be74c63ccc131be91ae3faa48811faf65`），API PR #277 已合入 dev（`70e5f2b2f624c7b721064cedc9994238973a8875`）。本次客户端发行代码/标签 `v1.4.1` 指向 `9b4e702b2ae973571221c9aa877f8fec0498c045`，契约仍为 `system-token-v1`；API 工作区未修改、未执行服务端部署或迁移。

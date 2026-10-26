@@ -103,7 +103,7 @@ export const FullScreenPanel: React.FC<FullScreenPanelProps> = ({
 
           {/* Header - match App.tsx */}
           <div
-            className="flex-shrink-0 flex items-center"
+            className="flex-shrink-0 flex items-center border-b border-border"
             {...DRAG_REGION_ATTR}
             style={
               {
