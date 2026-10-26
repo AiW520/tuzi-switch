@@ -324,8 +324,8 @@ export function ProviderCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border border-border p-4 transition-all duration-300",
-        "bg-card text-card-foreground group",
+        "relative overflow-hidden rounded-2xl border border-border/80 p-4 transition-all duration-200",
+        "bg-card text-card-foreground shadow-sm group",
         isAutoFailoverEnabled || isProxyTakeover
           ? "hover:border-emerald-500/50"
           : "hover:border-border-active",

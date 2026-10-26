@@ -48,13 +48,11 @@ import {
 } from "@/hooks/useHermes";
 import { hermesApi } from "@/lib/api/hermes";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
-import { useAutoCompact } from "@/hooks/useAutoCompact";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
 import { cn } from "@/lib/utils";
-import { REPOSITORY_URL } from "@/lib/releaseRepository";
 import {
   isWindows,
   isLinux,
@@ -67,7 +65,7 @@ import type { TuziProviderDraft } from "@/lib/tuziToolCompatibility";
 import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
 import { AccountPage } from "@/components/account/AccountPage";
 import { useAccount } from "@/lib/query/account";
-import { AppSwitcher } from "@/components/AppSwitcher";
+import { TuziSidebar } from "@/components/shell/TuziSidebar";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
@@ -125,7 +123,7 @@ interface WebDavSyncStatusUpdatedPayload {
 }
 
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28; // px
-const HEADER_HEIGHT = 64; // px
+const HEADER_HEIGHT = 52; // px
 
 const STORAGE_KEY = "tuzi-switch-last-app";
 const VALID_APPS: AppId[] = [
@@ -205,6 +203,12 @@ function App() {
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const [accountReturnRequest, setAccountReturnRequest] = useState(0);
   const [currentView, setCurrentView] = useState<View>(getInitialView);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("tuzi-sidebar-collapsed") === "true",
+  );
+  useEffect(() => {
+    localStorage.setItem("tuzi-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
   useEffect(() => {
     if (
       accountProviderFocus &&
@@ -343,12 +347,6 @@ function App() {
 
   const effectiveEditingProvider = useLastValidValue(editingProvider);
   const effectiveUsageProvider = useLastValidValue(usageProvider);
-
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const isToolbarCompact = useAutoCompact(
-    toolbarRef,
-    `${currentView}:${activeApp}`,
-  );
 
   useUsageCacheBridge();
 
@@ -1268,6 +1266,23 @@ function App() {
       className="flex flex-col h-screen overflow-hidden bg-background text-foreground selection:bg-primary/30 pb-4"
       style={{ overflowX: "hidden", paddingTop: contentTopOffset }}
     >
+      <TuziSidebar
+        activeApp={activeApp}
+        currentView={currentView}
+        visibleApps={visibleApps}
+        topOffset={dragBarHeight}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        onSwitchApp={(app) => {
+          localStorage.setItem(STORAGE_KEY, app);
+          setActiveApp(app);
+        }}
+        onNavigate={(view) => setCurrentView(view as View)}
+        onOpenSettings={() => {
+          setSettingsDefaultTab("general");
+          setCurrentView("settings");
+        }}
+      />
       {(dragBarHeight > 0 || useAppWindowControls) && (
         <div
           className="fixed top-0 left-0 right-0 z-[70] flex items-center justify-end px-2"
@@ -1344,13 +1359,15 @@ function App() {
       )}
 
       <header
-        className="fixed z-50 w-full transition-all duration-300 bg-background/80 backdrop-blur-md"
+        className="fixed z-50 transition-all duration-300 border-b border-border bg-background/90 backdrop-blur-md"
         {...DRAG_REGION_ATTR}
         style={
           {
             ...DRAG_REGION_STYLE,
             top: dragBarHeight,
             height: HEADER_HEIGHT,
+            left: sidebarCollapsed ? 68 : 228,
+            width: `calc(100% - ${sidebarCollapsed ? 68 : 228}px)`,
           } as any
         }
       >
@@ -1402,20 +1419,17 @@ function App() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <div className="relative inline-flex items-center">
-                  <a
-                    href={REPOSITORY_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={cn(
-                      "text-xl font-semibold transition-colors",
-                      isProxyRunning && isCurrentAppTakeoverActive
-                        ? "text-emerald-500 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300"
-                        : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
-                    )}
-                  >
-                    兔子助手
-                  </a>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-semibold">
+                    {currentView === "account"
+                      ? t("account.title")
+                      : t(`apps.${activeApp}`)}
+                  </span>
+                  {currentView === "providers" && (
+                    <span className="text-xs text-muted-foreground">
+                      供应商配置
+                    </span>
+                  )}
                 </div>
                 <Button
                   variant="ghost"
@@ -1477,10 +1491,7 @@ function App() {
                     )}
                 </div>
               )}
-            <div
-              ref={toolbarRef}
-              className="flex flex-1 min-w-0 overflow-x-hidden items-center py-4 pr-2"
-            >
+            <div className="flex flex-1 min-w-0 overflow-x-hidden items-center py-4 pr-2">
               <div
                 className="flex shrink-0 items-center gap-1.5 ml-auto"
                 style={{ WebkitAppRegion: "no-drag" } as any}
@@ -1585,19 +1596,6 @@ function App() {
                       {t("skills.repoManager")}
                     </Button>
                   </>
-                )}
-                {(currentView === "providers" || currentView === "account") && (
-                  <AppSwitcher
-                    activeApp={activeApp}
-                    accountSelected={currentView === "account"}
-                    onSelectAccount={() => setCurrentView("account")}
-                    onSwitch={(app) => {
-                      setActiveApp(app);
-                      setCurrentView("providers");
-                    }}
-                    visibleApps={visibleApps}
-                    compact={isToolbarCompact}
-                  />
                 )}
                 {currentView === "providers" && (
                   <>
@@ -1779,7 +1777,10 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in">
+      <main
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in transition-[margin] duration-200"
+        style={{ marginLeft: sidebarCollapsed ? 68 : 228 }}
+      >
         {isOpenClawView && openclawHealthWarnings.length > 0 && (
           <OpenClawHealthBanner warnings={openclawHealthWarnings} />
         )}

@@ -3,6 +3,12 @@
     "title": "兔子助手",
     "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
   },
+  "navigation": {
+    "tools": "Tools",
+    "workspace": "Workspace",
+    "prompts": "Prompts",
+    "account": "Tuzi Account"
+  },
   "common": {
     "add": "Add",
     "edit": "Edit",

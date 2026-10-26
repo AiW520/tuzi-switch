@@ -203,9 +203,9 @@ export function SettingsPage({
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex flex-col h-full"
+          className="flex h-full gap-5"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
+          <TabsList className="flex w-40 shrink-0 flex-col items-stretch justify-start gap-1 rounded-xl border border-border bg-muted/45 p-2 shadow-none">
             <TabsTrigger value="general">
               {t("settings.tabGeneral")}
             </TabsTrigger>
@@ -220,7 +220,7 @@ export function SettingsPage({
             <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2">
               <TabsContent value="general" className="space-y-6 mt-0">
                 {settings ? (

@@ -1,3 +1,9 @@
+# UI-01 CC Switch 风格框架迁移（2026-10-26）
+
+用户已选择“定向移植视觉与布局，接回现有业务”。客户端 `gaizhao` 分支完成首批本地改造：新增可折叠左侧导航（兔子账户、七工具、MCP/Skills/提示词/会话/Agents/统一供应商及 OpenClaw/Hermes 专属入口），页面标题区调整为 52px，供应商卡片改为更紧凑的圆角卡片与双列宽屏布局，设置页改为左侧分类目录。原有账户、供应商、工具配置、代理、故障转移和页面状态回调保留；工具切换继续写入既有本地状态。同步更新集成测试替身和三种语言的导航文案。
+
+验证：全量 Vitest `66 files / 457 tests` 通过；`pnpm typecheck`、`pnpm build:renderer`、Prettier 检查和 `git diff --check` 通过。构建仍有既有 chunk 体积、Browserslist 过期和动态导入提示；测试中有既有未处理 `account_cancel_token_prefill` MSW 警告，不影响通过结果。客户端本地提交 `e7603cbb`，未 push/PR；尚未执行 Tauri 三平台打包或完整人工 UI 验收。
+
 # R01 v1.4.1 正式安装包已发布（2026-10-21）
 
 用户本轮授权的合并核查、版本更新、构建及 GitHub Release 发布完成。客户端 PR #48 已合入 main（`25b76e9be74c63ccc131be91ae3faa48811faf65`），API PR #277 已合入 dev（`70e5f2b2f624c7b721064cedc9994238973a8875`）。本次客户端发行代码/标签 `v1.4.1` 指向 `9b4e702b2ae973571221c9aa877f8fec0498c045`，契约仍为 `system-token-v1`；API 工作区未修改、未执行服务端部署或迁移。

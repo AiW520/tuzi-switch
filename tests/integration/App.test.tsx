@@ -141,24 +141,41 @@ vi.mock("@/components/ConfirmDialog", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/AppSwitcher", () => ({
-  AppSwitcher: ({
-    activeApp,
-    onSwitch,
-    onSelectAccount,
-    accountSelected,
-  }: any) => (
+vi.mock("@/components/shell/TuziSidebar", () => ({
+  TuziSidebar: ({ activeApp, onSwitchApp, onNavigate, currentView }: any) => (
     <div data-testid="app-switcher">
+      <span>兔子助手</span>
       <button
-        onClick={onSelectAccount}
-        aria-current={accountSelected ? "page" : undefined}
+        onClick={() => onNavigate("account")}
+        aria-current={currentView === "account" ? "page" : undefined}
       >
         account.title
       </button>
       <span>{activeApp}</span>
-      <button onClick={() => onSwitch("claude")}>switch-claude</button>
-      <button onClick={() => onSwitch("codex")}>switch-codex</button>
-      <button onClick={() => onSwitch("openclaw")}>switch-openclaw</button>
+      <button
+        onClick={() => {
+          onSwitchApp("claude");
+          onNavigate("providers");
+        }}
+      >
+        switch-claude
+      </button>
+      <button
+        onClick={() => {
+          onSwitchApp("codex");
+          onNavigate("providers");
+        }}
+      >
+        switch-codex
+      </button>
+      <button
+        onClick={() => {
+          onSwitchApp("openclaw");
+          onNavigate("providers");
+        }}
+      >
+        switch-openclaw
+      </button>
     </div>
   ),
 }));
@@ -228,7 +245,9 @@ vi.mock("@/components/providers/TuziProviderDialog", async (original) => ({
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
+    localStorage.removeItem("tuzi-switch-last-app");
     localStorage.removeItem("tuzi-switch-last-view");
+    localStorage.removeItem("tuzi-sidebar-collapsed");
     server.use(
       http.post("http://tauri.local/account_get_state", () =>
         HttpResponse.json(disconnectedAccount),

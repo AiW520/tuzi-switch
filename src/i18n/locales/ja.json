@@ -3,6 +3,12 @@
     "title": "兔子助手",
     "description": "Claude Code・Codex・Gemini CLI のためのオールインワンアシスタント"
   },
+  "navigation": {
+    "tools": "ツール",
+    "workspace": "ワークスペース",
+    "prompts": "プロンプト",
+    "account": "兔子アカウント"
+  },
   "common": {
     "add": "追加",
     "edit": "編集",
