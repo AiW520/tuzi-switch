@@ -8,7 +8,19 @@
     "workspace": "Workspace",
     "prompts": "Prompts",
     "account": "Tuzi Account",
-    "loadFailed": "Unable to load. Refresh to try again."
+    "loadFailed": "Unable to load. Refresh to try again.",
+    "auth": "Authorization",
+    "localUsage": "Local usage",
+    "supportScope": "Supported tools",
+    "supportedTools": "Supported tools: {{tools}}",
+    "unsupportedOrigin": "{{tool}} does not support this feature yet. You can manage the supported tools listed here.",
+    "targetTool": "Target tool",
+    "chooseTarget": "Select a target tool to continue",
+    "notSupported": "Not supported",
+    "comingSoon": "Planned",
+    "agentsPending": "Agents management is not implemented yet. Creating, editing and syncing are unavailable.",
+    "authScope": "Manage tool OAuth authorization for GitHub Copilot and ChatGPT. Manage your Rabbit account system token under Rabbit account.",
+    "localUsageScope": "Shows locally recorded proxy and session usage for Claude Code, Codex and Gemini CLI. Costs are local estimates, separate from Rabbit account spending and billing."
   },
   "connectionMode": {
     "providers": "Providers",

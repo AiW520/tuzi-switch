@@ -8,7 +8,19 @@
     "workspace": "ワークスペース",
     "prompts": "プロンプト",
     "account": "兔子アカウント",
-    "loadFailed": "読み込みに失敗しました。更新して再試行してください。"
+    "loadFailed": "読み込みに失敗しました。更新して再試行してください。",
+    "auth": "認証管理",
+    "localUsage": "ローカル使用統計",
+    "supportScope": "対応範囲",
+    "supportedTools": "対応ツール：{{tools}}",
+    "unsupportedOrigin": "{{tool}} はこの機能に未対応です。以下の対応ツールを管理できます。",
+    "targetTool": "対象ツール",
+    "chooseTarget": "対象ツールを選択してください",
+    "notSupported": "未対応",
+    "comingSoon": "実装予定",
+    "agentsPending": "Agents 管理は未実装です。作成、編集、同期は利用できません。",
+    "authScope": "GitHub Copilot と ChatGPT のツール OAuth 認証を管理します。Rabbit アカウントのシステムトークンは「Rabbit アカウント」で管理してください。",
+    "localUsageScope": "Claude Code、Codex、Gemini CLI のローカルプロキシとセッション使用量です。料金はローカル推定値であり、Rabbit アカウントの消費や請求とは別に扱います。"
   },
   "connectionMode": {
     "providers": "プロバイダー",

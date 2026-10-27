@@ -8,7 +8,19 @@
     "workspace": "工作区",
     "prompts": "提示词",
     "account": "兔子账户",
-    "loadFailed": "读取失败，请刷新重试。"
+    "loadFailed": "读取失败，请刷新重试。",
+    "auth": "授权管理",
+    "localUsage": "本机使用统计",
+    "supportScope": "支持范围",
+    "supportedTools": "已支持工具：{{tools}}",
+    "unsupportedOrigin": "{{tool}} 暂未接入此功能。可管理下列已支持工具。",
+    "targetTool": "目标工具",
+    "chooseTarget": "请选择目标工具后继续",
+    "notSupported": "暂不支持",
+    "comingSoon": "待实现",
+    "agentsPending": "Agents 管理尚未实现，目前无法创建、编辑或同步。",
+    "authScope": "管理 GitHub Copilot 与 ChatGPT 的工具 OAuth 授权。兔子账户系统令牌请在「兔子账户」中管理。",
+    "localUsageScope": "统计本机记录的 Claude Code、Codex、Gemini CLI 代理及会话用量。费用为本机估算，与兔子账户消费独立，不合并为账户账单。"
   },
   "connectionMode": {
     "providers": "供应商",

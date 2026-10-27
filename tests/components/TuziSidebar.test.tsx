@@ -46,7 +46,7 @@ describe("collapsed sidebar navigation", () => {
     expect(props.onSwitchApp).toHaveBeenCalledWith("codex");
     expect(props.onNavigate).toHaveBeenCalledWith("providers");
   });
-  it("honors tool visibility and excludes unsupported Claude Desktop workspace actions", () => {
+  it("honors tool visibility without hiding global workspace actions", () => {
     render(
       <TuziSidebar
         {...props}
@@ -58,10 +58,52 @@ describe("collapsed sidebar navigation", () => {
       screen.queryByRole("button", { name: "Gemini CLI" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "skills.title" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "skills.title" }),
+    ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "sessionManager.title" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "sessionManager.title" }),
+    ).toBeInTheDocument();
   });
+  it.each(["providers", "grokbuild", "pi", "mcode"])(
+    "keeps every global entry available from %s, expanded and collapsed",
+    (currentView) => {
+      const navigate = vi.fn();
+      const { rerender } = render(
+        <TuziSidebar
+          {...props}
+          currentView={currentView}
+          collapsed={false}
+          onNavigate={navigate}
+        />,
+      );
+      const entries = [
+        ["mcp.title", "mcp"],
+        ["skills.title", "skills"],
+        ["navigation.prompts", "prompts"],
+        ["sessionManager.title", "sessions"],
+        ["navigation.auth", "auth"],
+        ["navigation.localUsage", "usage"],
+        ["agents.title", "agents"],
+        ["统一供应商", "universal"],
+      ];
+      for (const [label, view] of entries) {
+        fireEvent.click(screen.getByRole("button", { name: label }));
+        expect(navigate).toHaveBeenLastCalledWith(view);
+      }
+      expect(screen.getByText("navigation.comingSoon")).toBeInTheDocument();
+      rerender(
+        <TuziSidebar
+          {...props}
+          currentView="auth"
+          collapsed
+          onNavigate={navigate}
+        />,
+      );
+      for (const [label] of entries)
+        expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "navigation.auth" }),
+      ).toHaveAttribute("aria-current", "page");
+    },
+  );
 });

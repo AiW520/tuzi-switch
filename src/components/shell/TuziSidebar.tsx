@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Brain,
@@ -39,7 +40,9 @@ export type TuziView =
   | "hermesMemory"
   | "grokbuild"
   | "pi"
-  | "mcode";
+  | "mcode"
+  | "auth"
+  | "usage";
 
 interface TuziSidebarProps {
   activeApp: AppId;
@@ -91,8 +94,7 @@ export function TuziSidebar({
   );
   const isNativePage = ["grokbuild", "pi", "mcode"].includes(currentView);
   const isAppPage = currentView === "providers";
-  const hasSkillsSupport = !isNativePage && activeApp !== "claude-desktop";
-  const hasSessionSupport = !isNativePage && activeApp !== "claude-desktop";
+
   const itemClass = (selected: boolean) =>
     cn(
       "group flex h-9 w-full items-center rounded-lg text-[13px] transition-colors",
@@ -227,105 +229,74 @@ export function TuziSidebar({
           })}
         </div>
 
-        {!isNativePage && (
-          <div className="mt-5 space-y-1">
-            {!collapsed && (
-              <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                {t("navigation.workspace")}
-              </div>
-            )}
-            {activeApp !== "claude-desktop" && (
+        <nav
+          className="mt-5 space-y-1 shrink-0"
+          aria-label={t("navigation.workspace")}
+        >
+          {!collapsed && (
+            <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+              {t("navigation.workspace")}
+            </div>
+          )}
+          {[
+            { view: "mcp", label: t("mcp.title"), icon: Network },
+            { view: "skills", label: t("skills.title"), icon: Wrench },
+            {
+              view: "prompts",
+              label: t("navigation.prompts"),
+              icon: MessageSquareText,
+            },
+            {
+              view: "sessions",
+              label: t("sessionManager.title"),
+              icon: History,
+            },
+            { view: "auth", label: t("navigation.auth"), icon: KeyRound },
+            {
+              view: "usage",
+              label: t("navigation.localUsage"),
+              icon: BarChart3,
+            },
+            { view: "agents", label: t("agents.title"), icon: Cpu },
+            {
+              view: "universal",
+              label: t("universalProvider.title", {
+                defaultValue: "统一供应商",
+              }),
+              icon: LayoutDashboard,
+            },
+          ].map(({ view, label, icon: Icon }) => {
+            const selected =
+              currentView === view ||
+              (view === "skills" && currentView === "skillsDiscovery");
+            const planned = view === "agents";
+            return (
               <button
+                key={view}
                 type="button"
-                onClick={() => onNavigate("mcp")}
-                aria-label={t("mcp.title")}
-                aria-current={currentView === "mcp" ? "page" : undefined}
-                className={itemClass(currentView === "mcp")}
-                title={t("mcp.title")}
-              >
-                <Network className="h-[18px] w-[18px]" />
-                {!collapsed && <span>{t("mcp.title")}</span>}
-              </button>
-            )}
-            {hasSkillsSupport && (
-              <button
-                type="button"
-                onClick={() => onNavigate("skills")}
-                aria-label={t("skills.title")}
-                aria-current={
-                  currentView === "skills" || currentView === "skillsDiscovery"
-                    ? "page"
-                    : undefined
+                onClick={() => onNavigate(view as TuziView)}
+                className={itemClass(selected)}
+                title={
+                  planned ? `${label} · ${t("navigation.comingSoon")}` : label
                 }
-                className={itemClass(
-                  currentView === "skills" || currentView === "skillsDiscovery",
+                aria-label={label}
+                aria-current={selected ? "page" : undefined}
+              >
+                <Icon className="h-[18px] w-[18px] shrink-0" />
+                {!collapsed && (
+                  <>
+                    <span className="truncate">{label}</span>
+                    {planned && (
+                      <span className="ml-auto text-[10px] text-muted-foreground">
+                        {t("navigation.comingSoon")}
+                      </span>
+                    )}
+                  </>
                 )}
-                title={t("skills.title")}
-              >
-                <Wrench className="h-[18px] w-[18px]" />
-                {!collapsed && <span>{t("skills.title")}</span>}
               </button>
-            )}
-            {activeApp !== "claude-desktop" && (
-              <button
-                type="button"
-                onClick={() => onNavigate("prompts")}
-                aria-label={t("prompts.title", {
-                  appName: APP_NAMES[activeApp],
-                })}
-                aria-current={currentView === "prompts" ? "page" : undefined}
-                className={itemClass(currentView === "prompts")}
-                title={t("prompts.title", { appName: APP_NAMES[activeApp] })}
-              >
-                <MessageSquareText className="h-[18px] w-[18px]" />
-                {!collapsed && <span>{t("navigation.prompts")}</span>}
-              </button>
-            )}
-            {hasSessionSupport && (
-              <button
-                type="button"
-                onClick={() => onNavigate("sessions")}
-                aria-label={t("sessionManager.title")}
-                aria-current={currentView === "sessions" ? "page" : undefined}
-                className={itemClass(currentView === "sessions")}
-                title={t("sessionManager.title")}
-              >
-                <History className="h-[18px] w-[18px]" />
-                {!collapsed && <span>{t("sessionManager.title")}</span>}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onNavigate("agents")}
-              aria-label={t("agents.title")}
-              aria-current={currentView === "agents" ? "page" : undefined}
-              className={itemClass(currentView === "agents")}
-              title={t("agents.title")}
-            >
-              <Cpu className="h-[18px] w-[18px]" />
-              {!collapsed && <span>{t("agents.title")}</span>}
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate("universal")}
-              aria-label={t("universalProvider.title", {
-                defaultValue: "统一供应商",
-              })}
-              aria-current={currentView === "universal" ? "page" : undefined}
-              className={itemClass(currentView === "universal")}
-              title={t("universalProvider.title", {
-                defaultValue: "统一供应商",
-              })}
-            >
-              <LayoutDashboard className="h-[18px] w-[18px]" />
-              {!collapsed && (
-                <span>
-                  {t("universalProvider.title", { defaultValue: "统一供应商" })}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
+            );
+          })}
+        </nav>
 
         {!isNativePage && activeApp === "openclaw" && (
           <div className="mt-5 space-y-1">

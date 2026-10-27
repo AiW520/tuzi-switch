@@ -66,6 +66,16 @@ import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
 import { AccountPage } from "@/components/account/AccountPage";
 import { useAccount } from "@/lib/query/account";
 import { TuziSidebar } from "@/components/shell/TuziSidebar";
+import { WorkspaceScope } from "@/components/shell/WorkspaceScope";
+import {
+  WorkspaceAuthPage,
+  WorkspaceUsagePage,
+} from "@/components/shell/WorkspaceGlobalPages";
+import {
+  GLOBAL_WORKSPACE_VIEWS,
+  WORKSPACE_SUPPORT,
+  type WorkspaceTool,
+} from "@/config/workspace";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import "@/components/shell/workspace-pages.css";
 import { ProviderList } from "@/components/providers/ProviderList";
@@ -120,7 +130,9 @@ type View =
   | "hermesMemory"
   | "grokbuild"
   | "pi"
-  | "mcode";
+  | "mcode"
+  | "auth"
+  | "usage";
 
 interface WebDavSyncStatusUpdatedPayload {
   source?: string;
@@ -170,6 +182,8 @@ const VALID_VIEWS: View[] = [
   "grokbuild",
   "pi",
   "mcode",
+  "auth",
+  "usage",
 ];
 
 const getInitialView = (): View => {
@@ -213,6 +227,39 @@ function App() {
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const [accountReturnRequest, setAccountReturnRequest] = useState(0);
   const [currentView, setCurrentView] = useState<View>(getInitialView);
+  const [workspaceOrigin, setWorkspaceOrigin] = useState<WorkspaceTool>(() =>
+    ["grokbuild", "pi", "mcode"].includes(currentView)
+      ? (currentView as WorkspaceTool)
+      : activeApp,
+  );
+  const [workspaceTarget, setWorkspaceTarget] = useState<AppId | null>(() =>
+    (GLOBAL_WORKSPACE_VIEWS as readonly string[]).includes(currentView) ||
+    ["grokbuild", "pi", "mcode"].includes(currentView) ||
+    activeApp === "claude-desktop"
+      ? null
+      : activeApp,
+  );
+  const skillsTarget =
+    workspaceTarget && WORKSPACE_SUPPORT.skills.includes(workspaceTarget)
+      ? workspaceTarget
+      : null;
+  const promptTarget =
+    workspaceTarget && WORKSPACE_SUPPORT.prompts.includes(workspaceTarget)
+      ? workspaceTarget
+      : null;
+  useEffect(() => {
+    if (!(GLOBAL_WORKSPACE_VIEWS as readonly string[]).includes(currentView)) {
+      const origin = ["grokbuild", "pi", "mcode"].includes(currentView)
+        ? (currentView as WorkspaceTool)
+        : activeApp;
+      setWorkspaceOrigin(origin);
+      setWorkspaceTarget(
+        WORKSPACE_SUPPORT.prompts.includes(origin as AppId)
+          ? (origin as AppId)
+          : null,
+      );
+    }
+  }, [activeApp, currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("tuzi-sidebar-collapsed") === "true",
   );
@@ -329,21 +376,6 @@ function App() {
       })
       .catch(() => {});
   }, [activeApp]);
-
-  // Fallback from sessions view when switching to an app without session support
-  useEffect(() => {
-    if (
-      currentView === "sessions" &&
-      activeApp !== "claude" &&
-      activeApp !== "codex" &&
-      activeApp !== "opencode" &&
-      activeApp !== "openclaw" &&
-      activeApp !== "gemini" &&
-      activeApp !== "hermes"
-    ) {
-      setCurrentView("providers");
-    }
-  }, [activeApp, currentView]);
 
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
@@ -1083,6 +1115,10 @@ function App() {
   const renderContent = () => {
     const content = (() => {
       switch (currentView) {
+        case "auth":
+          return <WorkspaceAuthPage />;
+        case "usage":
+          return <WorkspaceUsagePage />;
         case "account":
           return (
             <AccountPage
@@ -1111,36 +1147,84 @@ function App() {
           );
         case "prompts":
           return (
-            <PromptPanel
-              ref={promptPanelRef}
-              open={true}
-              onOpenChange={() => setCurrentView("providers")}
-              appId={activeApp}
-            />
+            <>
+              <WorkspaceScope
+                feature="prompts"
+                origin={workspaceOrigin}
+                target={promptTarget}
+                onTargetChange={setWorkspaceTarget}
+              />
+              {promptTarget ? (
+                <PromptPanel
+                  key={promptTarget}
+                  ref={promptPanelRef}
+                  open={true}
+                  onOpenChange={() => setCurrentView("providers")}
+                  appId={promptTarget}
+                />
+              ) : (
+                <p className="px-6 text-sm text-muted-foreground">
+                  {t("navigation.chooseTarget")}
+                </p>
+              )}
+            </>
           );
         case "hermesMemory":
           return <HermesMemoryPanel />;
         case "skills":
           return (
-            <UnifiedSkillsPanel
-              ref={unifiedSkillsPanelRef}
-              onOpenDiscovery={() => setCurrentView("skillsDiscovery")}
-              currentApp={activeApp === "openclaw" ? "claude" : activeApp}
-            />
+            <>
+              <WorkspaceScope
+                feature="skills"
+                origin={workspaceOrigin}
+                target={skillsTarget}
+                onTargetChange={setWorkspaceTarget}
+              />
+              {skillsTarget ? (
+                <UnifiedSkillsPanel
+                  key={skillsTarget}
+                  ref={unifiedSkillsPanelRef}
+                  onOpenDiscovery={() => setCurrentView("skillsDiscovery")}
+                  currentApp={skillsTarget}
+                />
+              ) : (
+                <p className="px-6 text-sm text-muted-foreground">
+                  {t("navigation.chooseTarget")}
+                </p>
+              )}
+            </>
           );
         case "skillsDiscovery":
           return (
-            <SkillsPage
-              ref={skillsPageRef}
-              initialApp={activeApp === "openclaw" ? "claude" : activeApp}
-            />
+            <>
+              <WorkspaceScope
+                feature="skills"
+                origin={workspaceOrigin}
+                target={skillsTarget}
+                onTargetChange={setWorkspaceTarget}
+              />
+              {skillsTarget ? (
+                <SkillsPage
+                  key={skillsTarget}
+                  ref={skillsPageRef}
+                  initialApp={skillsTarget}
+                />
+              ) : (
+                <p className="px-6 text-sm text-muted-foreground">
+                  {t("navigation.chooseTarget")}
+                </p>
+              )}
+            </>
           );
         case "mcp":
           return (
-            <UnifiedMcpPanel
-              ref={mcpPanelRef}
-              onOpenChange={() => setCurrentView("providers")}
-            />
+            <>
+              <WorkspaceScope feature="mcp" origin={workspaceOrigin} />
+              <UnifiedMcpPanel
+                ref={mcpPanelRef}
+                onOpenChange={() => setCurrentView("providers")}
+              />
+            </>
           );
         case "agents":
           return (
@@ -1154,7 +1238,12 @@ function App() {
           );
 
         case "sessions":
-          return <SessionManagerPage key={activeApp} appId={activeApp} />;
+          return (
+            <>
+              <WorkspaceScope feature="sessions" origin={workspaceOrigin} />
+              <SessionManagerPage appId="all" />
+            </>
+          );
         case "workspace":
           return <WorkspaceFilesPanel />;
         case "openclawEnv":
@@ -1305,7 +1394,23 @@ function App() {
           localStorage.setItem(STORAGE_KEY, app);
           setActiveApp(app);
         }}
-        onNavigate={(view) => setCurrentView(view as View)}
+        onNavigate={(view) => {
+          if (
+            (GLOBAL_WORKSPACE_VIEWS as readonly string[]).includes(view) &&
+            !(GLOBAL_WORKSPACE_VIEWS as readonly string[]).includes(currentView)
+          ) {
+            const origin = ["grokbuild", "pi", "mcode"].includes(currentView)
+              ? (currentView as WorkspaceTool)
+              : activeApp;
+            setWorkspaceOrigin(origin);
+            setWorkspaceTarget(
+              WORKSPACE_SUPPORT.prompts.includes(origin as AppId)
+                ? (origin as AppId)
+                : null,
+            );
+          }
+          setCurrentView(view as View);
+        }}
         onOpenSettings={() => {
           setSettingsDefaultTab("general");
           setCurrentView("settings");
@@ -1426,11 +1531,12 @@ function App() {
                 </Button>
                 <h1 className="text-lg font-semibold">
                   {currentView === "settings" && t("settings.title")}
+                  {currentView === "auth" && t("navigation.auth")}
+                  {currentView === "usage" && t("navigation.localUsage")}
                   {currentView === "grokbuild" && "Grok Build"}
                   {currentView === "pi" && "Pi"}
                   {currentView === "mcode" && "MiniMax Code"}
-                  {currentView === "prompts" &&
-                    t("prompts.title", { appName: t(`apps.${activeApp}`) })}
+                  {currentView === "prompts" && t("navigation.prompts")}
                   {currentView === "skills" && t("skills.title")}
                   {currentView === "skillsDiscovery" && t("skills.title")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}
@@ -1498,8 +1604,7 @@ function App() {
                     variant="ghost"
                     size="icon"
                     onClick={() => {
-                      setSettingsDefaultTab("usage");
-                      setCurrentView("settings");
+                      setCurrentView("usage");
                     }}
                     title={t("usage.title", {
                       defaultValue: "使用统计",
@@ -1536,7 +1641,7 @@ function App() {
                 className="flex shrink-0 items-center gap-1.5 ml-auto"
                 style={{ WebkitAppRegion: "no-drag" } as any}
               >
-                {currentView === "prompts" && (
+                {currentView === "prompts" && promptTarget && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1569,7 +1674,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skills" && (
+                {currentView === "skills" && skillsTarget && (
                   <>
                     <Button
                       variant="ghost"
@@ -1615,7 +1720,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                {currentView === "skillsDiscovery" && (
+                {currentView === "skillsDiscovery" && skillsTarget && (
                   <>
                     <Button
                       variant="ghost"

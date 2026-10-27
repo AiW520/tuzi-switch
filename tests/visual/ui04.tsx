@@ -10,6 +10,24 @@ import { TuziSidebar } from "@/components/shell/TuziSidebar";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderConnectionControls } from "@/components/providers/ProviderConnectionControls";
 import { NativeToolPage } from "@/components/providers/NativeToolPage";
+import Mcp from "@/components/mcp/UnifiedMcpPanel";
+import Skills from "@/components/skills/UnifiedSkillsPanel";
+import { SkillsPage } from "@/components/skills/SkillsPage";
+import Prompts from "@/components/prompts/PromptPanel";
+import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
+import { AgentsPanel } from "@/components/agents/AgentsPanel";
+import { UniversalProviderPanel } from "@/components/universal/UniversalProviderPanel";
+import { WorkspaceScope } from "@/components/shell/WorkspaceScope";
+import {
+  WorkspaceAuthPage,
+  WorkspaceUsagePage,
+} from "@/components/shell/WorkspaceGlobalPages";
+import {
+  WORKSPACE_SUPPORT,
+  WORKSPACE_TOOL_NAMES,
+  type WorkspaceTool,
+} from "@/config/workspace";
+import type { AppId } from "@/lib/api";
 import {
   nativeToolNames,
   type NativeTool,
@@ -69,6 +87,53 @@ mockWindows("main");
 mockIPC(
   async (command, args) => {
     if (command === "set_window_theme") return;
+    if (command === "get_settings") return { commonConfigConfirmed: true };
+    if (
+      ["get_mcp_servers", "get_prompts", "get_universal_providers"].includes(
+        command,
+      )
+    )
+      return {};
+    if (
+      [
+        "get_installed_skills",
+        "get_skill_backups",
+        "scan_unmanaged_skills",
+        "check_skill_updates",
+        "get_skill_repos",
+        "discover_available_skills",
+        "list_sessions",
+        "get_usage_summary_by_app",
+        "get_usage_trends",
+        "get_provider_stats",
+        "get_model_stats",
+        "get_model_pricing",
+        "get_usage_data_sources",
+      ].includes(command)
+    )
+      return [];
+    if (command === "get_current_prompt_file_content") return null;
+    if (command === "auth_get_status")
+      return {
+        provider: (args as { authProvider: string }).authProvider,
+        authenticated: false,
+        default_account_id: null,
+        accounts: [],
+      };
+    if (command === "get_request_logs")
+      return { data: [], total: 0, page: 0, pageSize: 20 };
+    if (command === "get_usage_summary")
+      return {
+        totalRequests: 0,
+        totalCost: "0",
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        successRate: 0,
+        realTotalTokens: 0,
+        cacheHitRate: 0,
+      };
     if (command === "aggregation_read") return aggregation;
     if (command === "aggregation_apply") {
       const change = args as { enabled: boolean; plan: AggregationPlan };
@@ -153,7 +218,97 @@ function Canvas() {
   const proxy = useProxyStatus();
   const [collapsed, setCollapsed] = useState(false);
   const [selected, setSelected] = useState(currentId);
-  const [page, setPage] = useState<"providers" | NativeTool>("providers");
+  const [page, setPage] = useState(params.get("page") ?? "providers");
+  const [app, setApp] = useState<AppId>("codex");
+  const [origin, setOrigin] = useState<WorkspaceTool>("codex");
+  const [target, setTarget] = useState<AppId | null>("codex");
+  const native = ["grokbuild", "pi", "mcode"].includes(page);
+  const titles: Record<string, string> = {
+    providers: WORKSPACE_TOOL_NAMES[app],
+    mcp: "MCP 管理",
+    skills: "Skills 管理",
+    skillsDiscovery: "Skills 发现",
+    prompts: "提示词",
+    sessions: "会话管理",
+    auth: "授权管理",
+    usage: "本机使用统计",
+    agents: "智能体",
+    universal: "统一供应商",
+  };
+  const scopedFeature = page === "skillsDiscovery" ? "skills" : page;
+  const validTarget =
+    target &&
+    ["skills", "prompts"].includes(scopedFeature) &&
+    WORKSPACE_SUPPORT[scopedFeature as "skills" | "prompts"].includes(target)
+      ? target
+      : null;
+  const globalContent = () => {
+    switch (page) {
+      case "mcp":
+        return (
+          <>
+            <WorkspaceScope feature="mcp" origin={origin} />
+            <Mcp onOpenChange={() => {}} />
+          </>
+        );
+      case "skills":
+      case "skillsDiscovery":
+      case "prompts":
+        return (
+          <>
+            <WorkspaceScope
+              feature={scopedFeature as "skills" | "prompts"}
+              origin={origin}
+              target={validTarget}
+              onTargetChange={setTarget}
+            />
+            {validTarget ? (
+              page === "prompts" ? (
+                <Prompts
+                  key={validTarget}
+                  appId={validTarget}
+                  open
+                  onOpenChange={() => {}}
+                />
+              ) : page === "skills" ? (
+                <Skills
+                  key={validTarget}
+                  currentApp={validTarget}
+                  onOpenDiscovery={() => setPage("skillsDiscovery")}
+                />
+              ) : (
+                <SkillsPage key={validTarget} initialApp={validTarget} />
+              )
+            ) : (
+              <p className="px-6 text-sm text-muted-foreground">
+                请选择目标工具后继续
+              </p>
+            )}
+          </>
+        );
+      case "sessions":
+        return (
+          <>
+            <WorkspaceScope feature="sessions" origin={origin} />
+            <SessionManagerPage appId="all" />
+          </>
+        );
+      case "auth":
+        return <WorkspaceAuthPage />;
+      case "usage":
+        return <WorkspaceUsagePage />;
+      case "agents":
+        return <AgentsPanel onOpenChange={() => {}} />;
+      case "universal":
+        return <UniversalProviderPanel />;
+      default:
+        return (
+          <p className="px-6 text-muted-foreground">
+            请在桌面版验收此工具的完整配置。
+          </p>
+        );
+    }
+  };
   const left = collapsed ? 68 : 228;
   return (
     <div
@@ -162,7 +317,7 @@ function Canvas() {
     >
       <Toaster />
       <TuziSidebar
-        activeApp="codex"
+        activeApp={app}
         currentView={page}
         visibleApps={{
           claude: true,
@@ -176,12 +331,17 @@ function Canvas() {
         topOffset={0}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(!collapsed)}
-        onSwitchApp={notice}
+        onSwitchApp={(next) => {
+          setApp(next);
+          setOrigin(next);
+          setTarget(WORKSPACE_SUPPORT.prompts.includes(next) ? next : null);
+        }}
         onNavigate={(view) => {
-          if (["grokbuild", "pi", "mcode"].includes(view))
-            setPage(view as NativeTool);
-          else if (view === "providers") setPage("providers");
-          else notice();
+          if (["grokbuild", "pi", "mcode"].includes(view)) {
+            setOrigin(view as NativeTool);
+            setTarget(null);
+          }
+          setPage(view);
         }}
         onOpenSettings={notice}
       />
@@ -190,28 +350,36 @@ function Canvas() {
         style={{ left, width: `calc(100% - ${left}px)` }}
       >
         <div className="flex items-center gap-3">
-          <ProviderIcon icon="openai" name="Codex" size={20} />
+          {page === "providers" && app === "codex" && (
+            <ProviderIcon icon="openai" name="Codex" size={20} />
+          )}
           <strong className="text-base">
-            {page === "providers" ? "Codex" : nativeToolNames[page]}
+            {native
+              ? nativeToolNames[page as NativeTool]
+              : (titles[page] ?? page)}
           </strong>
-          <span className="text-xs text-muted-foreground">供应商</span>
+          <span className="text-xs text-muted-foreground">合成预览</span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="添加供应商"
-          onClick={notice}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        {page === "providers" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="添加供应商"
+            onClick={notice}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
       </header>
       <main
         className="workspace-view flex flex-1 flex-col min-h-0"
         data-view={page}
         style={{ marginLeft: left }}
       >
-        {page !== "providers" ? (
-          <NativeToolPage key={page} tool={page} />
+        {native ? (
+          <NativeToolPage key={page} tool={page as NativeTool} />
+        ) : page !== "providers" || app !== "codex" ? (
+          globalContent()
         ) : (
           <div className="flex flex-col min-h-0 flex-1 px-6">
             <ProviderConnectionControls
@@ -262,7 +430,7 @@ function Preview() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 p-3 text-sm">
-        <strong>供应商主页 · 合成数据</strong>
+        <strong>UI-06 全局工作区 · 合成数据</strong>
         <select
           aria-label="宽度"
           value={width}
@@ -290,7 +458,9 @@ function Preview() {
           <option value="stopped">路由停止</option>
           <option value="error">状态读取失败</option>
         </select>
-        <span>可切换供应商、直连/路由、折叠侧栏，并查看聚合说明。</span>
+        <span>
+          可检查完整全局导航、支持范围和目标工具选择；数据均为合成值。
+        </span>
       </div>
       <iframe
         title="供应商主页画布"

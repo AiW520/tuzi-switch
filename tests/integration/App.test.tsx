@@ -152,6 +152,28 @@ vi.mock("@/components/shell/TuziSidebar", () => ({
         account.title
       </button>
       <span>{activeApp}</span>
+      {[
+        "prompts",
+        "skills",
+        "sessions",
+        "auth",
+        "usage",
+        "grokbuild",
+        "pi",
+        "mcode",
+      ].map((view) => (
+        <button key={view} onClick={() => onNavigate(view)}>
+          nav-{view}
+        </button>
+      ))}
+      <button
+        onClick={() => {
+          onSwitchApp("claude-desktop");
+          onNavigate("providers");
+        }}
+      >
+        switch-desktop
+      </button>
       <button
         onClick={() => {
           onSwitchApp("claude");
@@ -195,6 +217,26 @@ vi.mock("@/components/mcp/McpPanel", () => ({
     ) : (
       <button onClick={() => onOpenChange(true)}>open-mcp</button>
     ),
+}));
+
+vi.mock("@/components/prompts/PromptPanel", () => ({
+  default: ({ appId }: any) => <div data-testid="prompt-target">{appId}</div>,
+}));
+vi.mock("@/components/skills/UnifiedSkillsPanel", () => ({
+  default: ({ currentApp }: any) => (
+    <div data-testid="skills-target">{currentApp}</div>
+  ),
+}));
+vi.mock("@/components/sessions/SessionManagerPage", () => ({
+  SessionManagerPage: ({ appId }: any) => (
+    <div data-testid="session-filter">{appId}</div>
+  ),
+}));
+vi.mock("@/components/settings/AuthCenterPanel", () => ({
+  AuthCenterPanel: () => <div data-testid="tool-auth-center" />,
+}));
+vi.mock("@/components/usage/UsageDashboard", () => ({
+  UsageDashboard: () => <div data-testid="local-usage-dashboard" />,
 }));
 
 const renderApp = (AppComponent: ComponentType) => {
@@ -263,6 +305,69 @@ describe("App integration with MSW", () => {
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
   });
+
+  it("requires a target after restoring a global editor instead of using the last provider tool", async () => {
+    localStorage.setItem("tuzi-switch-last-view", "prompts");
+    localStorage.setItem("tuzi-switch-last-app", "codex");
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    expect(screen.queryByTestId("prompt-target")).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("combobox", { name: "navigation.targetTool" }),
+    ).toHaveValue("");
+  });
+
+  it("exposes real global page containers and all-tool sessions", async () => {
+    localStorage.setItem("tuzi-switch-last-view", "auth");
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    expect(await screen.findByTestId("tool-auth-center")).toBeInTheDocument();
+    expect(screen.getByText("navigation.authScope")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("nav-usage"));
+    expect(
+      await screen.findByTestId("local-usage-dashboard"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("navigation.localUsageScope")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("nav-sessions"));
+    expect(await screen.findByTestId("session-filter")).toHaveTextContent(
+      "all",
+    );
+  });
+
+  it.each(["switch-desktop", "nav-grokbuild", "nav-pi", "nav-mcode"])(
+    "does not silently select Claude for %s workspace actions",
+    async (entry) => {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByTestId("provider-list");
+      const notice = await screen.findByRole("button", {
+        name: "firstRunNotice.confirm",
+      });
+      if (notice) {
+        fireEvent.click(notice);
+        await waitFor(() =>
+          expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+        );
+      }
+      fireEvent.click(screen.getByText(entry));
+      fireEvent.click(screen.getByText("nav-skills"));
+      expect(
+        await screen.findByRole("combobox", { name: "navigation.targetTool" }),
+      ).toHaveValue("");
+      expect(screen.queryByTestId("skills-target")).not.toBeInTheDocument();
+      fireEvent.change(
+        screen.getByRole("combobox", { name: "navigation.targetTool" }),
+        { target: { value: "codex" } },
+      );
+      expect(await screen.findByTestId("skills-target")).toHaveTextContent(
+        "codex",
+      );
+      fireEvent.click(screen.getByText("nav-prompts"));
+      expect(await screen.findByTestId("prompt-target")).toHaveTextContent(
+        "codex",
+      );
+    },
+  );
 
   it("keeps tools usable while switching through disconnected account pages", async () => {
     const { default: App } = await import("@/App");
