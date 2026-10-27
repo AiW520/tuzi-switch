@@ -16,6 +16,8 @@ import { SkillsPage } from "@/components/skills/SkillsPage";
 import Prompts from "@/components/prompts/PromptPanel";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
+import { AccountWorkspacePreview } from "./AccountWorkspacePreview";
+import { accountPreviewIPC } from "./account-fixture";
 import {
   agentTemplate,
   type AgentTool,
@@ -111,6 +113,16 @@ mockWindows("main");
 mockIPC(
   async (command, args) => {
     if (command === "set_window_theme") return;
+    if (
+      [
+        "account_request",
+        "account_cancel_request",
+        "tuzi_provider_sources",
+        "tuzi_provider_backups",
+      ].includes(command)
+    )
+      return accountPreviewIPC(command, args);
+    if (command === "account_cancel_token_prefill") return;
     if (command.startsWith("agents_")) {
       const payload = args as {
         tool: AgentTool;
@@ -284,6 +296,7 @@ function Canvas() {
   const [target, setTarget] = useState<AppId | null>("codex");
   const native = ["grokbuild", "pi", "mcode"].includes(page);
   const titles: Record<string, string> = {
+    account: "兔子账户",
     providers: WORKSPACE_TOOL_NAMES[app],
     mcp: "MCP 管理",
     skills: "Skills 管理",
@@ -304,6 +317,8 @@ function Canvas() {
       : null;
   const globalContent = () => {
     switch (page) {
+      case "account":
+        return <AccountWorkspacePreview />;
       case "mcp":
         return (
           <>
@@ -496,7 +511,7 @@ function Preview() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 p-3 text-sm">
-        <strong>UI-07 Agents 管理 · 合成数据</strong>
+        <strong>兔子助手工作区 · 合成数据</strong>
         <select
           aria-label="宽度"
           value={width}

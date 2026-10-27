@@ -242,6 +242,7 @@ function ConfigureToolSession({
               <Button
                 key={id}
                 variant={app === id ? "secondary" : "outline"}
+                aria-pressed={app === id}
                 disabled={
                   busy ||
                   sources.isLoading ||
@@ -293,7 +294,7 @@ function ConfigureToolSession({
                 </Button>
               </PopoverTrigger>
               <PopoverContent
-                className="z-[80] w-[var(--radix-popover-trigger-width)] max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-0"
+                className="account-model-picker z-[80] w-[var(--radix-popover-trigger-width)] max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-0"
                 onEscapeKeyDown={(event) => event.stopPropagation()}
               >
                 <Command shouldFilter={false}>

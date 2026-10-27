@@ -59,3 +59,28 @@
     padding-inline: 16px;
   }
 }
+/* Account-created providers follow the rounded account workspace. */
+.provider-form-shell[data-account-prefill="true"] {
+  border-radius: 24px;
+  border-color: hsl(var(--border) / 0.7);
+  padding: 24px;
+  box-shadow: none;
+}
+.provider-form-shell[data-account-prefill="true"]
+  :is(input, textarea, [role="combobox"]) {
+  border-radius: 13px;
+}
+.provider-form-shell[data-account-prefill="true"] .provider-form-section,
+.provider-form-shell[data-account-prefill="true"] > .rounded-lg.border,
+.provider-form-shell[data-account-prefill="true"] > .rounded-xl.border {
+  border-radius: 20px;
+  box-shadow: none;
+}
+.provider-form-shell[data-account-prefill="true"] button {
+  border-radius: 999px;
+}
+@media (max-width: 600px) {
+  .provider-form-shell[data-account-prefill="true"] {
+    padding: 18px 16px;
+  }
+}

@@ -2329,6 +2329,7 @@ function ProviderFormFull({
           id="provider-form"
           onSubmit={form.handleSubmit(handleSubmit)}
           className="provider-form-shell space-y-6"
+          data-account-prefill={creationPrefill ? "true" : undefined}
         >
           {!initialData && (
             <ProviderPresetSelector

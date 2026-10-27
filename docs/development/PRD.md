@@ -4,6 +4,8 @@
 
 ## 目标与产品范围
 
+2026-10-27 UI-09：用户授权将兔子账户连接页、四项概要、密钥筛选/表格和创建/配置弹窗统一为已确认的简洁圆角风格。仅展示适配；新增工具的账户一键配置不在本阶段，既有账户认证、业务与隐藏规则保留。见 [UI-09记录](ui09-account-polish.md)。
+
 2026-10-27 UI-07：Agents 入口接入 Claude Code 与 OpenCode 的用户级 Markdown Agent 文件管理。支持读取、搜索、新增、编辑、删除确认和单步恢复；严格按工具原生目录和格式保存，不执行 Agent、不跨工具转换。Claude Desktop、Codex、Gemini CLI、OpenClaw、Hermes 及 Grok Build/Pi/MiniMax Code 的 Agent 管理入口显示明确未支持状态或要求选择已支持工具。详见 [UI-07记录](ui07-agents-management.md)。
 
 2026-10-27 UI-06：按用户确认固定全局工作区导航：MCP、Skills、提示词、会话、授权、本机统计、Agents、统一供应商。授权及本机统计复用现有真实页面；未支持工具显示支持范围并显式选择写入目标，不回落 Claude，恢复全局编辑页也须重新选择目标。Agents 明示待实现；新工具扩展能力未因此增加。见 [UI-06记录](ui06-global-workspace.md)。
