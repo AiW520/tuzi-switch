@@ -21,7 +21,11 @@ export function useProxyStatus() {
   const { t } = useTranslation();
 
   // 查询状态（自动轮询）
-  const { data: status, isLoading } = useQuery({
+  const {
+    data: status,
+    isLoading,
+    error: statusError,
+  } = useQuery({
     queryKey: ["proxyStatus"],
     queryFn: () => invoke<ProxyStatus>("get_proxy_status"),
     // 仅在服务运行时轮询
@@ -31,7 +35,11 @@ export function useProxyStatus() {
   });
 
   // 查询各应用接管状态
-  const { data: takeoverStatus } = useQuery({
+  const {
+    data: takeoverStatus,
+    isLoading: isTakeoverLoading,
+    error: takeoverError,
+  } = useQuery({
     queryKey: ["proxyTakeoverStatus"],
     queryFn: () => invoke<ProxyTakeoverStatus>("get_proxy_takeover_status"),
     placeholderData: (previousData) => previousData,
@@ -209,6 +217,8 @@ export function useProxyStatus() {
   return {
     status,
     isLoading,
+    isTakeoverLoading,
+    error: statusError || takeoverError,
     isRunning: status?.running || false,
     takeoverStatus,
     isTakeoverActive:

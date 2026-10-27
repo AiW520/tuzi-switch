@@ -66,6 +66,7 @@ import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
 import { AccountPage } from "@/components/account/AccountPage";
 import { useAccount } from "@/lib/query/account";
 import { TuziSidebar } from "@/components/shell/TuziSidebar";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import "@/components/shell/workspace-pages.css";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
@@ -74,7 +75,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
-import { ProxyToggle } from "@/components/proxy/ProxyToggle";
+import { ProviderConnectionControls } from "@/components/providers/ProviderConnectionControls";
 import { ClaudeDesktopRouteToggle } from "@/components/proxy/ClaudeDesktopRouteToggle";
 import { FailoverToggle } from "@/components/proxy/FailoverToggle";
 import UsageScriptModal from "@/components/UsageScriptModal";
@@ -1154,6 +1155,19 @@ function App() {
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
+              {["claude", "codex", "gemini"].includes(activeApp) && (
+                <ProviderConnectionControls
+                  key={activeApp}
+                  appId={activeApp}
+                  providers={providers}
+                  currentProviderId={currentProviderId}
+                  routeEnabled={!!settingsData?.enableLocalProxy}
+                  onOpenSettings={() => {
+                    setSettingsDefaultTab("proxy");
+                    setCurrentView("settings");
+                  }}
+                />
+              )}
               <div className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1">
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -1422,6 +1436,19 @@ function App() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
+                {currentView === "providers" && (
+                  <ProviderIcon
+                    icon={
+                      activeApp === "codex"
+                        ? "openai"
+                        : activeApp === "claude-desktop"
+                          ? "claude"
+                          : activeApp
+                    }
+                    name={t(`apps.${activeApp}`)}
+                    size={18}
+                  />
+                )}
                 <div className="flex items-center gap-2">
                   <span className="text-base font-semibold">
                     {currentView === "account"
@@ -1430,7 +1457,7 @@ function App() {
                   </span>
                   {currentView === "providers" && (
                     <span className="text-xs text-muted-foreground">
-                      供应商配置
+                      {t("connectionMode.providers")}
                     </span>
                   )}
                 </div>
@@ -1483,11 +1510,7 @@ function App() {
                 >
                   {activeApp === "claude-desktop" ? (
                     <ClaudeDesktopRouteToggle />
-                  ) : (
-                    settingsData?.enableLocalProxy && (
-                      <ProxyToggle activeApp={activeApp} />
-                    )
-                  )}
+                  ) : null}
                   {activeApp !== "claude-desktop" &&
                     settingsData?.enableFailoverToggle && (
                       <FailoverToggle activeApp={activeApp} />

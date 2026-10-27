@@ -10,6 +10,24 @@
     "account": "兔子アカウント",
     "loadFailed": "読み込みに失敗しました。更新して再試行してください。"
   },
+  "connectionMode": {
+    "providers": "プロバイダー",
+    "label": "接続モード",
+    "direct": "直接",
+    "route": "ルート",
+    "aggregate": "集約",
+    "planned": "準備中",
+    "aggregationPlanned": "集約モード · 準備中",
+    "aggregationDescription": "集約モードは次の段階で追加されます。接続モードは変更されません。既存のルーティングとフェイルオーバーは引き続き使用できます。",
+    "settings": "ルート設定と説明を開く",
+    "failed": "接続状態を取得できません。ルート設定を確認してください。",
+    "loading": "接続状態を読み込み中…",
+    "stopped": "ルート接管中 · サービス停止",
+    "routed": "ルート有効 · {{name}}",
+    "routeReady": "ルート準備完了 · 対象プロバイダー待機中",
+    "directActive": "直接接続の設定 · {{name}}",
+    "noProvider": "直接接続 · プロバイダー未選択"
+  },
   "common": {
     "add": "追加",
     "edit": "編集",

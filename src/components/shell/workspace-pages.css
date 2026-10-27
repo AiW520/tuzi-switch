@@ -2,6 +2,73 @@
 .workspace-view {
   container: workspace / inline-size;
 }
+.workspace-view[data-view="providers"] {
+  padding-top: 12px;
+}
+.provider-connection-bar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 4px;
+  padding-bottom: 8px;
+}
+.provider-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: hsl(var(--muted));
+}
+.provider-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.provider-mode-button:hover {
+  color: hsl(var(--foreground));
+}
+.provider-mode-button.is-selected {
+  color: #1686ff;
+  background: hsl(var(--background));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+}
+.provider-mode-button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.provider-mode-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.provider-row-drag {
+  opacity: 0;
+}
+.provider-row:is(:hover, :focus-within) .provider-row-drag {
+  opacity: 1;
+}
+.provider-row-content > :first-child {
+  min-width: min(100%, 240px);
+}
+@container workspace (max-width: 760px) {
+  .provider-row-drag {
+    opacity: 1;
+  }
+}
+@container workspace (max-width: 520px) {
+  .provider-row-tools {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}
 .workspace-view:not([data-view="account"]):not([data-view="settings"]):not(
     [data-view="providers"]
   ) {

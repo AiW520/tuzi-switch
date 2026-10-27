@@ -10,6 +10,24 @@
     "account": "兔子账户",
     "loadFailed": "读取失败，请刷新重试。"
   },
+  "connectionMode": {
+    "providers": "供应商",
+    "label": "连接模式",
+    "direct": "直连",
+    "route": "路由",
+    "aggregate": "聚合",
+    "planned": "待开放",
+    "aggregationPlanned": "聚合模式 · 待开放",
+    "aggregationDescription": "聚合模式将在下一阶段接入。当前不会切换连接方式；现有路由和故障转移仍可继续使用。",
+    "settings": "打开路由设置与说明",
+    "failed": "连接状态读取失败，请在路由设置中刷新检查",
+    "loading": "正在读取连接状态…",
+    "stopped": "路由已接管 · 服务未运行",
+    "routed": "路由生效中 · {{name}}",
+    "routeReady": "路由已就绪 · 等待目标供应商",
+    "directActive": "直连配置 · {{name}}",
+    "noProvider": "直连模式 · 尚未选择供应商"
+  },
   "common": {
     "add": "添加",
     "edit": "编辑",

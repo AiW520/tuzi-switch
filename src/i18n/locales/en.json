@@ -10,6 +10,24 @@
     "account": "Tuzi Account",
     "loadFailed": "Unable to load. Refresh to try again."
   },
+  "connectionMode": {
+    "providers": "Providers",
+    "label": "Connection mode",
+    "direct": "Direct",
+    "route": "Route",
+    "aggregate": "Aggregate",
+    "planned": "Planned",
+    "aggregationPlanned": "Aggregation · Coming later",
+    "aggregationDescription": "Aggregation will be connected in the next stage. This does not change your connection mode. Existing routing and failover remain available.",
+    "settings": "Open routing settings and help",
+    "failed": "Unable to read connection state. Check routing settings.",
+    "loading": "Reading connection state…",
+    "stopped": "Routing takeover enabled · Service stopped",
+    "routed": "Routing active · {{name}}",
+    "routeReady": "Routing ready · Waiting for a provider target",
+    "directActive": "Direct configuration · {{name}}",
+    "noProvider": "Direct mode · No provider selected"
+  },
   "common": {
     "add": "Add",
     "edit": "Edit",
