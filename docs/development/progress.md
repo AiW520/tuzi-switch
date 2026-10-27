@@ -1,3 +1,7 @@
+# UI-11 CLI 隔离兼容验证（2026-10-27）
+
+Grok Build、Pi、MiniMax Code 三种协议经实际 CLI 和本机合成上游验证；Claude/Codex 实际 CLI 经聚合代理完成流式合成请求，Codex 模型列表可见合成前缀模型。隔离 macOS 预览已重新构建启动。真实站点、图形选模、三平台及用户验收未完成；见 [UI-11记录](ui11-cli-compatibility.md)。
+
 # UI-10 账户 Key 配置新工具（2026-10-27）
 
 Grok Build、Pi、MiniMax Code 的账户配置、来源隔离与单步恢复已本地实施；合成测试和预览不代表真实 CLI 联调。未 push、PR 或发布，详细范围及限制见 [UI-10记录](ui10-native-account-tools.md)。

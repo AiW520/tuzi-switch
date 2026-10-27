@@ -9,3 +9,5 @@
 验证使用合成账户、合成 Key、隔离文件和本地 HTTP：前端全量 73 文件 516 项通过，类型检查及 renderer 构建通过；原生全量 1445 项通过、1 项忽略，HTTP 合成测试 4 项通过。独立 macOS 预览构建曾通过；最后增加的前端读取状态保护已通过测试和 renderer 构建，但重新打包时当前环境未找到 Cargo，故桌面预览包不包含该最后修改。浏览器预览使用内存合成数据。PATH 中未发现 `grok`、`pi`、`mcode`，未验证真实安装的 CLI、真实账户、三平台行为或用户验收。仅本地开发，未 push、PR 或发布。
 
 设计取舍见 [ADR-016](decisions/0016-native-account-tool-sources.md)。
+
+后续 UI-11 已修正构建 PATH 并重新打包，完成实际 CLI 与本机合成上游的分层验证；详情及剩余限制见 [UI-11记录](ui11-cli-compatibility.md)。

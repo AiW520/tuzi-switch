@@ -516,6 +516,144 @@ mod tests {
     }
     #[tokio::test]
     #[serial_test::serial]
+    #[ignore = "requires installed Claude Code and Codex CLI binaries"]
+    async fn installed_clis_route_prefixed_models_through_aggregation() {
+        use axum::{routing::post, Json, Router};
+        use std::{process::Command, sync::Arc};
+        let home = TestHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+        let requests = Arc::new(tokio::sync::Mutex::new(Vec::<Value>::new()));
+        let handler = |seen: Arc<tokio::sync::Mutex<Vec<Value>>>, responses: bool| {
+            move |headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
+                seen.lock().await.push(json!({"model":body["model"],"key":headers.get("authorization").and_then(|v|v.to_str().ok())}));
+                let events = if responses {
+                    vec![
+                        json!({"type":"response.created","response":{"id":"resp_synthetic","object":"response","created_at":1,"status":"in_progress","output":[]}}),
+                        json!({"type":"response.output_item.added","output_index":0,"item":{"id":"msg_synthetic","type":"message","status":"in_progress","role":"assistant","content":[]}}),
+                        json!({"type":"response.content_part.added","item_id":"msg_synthetic","output_index":0,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}),
+                        json!({"type":"response.output_text.delta","item_id":"msg_synthetic","output_index":0,"content_index":0,"delta":"synthetic-ok"}),
+                        json!({"type":"response.output_item.done","output_index":0,"item":{"id":"msg_synthetic","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"synthetic-ok","annotations":[]}]}}),
+                        json!({"type":"response.completed","response":{"id":"resp_synthetic","object":"response","created_at":1,"status":"completed","model":"vendor/synthetic-b","output":[],"usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}}}),
+                    ]
+                } else {
+                    vec![
+                        json!({"type":"message_start","message":{"id":"synthetic","type":"message","role":"assistant","model":"vendor/synthetic-b","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":0}}}),
+                        json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                        json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"synthetic-ok"}}),
+                        json!({"type":"content_block_stop","index":0}),
+                        json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}),
+                        json!({"type":"message_stop"}),
+                    ]
+                };
+                let stream = events
+                    .iter()
+                    .enumerate()
+                    .map(|(index, event)| {
+                        let mut event = event.clone();
+                        event["sequence_number"] = json!(index);
+                        format!(
+                            "event: {}\ndata: {}\n\n",
+                            event["type"].as_str().unwrap(),
+                            event
+                        )
+                    })
+                    .collect::<String>();
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+                    stream,
+                )
+            }
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/v1/messages", post(handler(requests.clone(), false)))
+            .route("/v1/responses", post(handler(requests.clone(), true)));
+        let upstream_task =
+            tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        for app_name in ["claude", "codex"] {
+            for id in ["a", "b"] {
+                let settings = if app_name == "claude" {
+                    json!({"env":{"ANTHROPIC_BASE_URL":upstream,"ANTHROPIC_AUTH_TOKEN":format!("SYNTHETIC_{id}")}})
+                } else {
+                    json!({"auth":{"OPENAI_API_KEY":format!("SYNTHETIC_{id}")},"config":format!("model_provider = \"synthetic\"\n[model_providers.synthetic]\nbase_url = \"{upstream}/v1\"\nwire_api = \"responses\"\n")})
+                };
+                db.save_provider(
+                    app_name,
+                    &Provider::with_id(id.into(), id.into(), settings, None),
+                )
+                .unwrap();
+            }
+            db.set_current_provider(app_name, "a").unwrap();
+            store(
+                app_name,
+                &AggregationState {
+                    enabled: true,
+                    plan: plan(),
+                    overlays: BTreeMap::new(),
+                },
+            )
+            .unwrap();
+        }
+        let mut config = db.get_proxy_config().await.unwrap();
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        config.listen_port = port;
+        config.listen_address = "127.0.0.1".into();
+        let server = crate::proxy::server::ProxyServer::new(
+            config,
+            db,
+            None,
+            Arc::from("SYNTHETIC_IMAGE_TOKEN"),
+        );
+        server.start().await.unwrap();
+        let root = home.dir.path().to_owned();
+        let output = tokio::task::spawn_blocking(move || {
+            let claude = std::env::var("TUZI_TEST_CLAUDE").unwrap();
+            let codex = std::env::var("TUZI_TEST_CODEX").unwrap();
+            let node_path = std::env::var("TUZI_TEST_PATH").unwrap();
+            let codex_home = root.join("codex-cli");
+            fs::create_dir_all(&codex_home).unwrap();
+            fs::write(codex_home.join("config.toml"), format!("model_provider = \"synthetic\"\n[model_providers.synthetic]\nname = \"Synthetic\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nenv_key = \"SYNTHETIC_API_KEY\"\nwire_api = \"responses\"\n")).unwrap();
+            let common = |command: &mut Command| {
+                command.env_clear().env("HOME", &root).env("PATH", &node_path)
+                    .env("HTTP_PROXY", "http://127.0.0.1:9").env("HTTPS_PROXY", "http://127.0.0.1:9")
+                    .env("NO_PROXY", "127.0.0.1,localhost").env("OTEL_SDK_DISABLED", "true")
+                    .current_dir(&root);
+            };
+            let mut c = Command::new(claude);
+            common(&mut c);
+            c.env("CLAUDE_CONFIG_DIR", root.join("claude-cli")).env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+                .env("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}"))
+                .env("ANTHROPIC_API_KEY", "SYNTHETIC_CLIENT")
+                .args(["--bare", "--tools", "", "--model", "ccs-claude-62--vendor/synthetic-b", "--print", "synthetic test"]);
+            let first = c.output().unwrap();
+            let mut c = Command::new(codex);
+            common(&mut c);
+            c.env("CODEX_HOME", codex_home).env("SYNTHETIC_API_KEY", "SYNTHETIC_CLIENT")
+                .args(["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--model", "ccs-62/vendor/synthetic-b", "synthetic test"]);
+            (first, c.output().unwrap())
+        }).await.unwrap();
+        server.stop().await.unwrap();
+        upstream_task.abort();
+        for result in [output.0, output.1] {
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(String::from_utf8_lossy(&result.stdout).contains("synthetic-ok"));
+        }
+        let seen = requests.lock().await;
+        assert_eq!(seen.len(), 2);
+        for request in seen.iter() {
+            assert_eq!(request["model"], "vendor/synthetic-b");
+            assert_eq!(request["key"], "Bearer SYNTHETIC_b");
+        }
+    }
+    #[tokio::test]
+    #[serial_test::serial]
     async fn aggregation_dispatches_over_http_without_failover_or_provider_switch() {
         use axum::{routing::post, Json, Router};
         use std::sync::Arc;
