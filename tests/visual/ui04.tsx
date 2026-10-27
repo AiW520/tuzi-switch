@@ -9,6 +9,14 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { TuziSidebar } from "@/components/shell/TuziSidebar";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderConnectionControls } from "@/components/providers/ProviderConnectionControls";
+import { NativeToolPage } from "@/components/providers/NativeToolPage";
+import {
+  nativeToolNames,
+  type NativeTool,
+  type NativeToolSnapshot,
+  type NativeToolChange,
+} from "@/lib/api/nativeTools";
+import type { AggregationState, AggregationPlan } from "@/lib/api/aggregation";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
@@ -39,10 +47,69 @@ let currentId = "synthetic-2";
 let routed =
   params.get("scenario") === "route" || params.get("scenario") === "stopped";
 let running = params.get("scenario") !== "stopped" && routed;
+let aggregation: AggregationState = {
+  enabled: false,
+  needsRecovery: false,
+  plan: { defaultProviderId: currentId, models: [] },
+};
+const nativeSnapshots = Object.fromEntries(
+  (["grokbuild", "pi", "mcode"] as NativeTool[]).map((tool) => [
+    tool,
+    {
+      revision: "synthetic-1",
+      providers: {},
+      current: null,
+      path: `/synthetic/${tool}/config`,
+      canRestore: false,
+    },
+  ]),
+) as Record<NativeTool, NativeToolSnapshot>;
+const nativeBackups: Partial<Record<NativeTool, NativeToolSnapshot>> = {};
 mockWindows("main");
 mockIPC(
   async (command, args) => {
     if (command === "set_window_theme") return;
+    if (command === "aggregation_read") return aggregation;
+    if (command === "aggregation_apply") {
+      const change = args as { enabled: boolean; plan: AggregationPlan };
+      aggregation = {
+        enabled: change.enabled,
+        plan: change.plan,
+        needsRecovery: false,
+      };
+      routed = true;
+      running = true;
+      return;
+    }
+    if (command.startsWith("native_tool_")) {
+      const payload = args as {
+        tool: NativeTool;
+        revision?: string;
+        change?: NativeToolChange;
+      };
+      const snapshot = nativeSnapshots[payload.tool];
+      if (!snapshot) throw new Error("Unknown synthetic tool");
+      if (command === "native_tool_read") return snapshot;
+      if (command === "native_tool_restore") {
+        const backup = nativeBackups[payload.tool];
+        if (!backup || payload.revision !== snapshot.revision)
+          throw new Error("Synthetic conflict");
+        nativeSnapshots[payload.tool] = { ...backup, canRestore: false };
+        return nativeSnapshots[payload.tool];
+      }
+      const change = payload.change!;
+      if (change.revision !== snapshot.revision)
+        throw new Error("Synthetic conflict");
+      nativeBackups[payload.tool] = structuredClone(snapshot);
+      const next = structuredClone(snapshot);
+      if (change.config === null) delete next.providers[change.id];
+      else next.providers[change.id] = change.config;
+      if (change.select) next.current = change.id;
+      next.revision = `synthetic-${Date.now()}`;
+      next.canRestore = true;
+      nativeSnapshots[payload.tool] = next;
+      return next;
+    }
     if (command === "get_proxy_status") {
       if (params.get("scenario") === "error")
         throw new Error("SYNTHETIC_FAILURE");
@@ -86,6 +153,7 @@ function Canvas() {
   const proxy = useProxyStatus();
   const [collapsed, setCollapsed] = useState(false);
   const [selected, setSelected] = useState(currentId);
+  const [page, setPage] = useState<"providers" | NativeTool>("providers");
   const left = collapsed ? 68 : 228;
   return (
     <div
@@ -95,7 +163,7 @@ function Canvas() {
       <Toaster />
       <TuziSidebar
         activeApp="codex"
-        currentView="providers"
+        currentView={page}
         visibleApps={{
           claude: true,
           "claude-desktop": true,
@@ -109,7 +177,12 @@ function Canvas() {
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(!collapsed)}
         onSwitchApp={notice}
-        onNavigate={notice}
+        onNavigate={(view) => {
+          if (["grokbuild", "pi", "mcode"].includes(view))
+            setPage(view as NativeTool);
+          else if (view === "providers") setPage("providers");
+          else notice();
+        }}
         onOpenSettings={notice}
       />
       <header
@@ -118,7 +191,9 @@ function Canvas() {
       >
         <div className="flex items-center gap-3">
           <ProviderIcon icon="openai" name="Codex" size={20} />
-          <strong className="text-base">Codex</strong>
+          <strong className="text-base">
+            {page === "providers" ? "Codex" : nativeToolNames[page]}
+          </strong>
           <span className="text-xs text-muted-foreground">供应商</span>
         </div>
         <Button
@@ -132,46 +207,50 @@ function Canvas() {
       </header>
       <main
         className="workspace-view flex flex-1 flex-col min-h-0"
-        data-view="providers"
+        data-view={page}
         style={{ marginLeft: left }}
       >
-        <div className="flex flex-col min-h-0 flex-1 px-6">
-          <ProviderConnectionControls
-            appId="codex"
-            currentProviderId={selected}
-            providers={Object.fromEntries(providers.map((p) => [p.id, p]))}
-            routeEnabled
-            onOpenSettings={notice}
-          />
-          <div className="overflow-y-auto min-h-0 flex-1 pb-6 px-1">
-            <div className="provider-list flex flex-col gap-2 mt-3">
-              {providers.map((provider) => (
-                <ProviderCard
-                  key={provider.id}
-                  provider={provider}
-                  appId="codex"
-                  isCurrent={selected === provider.id}
-                  isProxyRunning={proxy.isRunning}
-                  isProxyTakeover={
-                    proxy.isRunning && !!proxy.takeoverStatus?.codex
-                  }
-                  onSwitch={(next) => {
-                    currentId = next.id;
-                    setSelected(next.id);
-                    void client.invalidateQueries({
-                      queryKey: ["proxyStatus"],
-                    });
-                  }}
-                  onEdit={notice}
-                  onDelete={notice}
-                  onDuplicate={notice}
-                  onConfigureUsage={notice}
-                  onOpenWebsite={notice}
-                />
-              ))}
+        {page !== "providers" ? (
+          <NativeToolPage key={page} tool={page} />
+        ) : (
+          <div className="flex flex-col min-h-0 flex-1 px-6">
+            <ProviderConnectionControls
+              appId="codex"
+              currentProviderId={selected}
+              providers={Object.fromEntries(providers.map((p) => [p.id, p]))}
+              routeEnabled
+              onOpenSettings={notice}
+            />
+            <div className="overflow-y-auto min-h-0 flex-1 pb-6 px-1">
+              <div className="provider-list flex flex-col gap-2 mt-3">
+                {providers.map((provider) => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    appId="codex"
+                    isCurrent={selected === provider.id}
+                    isProxyRunning={proxy.isRunning}
+                    isProxyTakeover={
+                      proxy.isRunning && !!proxy.takeoverStatus?.codex
+                    }
+                    onSwitch={(next) => {
+                      currentId = next.id;
+                      setSelected(next.id);
+                      void client.invalidateQueries({
+                        queryKey: ["proxyStatus"],
+                      });
+                    }}
+                    onEdit={notice}
+                    onDelete={notice}
+                    onDuplicate={notice}
+                    onConfigureUsage={notice}
+                    onOpenWebsite={notice}
+                  />
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );

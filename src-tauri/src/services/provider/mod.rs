@@ -1679,6 +1679,8 @@ impl ProviderService {
         add_to_live: bool,
     ) -> Result<bool, AppError> {
         let _operation = OperationGuard::acquire()?;
+        let _mode_operation = crate::aggregation::read_operation().map_err(AppError::Message)?;
+        crate::aggregation::ensure_inactive(app_type.as_str()).map_err(AppError::Message)?;
         let result = if matches!(app_type, AppType::Codex) {
             let target = provider.clone();
             crate::services::tuzi_provider::codex_transaction::run(state, &target, || {
@@ -1774,6 +1776,8 @@ impl ProviderService {
         original_id: Option<&str>,
         provider: Provider,
     ) -> Result<bool, AppError> {
+        let _mode_operation = crate::aggregation::read_operation().map_err(AppError::Message)?;
+        crate::aggregation::ensure_inactive(app_type.as_str()).map_err(AppError::Message)?;
         let _operation = OperationGuard::acquire()?;
         let result = if matches!(app_type, AppType::Codex) {
             let target = provider.clone();
@@ -2027,6 +2031,8 @@ impl ProviderService {
     /// 同时检查本地 settings 和数据库的当前供应商，防止删除任一端正在使用的供应商。
     /// 删除只移除兔子switch 内部管理记录，不修改用户真实客户端配置文件。
     pub fn delete(state: &AppState, app_type: AppType, id: &str) -> Result<(), AppError> {
+        let _mode_operation = crate::aggregation::read_operation().map_err(AppError::Message)?;
+        crate::aggregation::ensure_inactive(app_type.as_str()).map_err(AppError::Message)?;
         let _operation = OperationGuard::acquire()?;
         // Check both local settings and database for apps with a current-provider concept.
         let local_current = crate::settings::get_current_provider(&app_type);
@@ -2278,6 +2284,8 @@ impl ProviderService {
     ///    d. Write target provider config to live files
     ///    e. Sync MCP configuration
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
+        let _mode_operation = crate::aggregation::read_operation().map_err(AppError::Message)?;
+        crate::aggregation::ensure_inactive(app_type.as_str()).map_err(AppError::Message)?;
         let _operation = OperationGuard::acquire()?;
         // Check if provider exists
         let providers = state.db.get_all_providers(app_type.as_str())?;

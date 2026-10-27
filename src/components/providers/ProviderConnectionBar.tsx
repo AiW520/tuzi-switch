@@ -12,12 +12,14 @@ import {
 } from "@/components/ui/dialog";
 
 export interface ProviderConnectionBarProps {
-  mode: "direct" | "route" | "unknown";
+  mode: "direct" | "route" | "aggregate" | "unknown";
   status: string;
   busy?: boolean;
   unavailable?: boolean;
   onChange: (mode: "direct" | "route") => void;
   onOpenSettings: () => void;
+  onOpenAggregation?: () => void;
+  aggregationSupported?: boolean;
 }
 
 /** Presentation only: the caller supplies verified native state and actions. */
@@ -28,6 +30,8 @@ export function ProviderConnectionBar({
   unavailable = false,
   onChange,
   onOpenSettings,
+  onOpenAggregation,
+  aggregationSupported = true,
 }: ProviderConnectionBarProps) {
   const { t } = useTranslation();
   const [aggregationOpen, setAggregationOpen] = useState(false);
@@ -63,18 +67,32 @@ export function ProviderConnectionBar({
             </button>
           );
         })}
-        <button
-          type="button"
-          className="provider-mode-button"
-          onClick={() => setAggregationOpen(true)}
-          aria-label={t("connectionMode.aggregationPlanned")}
-        >
-          <Layers className="h-4 w-4" aria-hidden="true" />
-          {t("connectionMode.aggregate")}
-          <span className="text-[9px] text-muted-foreground">
-            {t("connectionMode.planned")}
-          </span>
-        </button>
+        {aggregationSupported && (
+          <button
+            type="button"
+            className={cn(
+              "provider-mode-button",
+              mode === "aggregate" && "is-selected",
+            )}
+            onClick={() =>
+              onOpenAggregation ? onOpenAggregation() : setAggregationOpen(true)
+            }
+            aria-pressed={mode === "aggregate"}
+            aria-label={t(
+              onOpenAggregation
+                ? "aggregation.title"
+                : "connectionMode.aggregationPlanned",
+            )}
+          >
+            <Layers className="h-4 w-4" aria-hidden="true" />
+            {t("connectionMode.aggregate")}
+            {!onOpenAggregation && (
+              <span className="text-[9px] text-muted-foreground">
+                {t("connectionMode.planned")}
+              </span>
+            )}
+          </button>
+        )}
       </div>
       <Button
         variant="ghost"

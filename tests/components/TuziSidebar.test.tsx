@@ -25,13 +25,16 @@ describe("collapsed sidebar navigation", () => {
   it("keeps seven tool buttons and account accessible without visible labels", () => {
     render(<TuziSidebar {...props} />);
     for (const name of [
-      "Claude",
+      "Claude Code",
       "Claude Desktop",
       "Codex",
-      "Gemini",
+      "Gemini CLI",
       "OpenCode",
       "OpenClaw",
       "Hermes",
+      "Grok Build",
+      "Pi",
+      "MiniMax Code",
       "navigation.account",
       "common.settings",
     ])
@@ -52,7 +55,7 @@ describe("collapsed sidebar navigation", () => {
       />,
     );
     expect(
-      screen.queryByRole("button", { name: "Gemini" }),
+      screen.queryByRole("button", { name: "Gemini CLI" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "skills.title" }),

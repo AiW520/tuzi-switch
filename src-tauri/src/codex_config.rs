@@ -3538,6 +3538,11 @@ fn codex_model_catalog_from_settings(
     Ok(Some(codex_model_catalog_from_specs(&specs, &template)))
 }
 
+pub(crate) fn aggregation_model_catalog(models: &[Value]) -> Result<Value, AppError> {
+    codex_model_catalog_from_settings(&json!({"modelCatalog": {"models": models}}), "")?
+        .ok_or_else(|| AppError::Message("Aggregation model catalog is empty".into()))
+}
+
 fn set_codex_model_catalog_json_field(
     config_text: &str,
     catalog_path: Option<&Path>,

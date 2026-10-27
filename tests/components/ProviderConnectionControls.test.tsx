@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderConnectionControls } from "@/components/providers/ProviderConnectionControls";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const state = vi.hoisted(() => ({
   proxy: {
@@ -29,20 +30,30 @@ vi.mock("react-i18next", () => ({
 
 function mount(routeEnabled = true) {
   const onOpenSettings = vi.fn();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(["aggregation", "codex"], {
+    enabled: false,
+    needsRecovery: false,
+    plan: { defaultProviderId: "", models: [] },
+  });
   render(
-    <ProviderConnectionControls
-      appId="codex"
-      providers={{
-        demo: {
-          id: "demo",
-          name: "Synthetic current",
-          settingsConfig: {},
-        },
-      }}
-      currentProviderId="demo"
-      routeEnabled={routeEnabled}
-      onOpenSettings={onOpenSettings}
-    />,
+    <QueryClientProvider client={client}>
+      <ProviderConnectionControls
+        appId="codex"
+        providers={{
+          demo: {
+            id: "demo",
+            name: "Synthetic current",
+            settingsConfig: {},
+          },
+        }}
+        currentProviderId="demo"
+        routeEnabled={routeEnabled}
+        onOpenSettings={onOpenSettings}
+      />
+    </QueryClientProvider>,
   );
   return { onOpenSettings };
 }
@@ -145,13 +156,11 @@ describe("provider connection modes", () => {
       "connectionMode.routeReady",
     );
   });
-  it("opens the planned aggregation explanation without a native mutation", () => {
+  it("opens aggregation configuration without changing connection state", () => {
     mount();
-    fireEvent.click(
-      screen.getByRole("button", { name: "connectionMode.aggregationPlanned" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "aggregation.title" }));
     expect(screen.getByRole("dialog")).toHaveTextContent(
-      "connectionMode.aggregationDescription",
+      "aggregation.description",
     );
     expect(state.proxy.setTakeoverForApp).not.toHaveBeenCalled();
     expect(state.proxy.startProxyServer).not.toHaveBeenCalled();

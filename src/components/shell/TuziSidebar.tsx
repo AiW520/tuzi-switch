@@ -36,7 +36,10 @@ export type TuziView =
   | "openclawEnv"
   | "openclawTools"
   | "openclawAgents"
-  | "hermesMemory";
+  | "hermesMemory"
+  | "grokbuild"
+  | "pi"
+  | "mcode";
 
 interface TuziSidebarProps {
   activeApp: AppId;
@@ -61,10 +64,10 @@ const APP_ORDER: AppId[] = [
 ];
 
 const APP_NAMES: Record<AppId, string> = {
-  claude: "Claude",
+  claude: "Claude Code",
   "claude-desktop": "Claude Desktop",
   codex: "Codex",
-  gemini: "Gemini",
+  gemini: "Gemini CLI",
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",
@@ -86,9 +89,10 @@ export function TuziSidebar({
     () => APP_ORDER.filter((app) => visibleApps[app]),
     [visibleApps],
   );
+  const isNativePage = ["grokbuild", "pi", "mcode"].includes(currentView);
   const isAppPage = currentView === "providers";
-  const hasSkillsSupport = activeApp !== "claude-desktop";
-  const hasSessionSupport = activeApp !== "claude-desktop";
+  const hasSkillsSupport = !isNativePage && activeApp !== "claude-desktop";
+  const hasSessionSupport = !isNativePage && activeApp !== "claude-desktop";
   const itemClass = (selected: boolean) =>
     cn(
       "group flex h-9 w-full items-center rounded-lg text-[13px] transition-colors",
@@ -190,103 +194,140 @@ export function TuziSidebar({
               {!collapsed && <span className="truncate">{APP_NAMES[app]}</span>}
             </button>
           ))}
+          {(["grokbuild", "pi", "mcode"] as const).map((tool) => {
+            const name = {
+              grokbuild: "Grok Build",
+              pi: "Pi",
+              mcode: "MiniMax Code",
+            }[tool];
+            return (
+              <button
+                key={tool}
+                type="button"
+                aria-label={name}
+                title={name}
+                aria-current={currentView === tool ? "page" : undefined}
+                className={itemClass(currentView === tool)}
+                onClick={() => onNavigate(tool)}
+              >
+                <ProviderIcon
+                  icon={
+                    tool === "mcode"
+                      ? "minimax"
+                      : tool === "grokbuild"
+                        ? "grok"
+                        : undefined
+                  }
+                  name={name}
+                  size={18}
+                />
+                {!collapsed && <span>{name}</span>}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="mt-5 space-y-1">
-          {!collapsed && (
-            <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-              {t("navigation.workspace")}
-            </div>
-          )}
-          {activeApp !== "claude-desktop" && (
-            <button
-              type="button"
-              onClick={() => onNavigate("mcp")}
-              aria-label={t("mcp.title")}
-              aria-current={currentView === "mcp" ? "page" : undefined}
-              className={itemClass(currentView === "mcp")}
-              title={t("mcp.title")}
-            >
-              <Network className="h-[18px] w-[18px]" />
-              {!collapsed && <span>{t("mcp.title")}</span>}
-            </button>
-          )}
-          {hasSkillsSupport && (
-            <button
-              type="button"
-              onClick={() => onNavigate("skills")}
-              aria-label={t("skills.title")}
-              aria-current={
-                currentView === "skills" || currentView === "skillsDiscovery"
-                  ? "page"
-                  : undefined
-              }
-              className={itemClass(
-                currentView === "skills" || currentView === "skillsDiscovery",
-              )}
-              title={t("skills.title")}
-            >
-              <Wrench className="h-[18px] w-[18px]" />
-              {!collapsed && <span>{t("skills.title")}</span>}
-            </button>
-          )}
-          {activeApp !== "claude-desktop" && (
-            <button
-              type="button"
-              onClick={() => onNavigate("prompts")}
-              aria-label={t("prompts.title", { appName: APP_NAMES[activeApp] })}
-              aria-current={currentView === "prompts" ? "page" : undefined}
-              className={itemClass(currentView === "prompts")}
-              title={t("prompts.title", { appName: APP_NAMES[activeApp] })}
-            >
-              <MessageSquareText className="h-[18px] w-[18px]" />
-              {!collapsed && <span>{t("navigation.prompts")}</span>}
-            </button>
-          )}
-          {hasSessionSupport && (
-            <button
-              type="button"
-              onClick={() => onNavigate("sessions")}
-              aria-label={t("sessionManager.title")}
-              aria-current={currentView === "sessions" ? "page" : undefined}
-              className={itemClass(currentView === "sessions")}
-              title={t("sessionManager.title")}
-            >
-              <History className="h-[18px] w-[18px]" />
-              {!collapsed && <span>{t("sessionManager.title")}</span>}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onNavigate("agents")}
-            aria-label={t("agents.title")}
-            aria-current={currentView === "agents" ? "page" : undefined}
-            className={itemClass(currentView === "agents")}
-            title={t("agents.title")}
-          >
-            <Cpu className="h-[18px] w-[18px]" />
-            {!collapsed && <span>{t("agents.title")}</span>}
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate("universal")}
-            aria-label={t("universalProvider.title", {
-              defaultValue: "统一供应商",
-            })}
-            aria-current={currentView === "universal" ? "page" : undefined}
-            className={itemClass(currentView === "universal")}
-            title={t("universalProvider.title", { defaultValue: "统一供应商" })}
-          >
-            <LayoutDashboard className="h-[18px] w-[18px]" />
+        {!isNativePage && (
+          <div className="mt-5 space-y-1">
             {!collapsed && (
-              <span>
-                {t("universalProvider.title", { defaultValue: "统一供应商" })}
-              </span>
+              <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+                {t("navigation.workspace")}
+              </div>
             )}
-          </button>
-        </div>
+            {activeApp !== "claude-desktop" && (
+              <button
+                type="button"
+                onClick={() => onNavigate("mcp")}
+                aria-label={t("mcp.title")}
+                aria-current={currentView === "mcp" ? "page" : undefined}
+                className={itemClass(currentView === "mcp")}
+                title={t("mcp.title")}
+              >
+                <Network className="h-[18px] w-[18px]" />
+                {!collapsed && <span>{t("mcp.title")}</span>}
+              </button>
+            )}
+            {hasSkillsSupport && (
+              <button
+                type="button"
+                onClick={() => onNavigate("skills")}
+                aria-label={t("skills.title")}
+                aria-current={
+                  currentView === "skills" || currentView === "skillsDiscovery"
+                    ? "page"
+                    : undefined
+                }
+                className={itemClass(
+                  currentView === "skills" || currentView === "skillsDiscovery",
+                )}
+                title={t("skills.title")}
+              >
+                <Wrench className="h-[18px] w-[18px]" />
+                {!collapsed && <span>{t("skills.title")}</span>}
+              </button>
+            )}
+            {activeApp !== "claude-desktop" && (
+              <button
+                type="button"
+                onClick={() => onNavigate("prompts")}
+                aria-label={t("prompts.title", {
+                  appName: APP_NAMES[activeApp],
+                })}
+                aria-current={currentView === "prompts" ? "page" : undefined}
+                className={itemClass(currentView === "prompts")}
+                title={t("prompts.title", { appName: APP_NAMES[activeApp] })}
+              >
+                <MessageSquareText className="h-[18px] w-[18px]" />
+                {!collapsed && <span>{t("navigation.prompts")}</span>}
+              </button>
+            )}
+            {hasSessionSupport && (
+              <button
+                type="button"
+                onClick={() => onNavigate("sessions")}
+                aria-label={t("sessionManager.title")}
+                aria-current={currentView === "sessions" ? "page" : undefined}
+                className={itemClass(currentView === "sessions")}
+                title={t("sessionManager.title")}
+              >
+                <History className="h-[18px] w-[18px]" />
+                {!collapsed && <span>{t("sessionManager.title")}</span>}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigate("agents")}
+              aria-label={t("agents.title")}
+              aria-current={currentView === "agents" ? "page" : undefined}
+              className={itemClass(currentView === "agents")}
+              title={t("agents.title")}
+            >
+              <Cpu className="h-[18px] w-[18px]" />
+              {!collapsed && <span>{t("agents.title")}</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate("universal")}
+              aria-label={t("universalProvider.title", {
+                defaultValue: "统一供应商",
+              })}
+              aria-current={currentView === "universal" ? "page" : undefined}
+              className={itemClass(currentView === "universal")}
+              title={t("universalProvider.title", {
+                defaultValue: "统一供应商",
+              })}
+            >
+              <LayoutDashboard className="h-[18px] w-[18px]" />
+              {!collapsed && (
+                <span>
+                  {t("universalProvider.title", { defaultValue: "统一供应商" })}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
-        {activeApp === "openclaw" && (
+        {!isNativePage && activeApp === "openclaw" && (
           <div className="mt-5 space-y-1">
             {!collapsed && (
               <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
@@ -343,7 +384,7 @@ export function TuziSidebar({
             </button>
           </div>
         )}
-        {activeApp === "hermes" && (
+        {!isNativePage && activeApp === "hermes" && (
           <div className="mt-5 space-y-1">
             {!collapsed && (
               <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">

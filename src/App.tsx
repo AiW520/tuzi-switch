@@ -99,6 +99,7 @@ import EnvPanel from "@/components/openclaw/EnvPanel";
 import ToolsPanel from "@/components/openclaw/ToolsPanel";
 import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
+import { NativeToolPage } from "@/components/providers/NativeToolPage";
 import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
 
 type View =
@@ -116,7 +117,10 @@ type View =
   | "openclawEnv"
   | "openclawTools"
   | "openclawAgents"
-  | "hermesMemory";
+  | "hermesMemory"
+  | "grokbuild"
+  | "pi"
+  | "mcode";
 
 interface WebDavSyncStatusUpdatedPayload {
   source?: string;
@@ -163,6 +167,9 @@ const VALID_VIEWS: View[] = [
   "openclawTools",
   "openclawAgents",
   "hermesMemory",
+  "grokbuild",
+  "pi",
+  "mcode",
 ];
 
 const getInitialView = (): View => {
@@ -1089,6 +1096,10 @@ function App() {
               onConfigureKey={(key, model) => setConfigureKey({ key, model })}
             />
           );
+        case "grokbuild":
+        case "pi":
+        case "mcode":
+          return <NativeToolPage key={currentView} tool={currentView} />;
         case "settings":
           return (
             <SettingsPage
@@ -1415,6 +1426,9 @@ function App() {
                 </Button>
                 <h1 className="text-lg font-semibold">
                   {currentView === "settings" && t("settings.title")}
+                  {currentView === "grokbuild" && "Grok Build"}
+                  {currentView === "pi" && "Pi"}
+                  {currentView === "mcode" && "MiniMax Code"}
                   {currentView === "prompts" &&
                     t("prompts.title", { appName: t(`apps.${activeApp}`) })}
                   {currentView === "skills" && t("skills.title")}

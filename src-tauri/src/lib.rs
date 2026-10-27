@@ -1,4 +1,5 @@
 mod app_config;
+mod aggregation;
 mod app_store;
 mod auto_launch;
 mod capabilities;
@@ -21,6 +22,7 @@ mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
 mod mcp;
+mod native_tools;
 mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
@@ -1246,6 +1248,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            aggregation::aggregation_read,
+            aggregation::aggregation_apply,
+            native_tools::native_tool_read,
+            native_tools::native_tool_write,
+            native_tools::native_tool_restore,
             commands::get_providers,
             tuzi_account::account_get_state,
             tuzi_account::account_take_open_request,
