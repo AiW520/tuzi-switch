@@ -1,6 +1,16 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileText, Plus, RotateCcw, RefreshCw, Search } from "lucide-react";
+import {
+  Bot,
+  ChevronDown,
+  FileText,
+  Plus,
+  RotateCcw,
+  RefreshCw,
+  Search,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   agentsApi,
@@ -23,6 +33,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import "./agents.css";
 
 interface AgentsPanelProps {
   origin: WorkspaceTool;
@@ -37,19 +48,22 @@ export function AgentsPanel({
   const { t } = useTranslation();
   const tool = target === "claude" || target === "opencode" ? target : null;
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="agents-page flex flex-col flex-1 min-h-0">
       <WorkspaceScope
         feature="agents"
-        origin={origin}
+        origin={tool ?? origin}
         target={tool}
         onTargetChange={onTargetChange}
       />
       {tool ? (
         <AgentFiles key={tool} tool={tool} />
       ) : (
-        <p className="px-6 text-sm text-muted-foreground">
-          {t("navigation.chooseTarget")}
-        </p>
+        <div className="agents-empty">
+          <span className="agents-empty-icon">
+            <Bot className="h-7 w-7" />
+          </span>
+          <p>{t("navigation.chooseTarget")}</p>
+        </div>
       )}
     </div>
   );
@@ -122,61 +136,85 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
     file.id.toLowerCase().includes(search.trim().toLowerCase()),
   );
   return (
-    <div className="px-6 flex flex-col flex-1 min-h-0 gap-3">
-      <p className="text-xs text-muted-foreground">{t("agents.scope")}</p>
-      {query.data && (
-        <p className="text-xs text-muted-foreground break-all">
-          {query.data.path}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-2 items-center">
-        <div className="relative flex-1 min-w-[160px]">
-          <Search className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
-          <Input
-            aria-label={t("agents.search")}
-            placeholder={t("agents.search")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+    <div className="agents-files flex flex-col flex-1 min-h-0 gap-4">
+      <div className="agents-controls">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="text-sm font-medium">{t("agents.library")}</span>
+            {query.data && !query.error && (
+              <span className="agents-count">{query.data.files.length}</span>
+            )}
+          </div>
+          <span className="agents-scope-badge">{t("agents.userScope")}</span>
         </div>
-        <Button
-          variant="outline"
-          disabled={mutation.isPending}
-          onClick={() => {
-            setError(undefined);
-            void query.refetch();
-          }}
-        >
-          <RefreshCw className="h-4 w-4" />
-          {t("common.refresh")}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!ready || !query.data?.canRestore}
-          onClick={() => {
-            setError(undefined);
-            setConfirm({ kind: "restore", revision: query.data!.revision });
-          }}
-        >
-          <RotateCcw className="h-4 w-4" />
-          {t("agents.restore")}
-        </Button>
-        <Button
-          disabled={!ready}
-          onClick={() => {
-            setError(undefined);
-            setEditor({
-              id: "",
-              content: agentTemplate(tool),
-              revision: query.data!.revision,
-              existing: false,
-            });
-          }}
-        >
-          <Plus className="h-4 w-4" />
-          {t("agents.add")}
-        </Button>
+        <div className="agents-toolbar flex flex-wrap gap-2 items-center">
+          <div className="agents-search relative flex-1 min-w-[160px]">
+            <Search className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
+            <Input
+              aria-label={t("agents.search")}
+              placeholder={t("agents.search")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 rounded-full border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-full shrink-0 bg-muted/50"
+            aria-label={t("common.refresh")}
+            title={t("common.refresh")}
+            disabled={mutation.isPending}
+            onClick={() => {
+              setError(undefined);
+              void query.refetch();
+            }}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-full border-border/70 shadow-none"
+            disabled={!ready || !query.data?.canRestore}
+            onClick={() => {
+              setError(undefined);
+              setConfirm({ kind: "restore", revision: query.data!.revision });
+            }}
+          >
+            <RotateCcw className="h-4 w-4" />
+            {t("agents.restore")}
+          </Button>
+          <Button
+            className="rounded-full px-4 shadow-none"
+            disabled={!ready}
+            onClick={() => {
+              setError(undefined);
+              setEditor({
+                id: "",
+                content: agentTemplate(tool),
+                revision: query.data!.revision,
+                existing: false,
+              });
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            {t("agents.add")}
+          </Button>
+        </div>
+        <details className="agents-help">
+          <summary>
+            <span>{t("agents.help")}</span>
+            <ChevronDown className="h-3.5 w-3.5" />
+          </summary>
+          <div className="space-y-2 pt-2">
+            <p>{t("agents.scope")}</p>
+            {query.data && (
+              <p className="break-all font-mono text-[11px]">
+                {query.data.path}
+              </p>
+            )}
+          </div>
+        </details>
       </div>
       {error && !editor && (
         <p role="alert" className="text-sm text-destructive">
@@ -188,21 +226,26 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
       ) : query.isLoading ? (
         <p>{t("common.loading")}</p>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pb-6">
+        <div className="agents-list flex-1 min-h-0 overflow-y-auto space-y-2.5 pb-6">
           {files.length === 0 ? (
-            <p className="py-12 text-center text-muted-foreground">
-              {t(search ? "agents.noMatch" : "agents.empty")}
-            </p>
+            <div className="agents-empty">
+              <span className="agents-empty-icon">
+                <Bot className="h-7 w-7" />
+              </span>
+              <p>{t(search ? "agents.noMatch" : "agents.empty")}</p>
+            </div>
           ) : (
             files.map((file) => (
               <div
                 key={file.id}
-                className="rounded-xl border border-border bg-card p-4 flex flex-wrap items-center gap-3"
+                className="agents-file-row flex flex-wrap items-center gap-3"
               >
-                <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                <span className="agents-file-icon">
+                  <FileText className="h-5 w-5" />
+                </span>
                 <div className="min-w-0 flex-1">
                   <h3 className="text-sm font-medium break-all">{file.id}</h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {t(
                       file.validationError
                         ? "agents.invalidFile"
@@ -213,6 +256,7 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="rounded-full border-border/70 px-3.5"
                   disabled={!ready}
                   onClick={() => {
                     setError(undefined);
@@ -223,11 +267,15 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                     });
                   }}
                 >
+                  <Pencil className="h-3.5 w-3.5" />
                   {t("common.edit")}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="rounded-full hover:text-destructive"
+                  aria-label={t("common.delete")}
+                  title={t("common.delete")}
                   disabled={!ready}
                   onClick={() => {
                     setError(undefined);
@@ -238,7 +286,7 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                     });
                   }}
                 >
-                  {t("common.delete")}
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))
@@ -255,7 +303,7 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
         }}
       >
         <DialogContent
-          className="max-w-3xl max-h-[85vh] flex flex-col"
+          className="agents-editor max-w-3xl max-h-[85vh] flex flex-col rounded-3xl sm:rounded-3xl overflow-y-auto"
           onPointerDownOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => {
             if (mutation.isPending) event.preventDefault();
@@ -269,7 +317,7 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
           </DialogHeader>
           {editor && (
             <>
-              <label className="space-y-1 text-sm">
+              <label className="space-y-2 text-sm px-6 pt-5">
                 {t("agents.filename")}
                 <Input
                   aria-label={t("agents.filename")}
@@ -277,13 +325,14 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                   disabled={editor.existing || mutation.isPending}
                   onChange={(e) => setEditor({ ...editor, id: e.target.value })}
                   placeholder="code-reviewer.md"
+                  className="rounded-xl shadow-none"
                 />
               </label>
-              <label className="flex flex-col gap-1 min-h-0 flex-1 text-sm">
+              <label className="flex flex-col gap-2 min-h-0 flex-1 text-sm px-6 pt-4">
                 {t("agents.content")}
                 <Textarea
                   aria-label={t("agents.content")}
-                  className="font-mono text-xs min-h-[240px] flex-1 resize-y"
+                  className="font-mono text-xs leading-relaxed min-h-[180px] flex-1 resize-none rounded-2xl bg-muted/20 shadow-none p-4"
                   value={editor.content}
                   disabled={mutation.isPending}
                   onChange={(e) =>
@@ -292,13 +341,14 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                 />
               </label>
               {error && (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="px-6 pt-3 text-sm text-destructive">
                   {error}
                 </p>
               )}
-              <div className="flex justify-end gap-2 shrink-0">
+              <div className="flex justify-end gap-2 shrink-0 px-6 py-5">
                 <Button
                   variant="outline"
+                  className="rounded-full px-5"
                   disabled={mutation.isPending}
                   onClick={() => {
                     setEditor(null);
@@ -307,7 +357,11 @@ function AgentFiles({ tool }: { tool: AgentTool }) {
                 >
                   {t("common.cancel")}
                 </Button>
-                <Button disabled={mutation.isPending} onClick={save}>
+                <Button
+                  className="rounded-full px-5"
+                  disabled={mutation.isPending}
+                  onClick={save}
+                >
                   {t(mutation.isPending ? "common.saving" : "common.save")}
                 </Button>
               </div>

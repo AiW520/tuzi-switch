@@ -2274,7 +2274,10 @@
     "failed": "The operation failed. Check YAML, required fields, duplicate names or external file changes. Your draft is retained. Close and refresh to verify before retrying.",
     "deleteTitle": "Delete Agent file",
     "deleteHint": "Delete {{id}} from this tool? Restore last change can undo this before the next edit.",
-    "restoreHint": "Restore the file before the last create, edit or delete for this tool. External changes will prevent overwriting."
+    "restoreHint": "Restore the file before the last create, edit or delete for this tool. External changes will prevent overwriting.",
+    "library": "My Agents",
+    "userScope": "User scope",
+    "help": "Scope and directory"
   },
   "modelTest": {
     "testProvider": "Test model"
