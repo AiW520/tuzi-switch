@@ -158,6 +158,7 @@ vi.mock("@/components/shell/TuziSidebar", () => ({
         "sessions",
         "auth",
         "usage",
+        "agents",
         "grokbuild",
         "pi",
         "mcode",
@@ -315,6 +316,40 @@ describe("App integration with MSW", () => {
     expect(
       await screen.findByRole("combobox", { name: "navigation.targetTool" }),
     ).toHaveValue("");
+  });
+
+  it("routes the Agents entry through the real native file API after explicit target selection", async () => {
+    const reads: string[] = [];
+    server.use(
+      http.post("http://tauri.local/agents_read", async ({ request }) => {
+        const { tool } = (await request.json()) as { tool: string };
+        reads.push(tool);
+        return HttpResponse.json({
+          revision: "synthetic",
+          path: "/synthetic/agents",
+          files: [],
+          canRestore: false,
+        });
+      }),
+    );
+    localStorage.setItem("tuzi-switch-last-view", "agents");
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    const notice = await screen.findByRole("button", {
+      name: "firstRunNotice.confirm",
+    });
+    fireEvent.click(notice);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(reads).toEqual([]);
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "navigation.targetTool" }),
+      { target: { value: "opencode" } },
+    );
+    expect(await screen.findByText("agents.empty")).toBeInTheDocument();
+    expect(reads).toEqual(["opencode"]);
+    expect(screen.getByRole("button", { name: "agents.add" })).toBeEnabled();
   });
 
   it("exposes real global page containers and all-tool sessions", async () => {

@@ -90,7 +90,9 @@ describe("collapsed sidebar navigation", () => {
         fireEvent.click(screen.getByRole("button", { name: label }));
         expect(navigate).toHaveBeenLastCalledWith(view);
       }
-      expect(screen.getByText("navigation.comingSoon")).toBeInTheDocument();
+      expect(
+        screen.queryByText("navigation.comingSoon"),
+      ).not.toBeInTheDocument();
       rerender(
         <TuziSidebar
           {...props}

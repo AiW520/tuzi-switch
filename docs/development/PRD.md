@@ -4,6 +4,8 @@
 
 ## 目标与产品范围
 
+2026-10-27 UI-07：Agents 入口接入 Claude Code 与 OpenCode 的用户级 Markdown Agent 文件管理。支持读取、搜索、新增、编辑、删除确认和单步恢复；严格按工具原生目录和格式保存，不执行 Agent、不跨工具转换。Claude Desktop、Codex、Gemini CLI、OpenClaw、Hermes 及 Grok Build/Pi/MiniMax Code 的 Agent 管理入口显示明确未支持状态或要求选择已支持工具。详见 [UI-07记录](ui07-agents-management.md)。
+
 2026-10-27 UI-06：按用户确认固定全局工作区导航：MCP、Skills、提示词、会话、授权、本机统计、Agents、统一供应商。授权及本机统计复用现有真实页面；未支持工具显示支持范围并显式选择写入目标，不回落 Claude，恢复全局编辑页也须重新选择目标。Agents 明示待实现；新工具扩展能力未因此增加。见 [UI-06记录](ui06-global-workspace.md)。
 
 2026-10-27 UI-05：用户授权进入新增工具与聚合阶段。新增Grok Build、Pi、MiniMax Code原生供应商配置入口；Claude Code/Codex增加第三方API按模型聚合、默认供应商、模型名单及退出恢复。原七工具和账户边界保留；真实工具验收与官方OAuth聚合、新工具扩展页等未完范围见 [UI-05记录](ui05-native-tools-aggregation.md)。

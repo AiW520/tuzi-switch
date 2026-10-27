@@ -1,4 +1,5 @@
 mod app_config;
+mod agents;
 mod aggregation;
 mod app_store;
 mod auto_launch;
@@ -1251,6 +1252,9 @@ pub fn run() {
             aggregation::aggregation_read,
             aggregation::aggregation_apply,
             native_tools::native_tool_read,
+            agents::agents_read,
+            agents::agents_write,
+            agents::agents_restore,
             native_tools::native_tool_write,
             native_tools::native_tool_restore,
             commands::get_providers,

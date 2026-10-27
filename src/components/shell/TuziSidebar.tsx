@@ -269,16 +269,13 @@ export function TuziSidebar({
             const selected =
               currentView === view ||
               (view === "skills" && currentView === "skillsDiscovery");
-            const planned = view === "agents";
             return (
               <button
                 key={view}
                 type="button"
                 onClick={() => onNavigate(view as TuziView)}
                 className={itemClass(selected)}
-                title={
-                  planned ? `${label} · ${t("navigation.comingSoon")}` : label
-                }
+                title={label}
                 aria-label={label}
                 aria-current={selected ? "page" : undefined}
               >
@@ -286,11 +283,6 @@ export function TuziSidebar({
                 {!collapsed && (
                   <>
                     <span className="truncate">{label}</span>
-                    {planned && (
-                      <span className="ml-auto text-[10px] text-muted-foreground">
-                        {t("navigation.comingSoon")}
-                      </span>
-                    )}
                   </>
                 )}
               </button>

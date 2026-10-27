@@ -16,6 +16,12 @@ import { SkillsPage } from "@/components/skills/SkillsPage";
 import Prompts from "@/components/prompts/PromptPanel";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
+import {
+  agentTemplate,
+  type AgentTool,
+  type AgentSnapshot,
+  type AgentChange,
+} from "@/lib/api/agents";
 import { UniversalProviderPanel } from "@/components/universal/UniversalProviderPanel";
 import { WorkspaceScope } from "@/components/shell/WorkspaceScope";
 import {
@@ -83,10 +89,64 @@ const nativeSnapshots = Object.fromEntries(
   ]),
 ) as Record<NativeTool, NativeToolSnapshot>;
 const nativeBackups: Partial<Record<NativeTool, NativeToolSnapshot>> = {};
+const agentSnapshots = Object.fromEntries(
+  (["claude", "opencode"] as AgentTool[]).map((tool) => [
+    tool,
+    {
+      revision: "synthetic-agent-1",
+      path: `/synthetic/${tool}/agents`,
+      canRestore: false,
+      files: [
+        {
+          id: "synthetic-review.md",
+          content: agentTemplate(tool),
+          validationError: null,
+        },
+      ],
+    },
+  ]),
+) as Record<AgentTool, AgentSnapshot>;
+const agentBackups: Partial<Record<AgentTool, AgentSnapshot>> = {};
 mockWindows("main");
 mockIPC(
   async (command, args) => {
     if (command === "set_window_theme") return;
+    if (command.startsWith("agents_")) {
+      const payload = args as {
+        tool: AgentTool;
+        revision?: string;
+        change?: AgentChange;
+      };
+      const current = agentSnapshots[payload.tool];
+      if (!current) throw new Error("Unsupported synthetic Agent tool");
+      if (command === "agents_read") return current;
+      const expected = payload.change?.revision ?? payload.revision;
+      if (expected !== current.revision)
+        throw new Error("Synthetic Agent conflict");
+      if (command === "agents_restore") {
+        const backup = agentBackups[payload.tool];
+        if (!backup) throw new Error("No synthetic Agent recovery record");
+        agentSnapshots[payload.tool] = { ...backup, canRestore: false };
+        delete agentBackups[payload.tool];
+        return agentSnapshots[payload.tool];
+      }
+      if (command !== "agents_write" || !payload.change)
+        throw new Error("Unknown synthetic Agent IPC");
+      agentBackups[payload.tool] = structuredClone(current);
+      const change = payload.change;
+      const next = structuredClone(current);
+      next.files = next.files.filter((file) => file.id !== change.id);
+      if (change.content !== null)
+        next.files.push({
+          id: change.id,
+          content: change.content,
+          validationError: null,
+        });
+      next.revision = `synthetic-agent-${Date.now()}`;
+      next.canRestore = true;
+      agentSnapshots[payload.tool] = next;
+      return next;
+    }
     if (command === "get_settings") return { commonConfigConfirmed: true };
     if (
       ["get_mcp_servers", "get_prompts", "get_universal_providers"].includes(
@@ -298,7 +358,13 @@ function Canvas() {
       case "usage":
         return <WorkspaceUsagePage />;
       case "agents":
-        return <AgentsPanel onOpenChange={() => {}} />;
+        return (
+          <AgentsPanel
+            origin={origin}
+            target={target}
+            onTargetChange={setTarget}
+          />
+        );
       case "universal":
         return <UniversalProviderPanel />;
       default:
@@ -430,7 +496,7 @@ function Preview() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 p-3 text-sm">
-        <strong>UI-06 全局工作区 · 合成数据</strong>
+        <strong>UI-07 Agents 管理 · 合成数据</strong>
         <select
           aria-label="宽度"
           value={width}

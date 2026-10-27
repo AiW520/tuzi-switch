@@ -2251,7 +2251,25 @@
     "skillsFailedDescription": "Skills 画面で「既存をインポート」をクリックして手動でインポートしてください（または再起動して再試行）。"
   },
   "agents": {
-    "title": "エージェント"
+    "title": "エージェント",
+    "scope": "選択したツールのユーザーレベル Markdown Agent ファイルを管理します。プロジェクト、プラグイン、組み込み Agent は対象外です。保存後はツールが読み込み、この画面は Agent を実行しません。",
+    "search": "ファイル名を検索",
+    "restore": "前回の変更を復元",
+    "add": "Agent を追加",
+    "edit": "Agent を編集",
+    "filename": "ファイル名（.md）",
+    "content": "Agent ファイル内容",
+    "editorHint": "YAML ヘッダーと Markdown 指示を編集します。Claude は name と description、OpenCode は description が必須です。未知のフィールドを保持し、ツール間の変換はしません。",
+    "empty": "ユーザーレベル Agent はありません。追加して設定してください。",
+    "noMatch": "一致する Agent ファイルはありません。",
+    "nativeFile": "ツール標準 Markdown ファイル",
+    "invalidFile": "形式を確認してください。編集して修正できます",
+    "filenameInvalid": "未使用の相対 .md ファイル名を入力してください。",
+    "contentRequired": "Agent ファイル内容を入力してください。",
+    "failed": "操作に失敗しました。YAML、必須項目、名前の重複、外部変更を確認してください。下書きは保持されています。閉じて再読み込みしてから再試行してください。",
+    "deleteTitle": "Agent ファイルを削除",
+    "deleteHint": "{{id}} をこのツールから削除しますか？次の変更前に「前回の変更を復元」で戻せます。",
+    "restoreHint": "このツールの直前の追加・編集・削除前の内容を復元します。外部変更がある場合は上書きしません。"
   },
   "modelTest": {
     "testProvider": "モデルテスト"

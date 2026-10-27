@@ -1,3 +1,9 @@
+# UI-07 Agents 管理（2026-10-27）
+
+按用户确认，在 `gaizhao` / `5bc4ff7f` 基础上接入 Claude Code 与 OpenCode 用户级 Markdown Agent 文件管理：读取、搜索、新增、编辑、删除确认、刷新和单步恢复。原生侧按工具目录/格式保存，revision 冲突拒绝覆盖，Unix 0700/0600、原子写、锁、符号链接/路径/大小/UTF-8 校验；不执行 Agent、不跨工具转换、不回落到 Claude。全局目标选择仅允许 Claude Code/OpenCode，其他工具不产生 Agents IPC。
+
+前端全量 `72 files / 499 tests`、类型检查、renderer 构建、格式/diff 检查通过；原生全量 `1437 passed / 1 ignored`，Agents 专项10项通过；独立 macOS debug 预览构建成功。浏览器已检查 OpenCode Agent 列表和原生 Markdown 编辑器，隔离桌面版已重启；未写入真实工具文件。真实工具文件、三平台和用户验收仍待完成。详见 [UI-07记录](ui07-agents-management.md)。
+
 # UI-06 固定全局工作区导航（2026-10-27）
 
 按用户确认，在 `gaizhao` / `270e1eec` 基础上固定 MCP、Skills、提示词、会话、授权、本机统计、Agents、统一供应商八入口。授权和本机统计复用现有真实页面；Skills/提示词显式目标选择，未支持工具不回落 Claude；重启恢复全局编辑页须重新选择目标。Agents 明示待实现，原七工具及账户边界保留。

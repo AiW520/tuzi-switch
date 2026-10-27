@@ -27,10 +27,11 @@ export const WORKSPACE_TOOL_NAMES: Record<WorkspaceTool, string> = {
   mcode: "MiniMax Code",
 };
 export const WORKSPACE_SUPPORT: Record<
-  "mcp" | "skills" | "prompts" | "sessions",
+  "mcp" | "skills" | "prompts" | "sessions" | "agents",
   AppId[]
 > = {
   mcp: MCP_APP_IDS,
+  agents: ["claude", "opencode"],
   skills: SKILLS_APP_IDS,
   prompts: ["claude", "codex", "gemini", "opencode", "openclaw", "hermes"],
   sessions: ["claude", "codex", "gemini", "opencode", "openclaw", "hermes"],

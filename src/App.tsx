@@ -1228,7 +1228,11 @@ function App() {
           );
         case "agents":
           return (
-            <AgentsPanel onOpenChange={() => setCurrentView("providers")} />
+            <AgentsPanel
+              origin={workspaceOrigin}
+              target={workspaceTarget}
+              onTargetChange={setWorkspaceTarget}
+            />
           );
         case "universal":
           return (
