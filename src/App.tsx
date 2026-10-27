@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -66,6 +66,7 @@ import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
 import { AccountPage } from "@/components/account/AccountPage";
 import { useAccount } from "@/lib/query/account";
 import { TuziSidebar } from "@/components/shell/TuziSidebar";
+import "@/components/shell/workspace-pages.css";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
@@ -173,6 +174,7 @@ const getInitialView = (): View => {
 
 function App() {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const queryClient = useQueryClient();
   const account = useAccount();
   const [configureKey, setConfigureKey] = useState<{
@@ -1249,11 +1251,12 @@ function App() {
       <AnimatePresence mode="wait">
         <motion.div
           key={currentView}
-          className="flex-1 min-h-0"
-          initial={{ opacity: 0 }}
+          className="workspace-view flex flex-col flex-1 min-h-0 min-w-0"
+          data-view={currentView}
+          initial={{ opacity: reduceMotion ? 1 : 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          exit={{ opacity: reduceMotion ? 1 : 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
         >
           {content}
         </motion.div>
@@ -1263,7 +1266,7 @@ function App() {
 
   return (
     <div
-      className="flex flex-col h-screen overflow-hidden bg-background text-foreground selection:bg-primary/30 pb-4"
+      className="tuzi-shell flex flex-col h-screen overflow-hidden bg-background text-foreground selection:bg-primary/30"
       style={{ overflowX: "hidden", paddingTop: contentTopOffset }}
     >
       <TuziSidebar
@@ -1359,7 +1362,7 @@ function App() {
       )}
 
       <header
-        className="fixed z-30 transition-all duration-300 border-b border-border bg-background/90 backdrop-blur-md"
+        className="workspace-header fixed z-30 transition-all duration-300 border-b border-border bg-background/90 backdrop-blur-md"
         {...DRAG_REGION_ATTR}
         style={
           {
@@ -1377,7 +1380,7 @@ function App() {
           style={{ ...DRAG_REGION_STYLE } as any}
         >
           <div
-            className="flex items-center gap-1"
+            className="workspace-header-title flex min-w-0 items-center gap-1"
             style={{ WebkitAppRegion: "no-drag" } as any}
           >
             {currentView !== "providers" && currentView !== "account" ? (
@@ -1491,7 +1494,7 @@ function App() {
                     )}
                 </div>
               )}
-            <div className="flex flex-1 min-w-0 overflow-x-hidden items-center py-4 pr-2">
+            <div className="workspace-header-actions flex min-w-0 overflow-x-auto items-center py-1 pr-2">
               <div
                 className="flex shrink-0 items-center gap-1.5 ml-auto"
                 style={{ WebkitAppRegion: "no-drag" } as any}

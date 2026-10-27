@@ -19,7 +19,7 @@ export const AppToggleGroup: React.FC<AppToggleGroupProps> = ({
   appIds = APP_IDS,
 }) => {
   return (
-    <div className="flex items-center gap-1.5 flex-shrink-0">
+    <div className="workspace-app-toggles flex items-center gap-1.5 flex-shrink-0">
       {appIds.map((app) => {
         const { label, icon, activeClass } = APP_ICON_MAP[app];
         const enabled = apps[app];
@@ -28,6 +28,8 @@ export const AppToggleGroup: React.FC<AppToggleGroupProps> = ({
             <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={label}
+                aria-pressed={!!enabled}
                 onClick={() => onToggle(app, !enabled)}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
                   enabled ? activeClass : "opacity-35 hover:opacity-70"

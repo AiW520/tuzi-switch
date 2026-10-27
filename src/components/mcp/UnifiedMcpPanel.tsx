@@ -21,6 +21,7 @@ import { MCP_APP_IDS } from "@/config/appConfig";
 import { AppCountBar } from "@/components/common/AppCountBar";
 import { AppToggleGroup } from "@/components/common/AppToggleGroup";
 import { ListItemRow } from "@/components/common/ListItemRow";
+import { WorkspaceQueryError } from "@/components/common/WorkspaceQueryError";
 
 interface UnifiedMcpPanelProps {
   onOpenChange: (open: boolean) => void;
@@ -45,7 +46,7 @@ const UnifiedMcpPanel = React.forwardRef<
     onConfirm: () => void;
   } | null>(null);
 
-  const { data: serversMap, isLoading } = useAllMcpServers();
+  const { data: serversMap, isLoading, error, refetch } = useAllMcpServers();
   const toggleAppMutation = useToggleMcpApp();
   const deleteServerMutation = useDeleteMcpServer();
   const importMutation = useImportMcpFromApps();
@@ -148,7 +149,9 @@ const UnifiedMcpPanel = React.forwardRef<
       />
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden pb-24">
-        {isLoading ? (
+        {error ? (
+          <WorkspaceQueryError onRetry={() => void refetch()} />
+        ) : isLoading ? (
           <div className="text-center py-12 text-muted-foreground">
             {t("mcp.loading")}
           </div>

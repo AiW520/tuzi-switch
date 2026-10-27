@@ -7,7 +7,8 @@
     "tools": "工具",
     "workspace": "工作区",
     "prompts": "提示词",
-    "account": "兔子账户"
+    "account": "兔子账户",
+    "loadFailed": "读取失败，请刷新重试。"
   },
   "common": {
     "add": "添加",

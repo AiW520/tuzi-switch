@@ -10,6 +10,12 @@
 
 验证：账户、供应商表单、设置相关定向测试通过；全量 Vitest `66 files / 457 tests`、类型检查、renderer 构建和差异检查通过。构建保留既有 chunk 体积、Browserslist 和动态导入提示；MSW 仍会提示未注册的 `account_cancel_token_prefill` 合成请求。尚未执行 Tauri 三平台打包或完整人工 UI 验收。
 
+# UI-03 工具工作区视觉适配与回归（2026-10-27）
+
+第三批在 `gaizhao` 分支基于 `472128d5` 完成本地实现：统一 MCP、Skills/发现、提示词、会话、OpenClaw/Hermes 与工作区容器；按可用宽度调整会话分栏、Skills 网格和工具开关布局，补齐折叠导航无障碍名称及查询失败重试。七工具、原有业务回调、保存恢复与账户隐藏页面规则保留，API 和原生层未修改。
+
+全量 Vitest `68 files / 463 tests`、类型检查、renderer 构建、格式和差异检查通过。900px 浅色 MCP 页仅完成部分截图检查并修正统计条拉伸；浏览器工具随后不可用，修正后的视觉复验、完整明暗/宽度矩阵、原生和用户验收仍待完成。预览、命令及分层限制见 [UI-03 验证](ui03-workspace-verification.md)。仅本地提交，未 push/PR/发布。
+
 # R01 v1.4.1 正式安装包已发布（2026-10-21）
 
 用户本轮授权的合并核查、版本更新、构建及 GitHub Release 发布完成。客户端 PR #48 已合入 main（`25b76e9be74c63ccc131be91ae3faa48811faf65`），API PR #277 已合入 dev（`70e5f2b2f624c7b721064cedc9994238973a8875`）。本次客户端发行代码/标签 `v1.4.1` 指向 `9b4e702b2ae973571221c9aa877f8fec0498c045`，契约仍为 `system-token-v1`；API 工作区未修改、未执行服务端部署或迁移。

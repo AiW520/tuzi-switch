@@ -7,7 +7,8 @@
     "tools": "ツール",
     "workspace": "ワークスペース",
     "prompts": "プロンプト",
-    "account": "兔子アカウント"
+    "account": "兔子アカウント",
+    "loadFailed": "読み込みに失敗しました。更新して再試行してください。"
   },
   "common": {
     "add": "追加",

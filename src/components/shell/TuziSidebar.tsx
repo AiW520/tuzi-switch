@@ -153,6 +153,8 @@ export function TuziSidebar({
             onClick={() => onNavigate("account")}
             className={itemClass(currentView === "account")}
             title={t("navigation.account")}
+            aria-label={t("navigation.account")}
+            aria-current={currentView === "account" ? "page" : undefined}
           >
             <TuziAccountIcon size={18} aria-hidden="true" />
             {!collapsed && (
@@ -171,6 +173,8 @@ export function TuziSidebar({
               onClick={() => navigateApp(app)}
               className={itemClass(isAppPage && activeApp === app)}
               title={APP_NAMES[app]}
+              aria-label={APP_NAMES[app]}
+              aria-current={isAppPage && activeApp === app ? "page" : undefined}
             >
               <ProviderIcon
                 icon={
@@ -198,6 +202,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("mcp")}
+              aria-label={t("mcp.title")}
+              aria-current={currentView === "mcp" ? "page" : undefined}
               className={itemClass(currentView === "mcp")}
               title={t("mcp.title")}
             >
@@ -209,7 +215,15 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("skills")}
-              className={itemClass(currentView === "skills")}
+              aria-label={t("skills.title")}
+              aria-current={
+                currentView === "skills" || currentView === "skillsDiscovery"
+                  ? "page"
+                  : undefined
+              }
+              className={itemClass(
+                currentView === "skills" || currentView === "skillsDiscovery",
+              )}
               title={t("skills.title")}
             >
               <Wrench className="h-[18px] w-[18px]" />
@@ -220,6 +234,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("prompts")}
+              aria-label={t("prompts.title", { appName: APP_NAMES[activeApp] })}
+              aria-current={currentView === "prompts" ? "page" : undefined}
               className={itemClass(currentView === "prompts")}
               title={t("prompts.title", { appName: APP_NAMES[activeApp] })}
             >
@@ -231,6 +247,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("sessions")}
+              aria-label={t("sessionManager.title")}
+              aria-current={currentView === "sessions" ? "page" : undefined}
               className={itemClass(currentView === "sessions")}
               title={t("sessionManager.title")}
             >
@@ -241,6 +259,8 @@ export function TuziSidebar({
           <button
             type="button"
             onClick={() => onNavigate("agents")}
+            aria-label={t("agents.title")}
+            aria-current={currentView === "agents" ? "page" : undefined}
             className={itemClass(currentView === "agents")}
             title={t("agents.title")}
           >
@@ -250,6 +270,10 @@ export function TuziSidebar({
           <button
             type="button"
             onClick={() => onNavigate("universal")}
+            aria-label={t("universalProvider.title", {
+              defaultValue: "统一供应商",
+            })}
+            aria-current={currentView === "universal" ? "page" : undefined}
             className={itemClass(currentView === "universal")}
             title={t("universalProvider.title", { defaultValue: "统一供应商" })}
           >
@@ -272,6 +296,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("workspace")}
+              aria-label={t("workspace.title")}
+              aria-current={currentView === "workspace" ? "page" : undefined}
               className={itemClass(currentView === "workspace")}
               title={t("workspace.title")}
             >
@@ -281,6 +307,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("openclawEnv")}
+              aria-label={t("openclaw.env.title")}
+              aria-current={currentView === "openclawEnv" ? "page" : undefined}
               className={itemClass(currentView === "openclawEnv")}
               title={t("openclaw.env.title")}
             >
@@ -290,6 +318,10 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("openclawTools")}
+              aria-label={t("openclaw.tools.title")}
+              aria-current={
+                currentView === "openclawTools" ? "page" : undefined
+              }
               className={itemClass(currentView === "openclawTools")}
               title={t("openclaw.tools.title")}
             >
@@ -299,6 +331,10 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("openclawAgents")}
+              aria-label={t("openclaw.agents.title")}
+              aria-current={
+                currentView === "openclawAgents" ? "page" : undefined
+              }
               className={itemClass(currentView === "openclawAgents")}
               title={t("openclaw.agents.title")}
             >
@@ -317,6 +353,8 @@ export function TuziSidebar({
             <button
               type="button"
               onClick={() => onNavigate("hermesMemory")}
+              aria-label={t("hermes.memory.title")}
+              aria-current={currentView === "hermesMemory" ? "page" : undefined}
               className={itemClass(currentView === "hermesMemory")}
               title={t("hermes.memory.title")}
             >
@@ -333,6 +371,8 @@ export function TuziSidebar({
           onClick={onOpenSettings}
           className={itemClass(currentView === "settings")}
           title={t("common.settings")}
+          aria-label={t("common.settings")}
+          aria-current={currentView === "settings" ? "page" : undefined}
         >
           <SlidersHorizontal className="h-[18px] w-[18px]" />
           {!collapsed && <span>{t("common.settings")}</span>}

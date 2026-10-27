@@ -7,7 +7,8 @@
     "tools": "Tools",
     "workspace": "Workspace",
     "prompts": "Prompts",
-    "account": "Tuzi Account"
+    "account": "Tuzi Account",
+    "loadFailed": "Unable to load. Refresh to try again."
   },
   "common": {
     "add": "Add",

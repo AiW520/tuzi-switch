@@ -1,0 +1,64 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { TuziSidebar } from "@/components/shell/TuziSidebar";
+const props = {
+  activeApp: "claude" as const,
+  currentView: "skillsDiscovery",
+  visibleApps: {
+    claude: true,
+    "claude-desktop": true,
+    codex: true,
+    gemini: true,
+    opencode: true,
+    openclaw: true,
+    hermes: true,
+  },
+  topOffset: 28,
+  collapsed: true,
+  onToggleCollapsed: vi.fn(),
+  onSwitchApp: vi.fn(),
+  onNavigate: vi.fn(),
+  onOpenSettings: vi.fn(),
+};
+vi.mock("@/components/ProviderIcon", () => ({ ProviderIcon: () => null }));
+describe("collapsed sidebar navigation", () => {
+  it("keeps seven tool buttons and account accessible without visible labels", () => {
+    render(<TuziSidebar {...props} />);
+    for (const name of [
+      "Claude",
+      "Claude Desktop",
+      "Codex",
+      "Gemini",
+      "OpenCode",
+      "OpenClaw",
+      "Hermes",
+      "navigation.account",
+      "common.settings",
+    ])
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.title" }),
+    ).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(props.onSwitchApp).toHaveBeenCalledWith("codex");
+    expect(props.onNavigate).toHaveBeenCalledWith("providers");
+  });
+  it("honors tool visibility and excludes unsupported Claude Desktop workspace actions", () => {
+    render(
+      <TuziSidebar
+        {...props}
+        activeApp="claude-desktop"
+        visibleApps={{ ...props.visibleApps, gemini: false }}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Gemini" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skills.title" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "sessionManager.title" }),
+    ).not.toBeInTheDocument();
+  });
+});
