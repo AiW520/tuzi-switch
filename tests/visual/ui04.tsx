@@ -1,3 +1,4 @@
+import { nativePreviewIPC } from "./native-tool-fixture";
 // Synthetic provider workspace. No real IPC, filesystem or external requests.
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -36,12 +37,7 @@ import {
   type WorkspaceTool,
 } from "@/config/workspace";
 import type { AppId } from "@/lib/api";
-import {
-  nativeToolNames,
-  type NativeTool,
-  type NativeToolSnapshot,
-  type NativeToolChange,
-} from "@/lib/api/nativeTools";
+import { nativeToolNames, type NativeTool } from "@/lib/api/nativeTools";
 import type { AggregationState, AggregationPlan } from "@/lib/api/aggregation";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -78,19 +74,6 @@ let aggregation: AggregationState = {
   needsRecovery: false,
   plan: { defaultProviderId: currentId, models: [] },
 };
-const nativeSnapshots = Object.fromEntries(
-  (["grokbuild", "pi", "mcode"] as NativeTool[]).map((tool) => [
-    tool,
-    {
-      revision: "synthetic-1",
-      providers: {},
-      current: null,
-      path: `/synthetic/${tool}/config`,
-      canRestore: false,
-    },
-  ]),
-) as Record<NativeTool, NativeToolSnapshot>;
-const nativeBackups: Partial<Record<NativeTool, NativeToolSnapshot>> = {};
 const agentSnapshots = Object.fromEntries(
   (["claude", "opencode"] as AgentTool[]).map((tool) => [
     tool,
@@ -118,6 +101,7 @@ mockIPC(
         "account_request",
         "account_cancel_request",
         "tuzi_provider_sources",
+        "tuzi_native_tool_sources",
         "tuzi_provider_backups",
       ].includes(command)
     )
@@ -218,35 +202,11 @@ mockIPC(
       running = true;
       return;
     }
-    if (command.startsWith("native_tool_")) {
-      const payload = args as {
-        tool: NativeTool;
-        revision?: string;
-        change?: NativeToolChange;
-      };
-      const snapshot = nativeSnapshots[payload.tool];
-      if (!snapshot) throw new Error("Unknown synthetic tool");
-      if (command === "native_tool_read") return snapshot;
-      if (command === "native_tool_restore") {
-        const backup = nativeBackups[payload.tool];
-        if (!backup || payload.revision !== snapshot.revision)
-          throw new Error("Synthetic conflict");
-        nativeSnapshots[payload.tool] = { ...backup, canRestore: false };
-        return nativeSnapshots[payload.tool];
-      }
-      const change = payload.change!;
-      if (change.revision !== snapshot.revision)
-        throw new Error("Synthetic conflict");
-      nativeBackups[payload.tool] = structuredClone(snapshot);
-      const next = structuredClone(snapshot);
-      if (change.config === null) delete next.providers[change.id];
-      else next.providers[change.id] = change.config;
-      if (change.select) next.current = change.id;
-      next.revision = `synthetic-${Date.now()}`;
-      next.canRestore = true;
-      nativeSnapshots[payload.tool] = next;
-      return next;
-    }
+    if (
+      command.startsWith("native_tool_") ||
+      command === "tuzi_native_tool_save"
+    )
+      return nativePreviewIPC(command, args);
     if (command === "get_proxy_status") {
       if (params.get("scenario") === "error")
         throw new Error("SYNTHETIC_FAILURE");
@@ -291,6 +251,9 @@ function Canvas() {
   const [collapsed, setCollapsed] = useState(false);
   const [selected, setSelected] = useState(currentId);
   const [page, setPage] = useState(params.get("page") ?? "providers");
+  const [nativeFocus, setNativeFocus] = useState<
+    { providerId: string } | undefined
+  >();
   const [app, setApp] = useState<AppId>("codex");
   const [origin, setOrigin] = useState<WorkspaceTool>("codex");
   const [target, setTarget] = useState<AppId | null>("codex");
@@ -318,7 +281,16 @@ function Canvas() {
   const globalContent = () => {
     switch (page) {
       case "account":
-        return <AccountWorkspacePreview />;
+        return (
+          <AccountWorkspacePreview
+            onNativeSaved={(tool, providerId) => {
+              setNativeFocus({ providerId });
+              setOrigin(tool);
+              setTarget(null);
+              setPage(tool);
+            }}
+          />
+        );
       case "mcp":
         return (
           <>
@@ -458,7 +430,11 @@ function Canvas() {
         style={{ marginLeft: left }}
       >
         {native ? (
-          <NativeToolPage key={page} tool={page as NativeTool} />
+          <NativeToolPage
+            key={page}
+            tool={page as NativeTool}
+            focusRequest={nativeFocus}
+          />
         ) : page !== "providers" || app !== "codex" ? (
           globalContent()
         ) : (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
@@ -21,7 +21,24 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-export function NativeToolPage({ tool }: { tool: NativeTool }) {
+function nativeProviderName(config: unknown): string | undefined {
+  if (!config || typeof config !== "object") return;
+  const value = config as { name?: unknown; models?: { name?: unknown }[] };
+  const name =
+    value.name ??
+    (Array.isArray(value.models) ? value.models[0]?.name : undefined);
+  return typeof name === "string" && name.trim() ? name : undefined;
+}
+
+export function NativeToolPage({
+  tool,
+  focusRequest,
+  onFocusComplete,
+}: {
+  tool: NativeTool;
+  focusRequest?: { providerId?: string };
+  onFocusComplete?: () => void;
+}) {
   const { t } = useTranslation();
   const client = useQueryClient();
   const queryKey = ["nativeTool", tool];
@@ -43,6 +60,33 @@ export function NativeToolPage({ tool }: { tool: NativeTool }) {
     revision: string;
   } | null>(null);
   const [error, setError] = useState<string>();
+  const [located, setLocated] = useState<string>();
+  const focusId = focusRequest?.providerId;
+  const available = !!focusId && !!query.data?.providers[focusId];
+  useEffect(() => {
+    if (!focusId || !available) return;
+    const begin = window.setTimeout(() => {
+      document
+        .getElementById(`native-provider-${tool}-${focusId}`)
+        ?.scrollIntoView?.({
+          block: "center",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+            .matches
+            ? "auto"
+            : "smooth",
+        });
+      setLocated(focusId);
+    }, 100);
+    const finish = window.setTimeout(() => {
+      setLocated(undefined);
+      onFocusComplete?.();
+    }, 2500);
+    return () => {
+      window.clearTimeout(begin);
+      window.clearTimeout(finish);
+      setLocated(undefined);
+    };
+  }, [focusRequest, focusId, available, tool, onFocusComplete]);
   const mutation = useMutation({
     mutationFn: (change: NativeToolChange | "restore") =>
       change === "restore"
@@ -53,6 +97,7 @@ export function NativeToolPage({ tool }: { tool: NativeTool }) {
       setEditor(null);
       setConfirm(null);
       setError(undefined);
+      void client.invalidateQueries({ queryKey: ["tuziProviderSources"] });
     },
     onError: () => setError(t("nativeTools.failed")),
   });
@@ -146,15 +191,24 @@ export function NativeToolPage({ tool }: { tool: NativeTool }) {
         Object.entries(query.data!.providers).map(([id, config]) => (
           <div
             key={id}
+            id={`native-provider-${tool}-${id}`}
+            data-account-located={located === id || undefined}
             className={cn(
               "rounded-xl border bg-card p-3 flex flex-wrap items-center gap-3",
               query.data!.current === id
                 ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/30"
                 : "border-border",
+              located === id &&
+                "ring-1 ring-blue-400/50 bg-blue-50/40 dark:bg-blue-950/20",
             )}
           >
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-medium break-words">{id}</h3>
+              <h3 className="text-sm font-medium break-words">
+                {nativeProviderName(config) ?? id}
+              </h3>
+              {nativeProviderName(config) && (
+                <p className="text-xs text-muted-foreground break-all">{id}</p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {query.data!.current === id
                   ? t("provider.inUse")

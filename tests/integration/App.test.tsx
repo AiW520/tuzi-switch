@@ -270,11 +270,23 @@ vi.mock("@/components/account/AccountPage", async (original) => {
 });
 vi.mock("@/components/account/ConfigureTool", () => ({
   ConfigureTool: ({ onReady, state }: any) => (
-    <button
-      onClick={() => onReady({ appId: "codex", generation: state.generation })}
-    >
-      prepare-synthetic-config
-    </button>
+    <>
+      <button
+        onClick={() =>
+          onReady({ appId: "codex", generation: state.generation })
+        }
+      >
+        prepare-synthetic-config
+      </button>
+      {["grokbuild", "pi", "mcode"].map((appId) => (
+        <button
+          key={appId}
+          onClick={() => onReady({ appId, generation: state.generation })}
+        >
+          prepare-{appId}
+        </button>
+      ))}
+    </>
   ),
 }));
 vi.mock("@/components/providers/TuziProviderDialog", async (original) => ({
@@ -283,6 +295,22 @@ vi.mock("@/components/providers/TuziProviderDialog", async (original) => ({
   >()),
   TuziProviderDialog: ({ onSaved }: any) => (
     <button onClick={() => onSaved("codex-1")}>save-synthetic-config</button>
+  ),
+}));
+
+vi.mock("@/components/providers/TuziNativeToolDialog", () => ({
+  TuziNativeToolDialog: ({ draft, onSaved }: any) => (
+    <button onClick={() => onSaved("native-synthetic")}>
+      save-{draft.appId}
+    </button>
+  ),
+}));
+vi.mock("@/components/providers/NativeToolPage", () => ({
+  NativeToolPage: ({ tool, focusRequest }: any) => (
+    <div data-testid="native-page">
+      {tool}
+      <span data-testid="native-focus">{focusRequest?.providerId}</span>
+    </div>
   ),
 }));
 
@@ -480,6 +508,47 @@ describe("App integration with MSW", () => {
       await screen.findByText("configure-synthetic-key"),
     ).toBeInTheDocument();
   });
+
+  it.each(["grokbuild", "pi", "mcode"])(
+    "navigates an account draft to %s and locates the saved native provider",
+    async (tool) => {
+      server.use(
+        http.post("http://tauri.local/account_get_state", () =>
+          HttpResponse.json({
+            ...disconnectedAccount,
+            status: "connected",
+            generation: 10,
+            identity: {
+              userId: "synthetic-user",
+              username: "synthetic-b10",
+              displayName: "Synthetic",
+              connectionId: "synthetic",
+            },
+          }),
+        ),
+      );
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByTestId("provider-list");
+      fireEvent.click(
+        await screen.findByRole("button", { name: "firstRunNotice.confirm" }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "account.title" }));
+      fireEvent.click(await screen.findByText("configure-synthetic-key"));
+      fireEvent.click(await screen.findByText(`prepare-${tool}`));
+      expect(await screen.findByTestId("native-page")).toHaveTextContent(tool);
+      fireEvent.click(await screen.findByText(`save-${tool}`));
+      await waitFor(() =>
+        expect(screen.getByTestId("native-focus")).toHaveTextContent(
+          "native-synthetic",
+        ),
+      );
+      expect(screen.queryByTestId("focused-provider")).not.toBeInTheDocument();
+    },
+  );
 
   it("covers basic provider flows via real hooks", async () => {
     const { default: App } = await import("@/App");

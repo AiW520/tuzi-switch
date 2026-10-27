@@ -125,7 +125,7 @@ it.each([
   "preserves %s account fields through the real form and native contract fixture",
   async (appId) => {
     const target = TUZI_TOOL_TARGETS.find((item) => item.appId === appId)!;
-    setup({ ...draft, ...target });
+    setup({ ...draft, ...target, appId });
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "common.add" }),

@@ -583,8 +583,14 @@ fn restore_state(
     }
     Ok(())
 }
-fn validate_source(handle: &tauri::AppHandle, source: &Source) -> Result<(), String> {
+pub(crate) fn validate_source(handle: &tauri::AppHandle, source: &Source) -> Result<(), String> {
     let service = handle.state::<Arc<crate::tuzi_account::AccountService>>();
+    validate_account_source(&service, source)
+}
+pub(crate) fn validate_account_source(
+    service: &crate::tuzi_account::AccountService,
+    source: &Source,
+) -> Result<(), String> {
     let current = service.state();
     if source.site != "https://api.tu-zi.com"
         || current.status != "connected"
@@ -1335,11 +1341,11 @@ fn restore_backup(state: &AppState, backup_id: &str) -> Result<(), String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderSource {
-    site: String,
-    user_id: String,
-    token_id: String,
-    app: String,
-    provider_id: String,
+    pub(crate) site: String,
+    pub(crate) user_id: String,
+    pub(crate) token_id: String,
+    pub(crate) app: String,
+    pub(crate) provider_id: String,
 }
 #[tauri::command]
 pub fn tuzi_provider_sources(

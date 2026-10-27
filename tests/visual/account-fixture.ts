@@ -1,3 +1,7 @@
+import {
+  nativePreviewSources,
+  nativePreviewSourceResult,
+} from "./native-tool-fixture";
 // Shared synthetic account responses; no real transport, credentials or filesystem.
 import type { DesktopRequest } from "@/lib/api/account";
 import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
@@ -45,9 +49,9 @@ const keys = [
   },
 ];
 const models: DesktopPricing[] = [
-  ["gpt-5.6-sol", "OpenAI", "Responses,Chat Completions"],
-  ["claude-sonnet-5-5", "Anthropic", "Anthropic Messages"],
-  ["gemini-3.1-pro-preview", "Google", "Gemini,Chat Completions"],
+  ["gpt-5.6-sol", "OpenAI", "responses,openai"],
+  ["claude-sonnet-5-5", "Anthropic", "anthropic_messages"],
+  ["gemini-3.1-pro-preview", "Google", "gemini_native,openai"],
   ["gpt-image-2", "OpenAI", "Images"],
 ].map(([name, vendor, protocol]) => ({
   model_name: name,
@@ -139,11 +143,11 @@ export async function accountPreviewIPC(command: string, args?: unknown) {
     command === "account_cancel_token_prefill"
   )
     return;
-  if (
-    command === "tuzi_provider_sources" ||
-    command === "tuzi_provider_backups"
-  )
-    return [];
+  if (command === "tuzi_provider_sources")
+    return nativePreviewSources((args as { app?: string })?.app);
+  if (command === "tuzi_native_tool_sources")
+    return nativePreviewSourceResult();
+  if (command === "tuzi_provider_backups") return [];
   if (command === "account_open_web")
     throw { code: "synthetic_preview_no_external_action" };
   if (command !== "account_request")
@@ -165,6 +169,11 @@ export async function accountPreviewIPC(command: string, args?: unknown) {
     },
   });
   const q = Object.fromEntries(request.query ?? []);
+  if (
+    request.method === "POST" &&
+    keys.some((k) => request.path === `/account/keys/${k.id}/reveal`)
+  )
+    return envelope({ key: "sk-SYNTHETIC_PREVIEW_ONLY" });
   if (request.method !== "GET") throw { code: "synthetic_preview_read_only" };
   switch (request.path) {
     case "/account/capabilities":

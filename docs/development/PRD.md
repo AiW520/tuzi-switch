@@ -4,6 +4,8 @@
 
 ## 目标与产品范围
 
+2026-10-27 UI-10：账户单条 Key 配置入口扩展至 Grok Build、Pi、MiniMax Code，按模型协议筛选并保存至各工具原生配置。真实工具验收待完成，见 [UI-10记录](ui10-native-account-tools.md)。
+
 2026-10-27 UI-09：用户授权将兔子账户连接页、四项概要、密钥筛选/表格和创建/配置弹窗统一为已确认的简洁圆角风格。仅展示适配；新增工具的账户一键配置不在本阶段，既有账户认证、业务与隐藏规则保留。见 [UI-09记录](ui09-account-polish.md)。
 
 2026-10-27 UI-07：Agents 入口接入 Claude Code 与 OpenCode 的用户级 Markdown Agent 文件管理。支持读取、搜索、新增、编辑、删除确认和单步恢复；严格按工具原生目录和格式保存，不执行 Agent、不跨工具转换。Claude Desktop、Codex、Gemini CLI、OpenClaw、Hermes 及 Grok Build/Pi/MiniMax Code 的 Agent 管理入口显示明确未支持状态或要求选择已支持工具。详见 [UI-07记录](ui07-agents-management.md)。

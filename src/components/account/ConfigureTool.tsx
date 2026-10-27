@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/command";
 import { ChevronsUpDown, Check } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import type { AppId } from "@/lib/api";
+import { isNativeTool } from "@/lib/api/nativeTools";
+
 import { desktopRequest, type AccountState } from "@/lib/api/account";
 import type {
   DesktopKey,
@@ -27,11 +28,12 @@ import { useDesktop } from "@/lib/query/desktop";
 import {
   TUZI_TOOL_TARGETS,
   type TuziProviderDraft,
+  type TuziTool,
 } from "@/lib/tuziToolCompatibility";
 import { AccountDialog } from "./AccountDialog";
 import { QueryState, WriteError } from "./BusinessShared";
 
-const labels: Record<AppId, string> = {
+const labels: Record<TuziTool, string> = {
   claude: "Claude",
   "claude-desktop": "Claude Desktop",
   codex: "Codex",
@@ -39,8 +41,11 @@ const labels: Record<AppId, string> = {
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",
+  grokbuild: "Grok Build",
+  pi: "Pi",
+  mcode: "MiniMax Code",
 };
-const icons: Record<AppId, string> = {
+const icons: Record<TuziTool, string> = {
   claude: "claude",
   "claude-desktop": "claude",
   codex: "openai",
@@ -48,12 +53,15 @@ const icons: Record<AppId, string> = {
   opencode: "opencode",
   openclaw: "openclaw",
   hermes: "hermes",
+  grokbuild: "xai",
+  pi: "pi",
+  mcode: "minimax",
 };
 interface Source {
   site: string;
   userId: string;
   tokenId: string;
-  app: AppId;
+  app: TuziTool;
   providerId: string;
 }
 function ConfigureToolSession({
@@ -68,10 +76,10 @@ function ConfigureToolSession({
   keyDto: DesktopKey;
   model?: DesktopPricing;
   onClose: () => void;
-  onReady: (draft: TuziProviderDraft) => void;
-  onExisting?: (app: AppId, providerId: string) => void;
+  onReady: (draft: TuziProviderDraft<TuziTool>) => void;
+  onExisting?: (app: TuziTool, providerId: string) => void;
 }) {
-  const [app, setApp] = useState<AppId | null>(null);
+  const [app, setApp] = useState<TuziTool | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [model, setModel] = useState<
@@ -87,6 +95,20 @@ function ConfigureToolSession({
   const sources = useQuery({
     queryKey: ["tuziProviderSources", state.identity?.userId, state.generation],
     queryFn: () => invoke<Source[]>("tuzi_provider_sources", { app: null }),
+    retry: false,
+    staleTime: 0,
+  });
+  const nativeSources = useQuery({
+    queryKey: [
+      "tuziProviderSources",
+      "native",
+      state.identity?.userId,
+      state.generation,
+    ],
+    queryFn: () =>
+      invoke<{ sources: Source[]; unavailable: string[] }>(
+        "tuzi_native_tool_sources",
+      ),
     retry: false,
     staleTime: 0,
   });
@@ -112,13 +134,15 @@ function ConfigureToolSession({
       abort.current.abort();
     };
   }, []);
-  const existing =
-    sources.data?.filter(
-      (s) =>
-        s.site === "https://api.tu-zi.com" &&
-        s.userId === state.identity?.userId &&
-        s.tokenId === keyDto.id,
-    ) ?? [];
+  const existing = [
+    ...(sources.data ?? []),
+    ...(nativeSources.data?.sources ?? []),
+  ].filter(
+    (s) =>
+      s.site === "https://api.tu-zi.com" &&
+      s.userId === state.identity?.userId &&
+      s.tokenId === keyDto.id,
+  );
   const targets = TUZI_TOOL_TARGETS.filter((t) => t.appId === app);
   const compatible = (
     m: Pick<DesktopPricing, "supported_endpoint_types" | "endpoints">,
@@ -139,6 +163,12 @@ function ConfigureToolSession({
     compatible(currentModel).some((t) => t.protocol === selected.protocol)
       ? null
       : "请选择可用模型";
+  const selectedSourceUnavailable =
+    !!app &&
+    isNativeTool(app) &&
+    (nativeSources.isLoading ||
+      !!nativeSources.error ||
+      !!nativeSources.data?.unavailable?.includes(app));
   const proceed = async () => {
     if (
       !selected ||
@@ -146,6 +176,7 @@ function ConfigureToolSession({
       reason ||
       models.error ||
       models.isFetching ||
+      selectedSourceUnavailable ||
       lock.current
     )
       return;
@@ -206,7 +237,8 @@ function ConfigureToolSession({
                 models.isFetching ||
                 !!unavailable ||
                 sources.isLoading ||
-                !!sources.error
+                !!sources.error ||
+                selectedSourceUnavailable
               }
               onClick={() => void proceed()}
             >
@@ -231,13 +263,17 @@ function ConfigureToolSession({
         </p>
       )}
       <div className="account-tool-grid">
-        {(Object.keys(labels) as AppId[])
+        {(Object.keys(labels) as TuziTool[])
           .filter(
             (id) =>
               id !== "claude-desktop" || !/linux/i.test(navigator.platform),
           )
           .map((id) => {
             const saved = existing.filter((s) => s.app === id);
+            const nativeUnavailable =
+              isNativeTool(id) &&
+              (!!nativeSources.error ||
+                nativeSources.data?.unavailable?.includes(id));
             return (
               <Button
                 key={id}
@@ -247,6 +283,8 @@ function ConfigureToolSession({
                   busy ||
                   sources.isLoading ||
                   !!sources.error ||
+                  (isNativeTool(id) && nativeSources.isLoading) ||
+                  nativeUnavailable ||
                   (!saved.length && !!unavailable)
                 }
                 onClick={() => {
@@ -264,7 +302,11 @@ function ConfigureToolSession({
                 <span>
                   {labels[id]}
                   <small>
-                    {saved.length ? "已配置 · 查看配置" : "选择并配置"}
+                    {nativeUnavailable
+                      ? "配置读取失败 · 请在工具页检查"
+                      : saved.length
+                        ? "已配置 · 查看配置"
+                        : "选择并配置"}
                   </small>
                 </span>
                 <span className="account-tool-icon" aria-hidden="true">

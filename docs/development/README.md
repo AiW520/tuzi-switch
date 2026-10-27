@@ -1,5 +1,7 @@
 # 账户中心与工具管理开发基线
 
+2026-10-27 UI-10：账户 Key 已本地接入 Grok Build、Pi、MiniMax Code 配置；真实工具联调和用户验收待完成，见 [UI-10记录](ui10-native-account-tools.md)。
+
 2026-10-27 UI-09：兔子账户公开页面、密钥及配置弹窗已统一圆角视觉，499项前端、类型与独立macOS构建通过；仅本地，真实账户与工具验收待完成，见 [UI-09记录](ui09-account-polish.md)。
 
 2026-10-27 UI-07：已本地接入 Claude Code/OpenCode 用户级 Markdown Agent 文件管理，含冲突保护和单步恢复；前端499项、原生1437项及macOS独立预览构建通过，真实工具文件和用户验收未完成，见 [UI-07记录](ui07-agents-management.md)。

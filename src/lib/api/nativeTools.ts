@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 export type NativeTool = "grokbuild" | "pi" | "mcode";
+export function isNativeTool(tool: string): tool is NativeTool {
+  return tool === "grokbuild" || tool === "pi" || tool === "mcode";
+}
 export const nativeToolNames: Record<NativeTool, string> = {
   grokbuild: "Grok Build",
   pi: "Pi",
@@ -34,7 +37,6 @@ export function nativeToolTemplate(tool: NativeTool) {
       base_url: "",
       api_key: "",
       api_backend: "responses",
-      context_window: 500000,
     };
   if (tool === "pi")
     return {

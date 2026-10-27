@@ -61,7 +61,9 @@ import {
 } from "@/lib/platform";
 import { ConfigureTool } from "@/components/account/ConfigureTool";
 import { TuziProviderDialog } from "@/components/providers/TuziProviderDialog";
-import type { TuziProviderDraft } from "@/lib/tuziToolCompatibility";
+import { TuziNativeToolDialog } from "@/components/providers/TuziNativeToolDialog";
+import { isNativeTool, type NativeTool } from "@/lib/api/nativeTools";
+import type { TuziTool, TuziProviderDraft } from "@/lib/tuziToolCompatibility";
 import type { DesktopKey, DesktopPricing } from "@/lib/api/desktop";
 import { AccountPage } from "@/components/account/AccountPage";
 import { useAccount } from "@/lib/query/account";
@@ -204,10 +206,11 @@ function App() {
     model?: DesktopPricing;
   } | null>(null);
   const [accountProviderFocus, setAccountProviderFocus] = useState<{
-    app: AppId;
+    app: TuziTool;
     providerId?: string;
   } | null>(null);
-  const [tuziDraft, setTuziDraft] = useState<TuziProviderDraft | null>(null);
+  const [tuziDraft, setTuziDraft] =
+    useState<TuziProviderDraft<TuziTool> | null>(null);
   const clearAccountProviderFocus = useCallback(
     () => setAccountProviderFocus(null),
     [],
@@ -269,7 +272,9 @@ function App() {
   useEffect(() => {
     if (
       accountProviderFocus &&
-      (currentView !== "providers" || activeApp !== accountProviderFocus.app)
+      (isNativeTool(accountProviderFocus.app)
+        ? currentView !== accountProviderFocus.app
+        : currentView !== "providers" || activeApp !== accountProviderFocus.app)
     )
       setAccountProviderFocus(null);
   }, [activeApp, currentView, accountProviderFocus]);
@@ -1135,7 +1140,18 @@ function App() {
         case "grokbuild":
         case "pi":
         case "mcode":
-          return <NativeToolPage key={currentView} tool={currentView} />;
+          return (
+            <NativeToolPage
+              key={currentView}
+              tool={currentView}
+              focusRequest={
+                accountProviderFocus?.app === currentView
+                  ? accountProviderFocus
+                  : undefined
+              }
+              onFocusComplete={clearAccountProviderFocus}
+            />
+          );
         case "settings":
           return (
             <SettingsPage
@@ -1945,29 +1961,46 @@ function App() {
           onClose={() => setConfigureKey(null)}
           onExisting={(app, providerId) => {
             setConfigureKey(null);
-            setActiveApp(app);
-            setCurrentView("providers");
+            if (isNativeTool(app)) setCurrentView(app);
+            else {
+              setActiveApp(app);
+              setCurrentView("providers");
+            }
             setAccountProviderFocus({ app, providerId });
           }}
           onReady={(draft) => {
             setConfigureKey(null);
-            setActiveApp(draft.appId);
-            setCurrentView("providers");
+            if (isNativeTool(draft.appId)) setCurrentView(draft.appId);
+            else {
+              setActiveApp(draft.appId);
+              setCurrentView("providers");
+            }
             setAccountProviderFocus({ app: draft.appId });
             setTuziDraft(draft);
           }}
         />
       )}
-      {tuziDraft && tuziDraft.generation === account.state.generation && (
-        <TuziProviderDialog
-          draft={tuziDraft}
-          onClose={() => setTuziDraft(null)}
-          onSaved={(providerId) => {
-            setAccountProviderFocus({ app: tuziDraft.appId, providerId });
-            setTuziDraft(null);
-          }}
-        />
-      )}
+      {tuziDraft &&
+        tuziDraft.generation === account.state.generation &&
+        (isNativeTool(tuziDraft.appId) ? (
+          <TuziNativeToolDialog
+            draft={tuziDraft as TuziProviderDraft<NativeTool>}
+            onClose={() => setTuziDraft(null)}
+            onSaved={(providerId) => {
+              setAccountProviderFocus({ app: tuziDraft.appId, providerId });
+              setTuziDraft(null);
+            }}
+          />
+        ) : (
+          <TuziProviderDialog
+            draft={tuziDraft as TuziProviderDraft<AppId>}
+            onClose={() => setTuziDraft(null)}
+            onSaved={(providerId) => {
+              setAccountProviderFocus({ app: tuziDraft.appId, providerId });
+              setTuziDraft(null);
+            }}
+          />
+        ))}
       <AddProviderDialog
         open={isAddOpen}
         onOpenChange={setIsAddOpen}

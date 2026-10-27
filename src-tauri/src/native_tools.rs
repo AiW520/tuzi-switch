@@ -1,4 +1,5 @@
 //! Native-file adapters for additional tools. Their login and active-model state stay tool-owned.
+use crate::services::tuzi_provider::{ProviderSource, Source};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -9,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
+use tauri::Manager;
 
 static LOCK: Mutex<()> = Mutex::new(());
 const MAX_BYTES: u64 = 1024 * 1024;
@@ -83,6 +85,60 @@ struct Backup {
     after: String,
     #[serde(default)]
     target: String,
+    #[serde(default)]
+    sources_before: Vec<Origin>,
+    #[serde(default)]
+    sources_after: Vec<Origin>,
+    #[serde(default)]
+    restored: bool,
+}
+/// Provenance is local metadata, never written into a tool's native schema.
+#[derive(Clone, Serialize, Deserialize)]
+struct Origin {
+    site: String,
+    user_id: String,
+    token_id: String,
+    provider_id: String,
+    config_hash: String,
+}
+fn config_hash(config: &Value) -> String {
+    let mut canonical = config.clone();
+    canonical.sort_all_objects();
+    digest(Some(
+        &serde_json::to_vec(&canonical).expect("JSON value is serializable"),
+    ))
+}
+fn origins(
+    path: &Path,
+    backup: &Path,
+    bytes: Option<&[u8]>,
+    nodes: &BTreeMap<String, Value>,
+) -> Result<Vec<Origin>, String> {
+    let saved = match fs::read(backup) {
+        Ok(bytes) => serde_json::from_slice::<Backup>(&bytes)
+            .map_err(|_| "Invalid native backup; inspect it before saving")?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(_) => return Err("Cannot read native provenance".into()),
+    };
+    if saved.target != path.to_string_lossy() {
+        return Ok(vec![]);
+    }
+    let revision = digest(bytes);
+    let records = if digest(saved.before.as_deref()) == revision
+        || (saved.restored && saved.after != revision)
+    {
+        saved.sources_before
+    } else {
+        saved.sources_after
+    };
+    Ok(records
+        .into_iter()
+        .filter(|record| {
+            nodes
+                .get(&record.provider_id)
+                .is_some_and(|v| config_hash(v) == record.config_hash)
+        })
+        .collect())
 }
 fn digest(bytes: Option<&[u8]>) -> String {
     bytes
@@ -179,7 +235,7 @@ fn validate(id: &str, tool: NativeTool, value: &Value) -> Result<(), String> {
         return Err("An API key or tool-native environment reference is required".into());
     }
     let allowed: &[&str] = if tool == NativeTool::Grokbuild {
-        &["responses", "chat"]
+        &["responses", "chat_completions", "messages"]
     } else {
         &[
             "openai-completions",
@@ -205,8 +261,7 @@ fn validate(id: &str, tool: NativeTool, value: &Value) -> Result<(), String> {
         }
         if value
             .get("context_window")
-            .and_then(Value::as_u64)
-            .is_none_or(|n| n == 0)
+            .is_some_and(|v| v.as_u64().is_none_or(|n| n == 0))
         {
             return Err("Positive context_window required".into());
         }
@@ -302,18 +357,51 @@ fn snapshot(tool: NativeTool, path: &Path, backup: &Path) -> Result<Snapshot, St
         can_restore: fs::read(backup)
             .ok()
             .and_then(|b| serde_json::from_slice::<Backup>(&b).ok())
-            .is_some_and(|b| b.after == revision && b.target == path.to_string_lossy()),
+            .is_some_and(|b| {
+                !b.restored && b.after == revision && b.target == path.to_string_lossy()
+            }),
         revision,
         path: path.to_string_lossy().into(),
     })
 }
 fn apply(tool: NativeTool, path: &Path, backup: &Path, change: Change) -> Result<Snapshot, String> {
+    apply_with_source(tool, path, backup, change, None)
+}
+fn apply_with_source(
+    tool: NativeTool,
+    path: &Path,
+    backup: &Path,
+    change: Change,
+    source: Option<&Source>,
+) -> Result<Snapshot, String> {
+    apply_transaction(tool, path, backup, change, source, private_write)
+}
+fn apply_transaction(
+    tool: NativeTool,
+    path: &Path,
+    backup: &Path,
+    change: Change,
+    source: Option<&Source>,
+    write_target: impl FnOnce(&Path, &[u8]) -> Result<(), String>,
+) -> Result<Snapshot, String> {
     let before = read_bytes(path)?;
     if digest(before.as_deref()) != change.revision {
         return Err("Configuration changed outside the assistant. Refresh before saving.".into());
     }
     let mut root = decode(tool, before.as_deref())?;
     let mut nodes = providers(tool, &root)?;
+    let sources_before = origins(path, backup, before.as_deref(), &nodes)?;
+    if let Some(source) = source {
+        if nodes.contains_key(&change.id)
+            || sources_before.iter().any(|r| {
+                r.site == source.site
+                    && r.user_id == source.user_id
+                    && r.token_id == source.token_id
+            })
+        {
+            return Err("此 Key 已配置到工具或标识已存在，请刷新并查看已有配置".into());
+        }
+    }
     if tool == NativeTool::Mcode
         && nodes
             .get(&change.id)
@@ -365,7 +453,28 @@ fn apply(tool: NativeTool, path: &Path, backup: &Path, change: Change) -> Result
         }
         nodes.remove(&change.id);
     }
-    root[node_key(tool)] = serde_json::to_value(nodes).map_err(|_| "Cannot encode providers")?;
+    let mut sources_after: Vec<_> = sources_before
+        .iter()
+        .filter(|r| {
+            nodes
+                .get(&r.provider_id)
+                .is_some_and(|v| config_hash(v) == r.config_hash)
+        })
+        .cloned()
+        .collect();
+    if let Some(source) = source {
+        let config = nodes
+            .get(&change.id)
+            .ok_or("Missing account configuration")?;
+        sources_after.push(Origin {
+            site: source.site.clone(),
+            user_id: source.user_id.clone(),
+            token_id: source.token_id.clone(),
+            provider_id: change.id.clone(),
+            config_hash: config_hash(config),
+        });
+    }
+    root[node_key(tool)] = serde_json::to_value(&nodes).map_err(|_| "Cannot encode providers")?;
     if change.select {
         if tool != NativeTool::Grokbuild {
             return Err("Choose the active model in the native tool".into());
@@ -406,7 +515,11 @@ fn apply(tool: NativeTool, path: &Path, backup: &Path, change: Change) -> Result
         before,
         after: digest(Some(&bytes)),
         target: path.to_string_lossy().into_owned(),
+        sources_before,
+        sources_after,
+        restored: false,
     };
+    let previous_backup = fs::read(backup).ok();
     private_write(
         backup,
         &serde_json::to_vec(&saved_backup).map_err(|_| "Cannot encode backup")?,
@@ -414,8 +527,30 @@ fn apply(tool: NativeTool, path: &Path, backup: &Path, change: Change) -> Result
     if digest(read_bytes(path)?.as_deref()) != change.revision {
         return Err("Native configuration changed while preparing the save".into());
     }
-    private_write(path, &bytes)?;
-    snapshot(tool, path, backup)
+    if write_target(path, &bytes).is_err() {
+        // The target replacement is atomic: only the prepared backup changed.
+        let compensated = match previous_backup {
+            Some(previous) => private_write(backup, &previous),
+            None => fs::remove_file(backup).map_err(|_| "Cannot remove prepared backup".into()),
+        };
+        return Err(if compensated.is_ok() {
+            "保存失败，工具配置未改动"
+        } else {
+            "保存失败，工具配置未改动；备份写入失败，请检查本机备份"
+        }
+        .into());
+    }
+    Ok(Snapshot {
+        revision: saved_backup.after,
+        providers: nodes,
+        current: root
+            .pointer("/models/default")
+            .and_then(Value::as_str)
+            .filter(|_| tool == NativeTool::Grokbuild)
+            .map(str::to_owned),
+        path: path.to_string_lossy().into_owned(),
+        can_restore: true,
+    })
 }
 struct FileLock(PathBuf);
 impl Drop for FileLock {
@@ -451,6 +586,167 @@ pub fn native_tool_write(tool: NativeTool, change: Change) -> Result<Snapshot, S
     let _file = file_lock(&path)?;
     apply(tool, &path, &backup_path(tool), change)
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountSelection {
+    id: String,
+    name: String,
+    model: String,
+    protocol: String,
+    key: String,
+    context_window: Option<u64>,
+}
+fn account_config(tool: NativeTool, selection: &AccountSelection) -> Result<Value, String> {
+    if selection.name.trim().is_empty()
+        || selection.name.len() > 200
+        || selection.model.trim().is_empty()
+        || selection.model.len() > 256
+        || selection.model.chars().any(char::is_control)
+        || !selection.key.starts_with("sk-")
+        || selection.key.chars().any(char::is_control)
+        || selection.context_window == Some(0)
+    {
+        return Err("配置名称、模型或 Key 无效".into());
+    }
+    let api = match selection.protocol.as_str() {
+        "responses" => "openai-responses",
+        "chat" => "openai-completions",
+        "anthropic" => "anthropic-messages",
+        _ => return Err("工具不支持此协议".into()),
+    };
+    // Pi and MiniMax's Anthropic SDK appends /v1/messages itself. Grok's
+    // messages backend appends /messages to the configured API base instead.
+    let endpoint = if tool != NativeTool::Grokbuild && selection.protocol == "anthropic" {
+        "https://api.tu-zi.com"
+    } else {
+        "https://api.tu-zi.com/v1"
+    };
+    let mut config = match tool {
+        NativeTool::Grokbuild => {
+            json!({"name":selection.name.trim(),"model":selection.model,"base_url":endpoint,"api_key":selection.key,"api_backend":match selection.protocol.as_str() {"responses"=>"responses","chat"=>"chat_completions",_=>"messages"}})
+        }
+        NativeTool::Pi => {
+            json!({"baseUrl":endpoint,"apiKey":selection.key,"api":api,"models":[{"id":selection.model,"name":selection.name.trim()}]})
+        }
+        NativeTool::Mcode => {
+            json!({"name":selection.name.trim(),"kind":"custom","enabled":true,"api":api,"options":{"baseURL":endpoint,"apiKey":selection.key},"models":{selection.model.clone():{}}})
+        }
+    };
+    if tool == NativeTool::Grokbuild {
+        if let Some(context) = selection.context_window {
+            config["context_window"] = json!(context);
+        }
+        if selection.protocol == "anthropic" {
+            config["extra_headers"] = json!({"anthropic-version":"2023-06-01"});
+        }
+    }
+    validate(&selection.id, tool, &config)?;
+    Ok(config)
+}
+/// Qualification is read again online; the reveal guard stays held through the
+/// single-file native transaction, so stale sessions cannot write after logout.
+#[tauri::command]
+pub async fn tuzi_native_tool_save(
+    handle: tauri::AppHandle,
+    tool: NativeTool,
+    revision: String,
+    selection: AccountSelection,
+    source: Source,
+) -> Result<Snapshot, String> {
+    let service = handle.state::<std::sync::Arc<crate::tuzi_account::AccountService>>();
+    save_account_to(
+        &service,
+        tool,
+        revision,
+        selection,
+        source,
+        &tool.path()?,
+        &backup_path(tool),
+    )
+    .await
+}
+pub(crate) async fn save_account_to(
+    service: &crate::tuzi_account::AccountService,
+    tool: NativeTool,
+    revision: String,
+    selection: AccountSelection,
+    source: Source,
+    path: &Path,
+    backup: &Path,
+) -> Result<Snapshot, String> {
+    crate::services::tuzi_provider::validate_account_source(service, &source)?;
+    let config = account_config(tool, &selection)?;
+    service
+        .provider_qualification(
+            source.generation,
+            &source.token_id,
+            std::slice::from_ref(&selection.model),
+            &selection.protocol,
+            tool.id(),
+        )
+        .await?;
+    service.with_confirmed_model_source(
+        &source.user_id,
+        source.generation,
+        &source.token_id,
+        &selection.key,
+        || {
+            let _guard = LOCK.lock().map_err(|_| "Native tool lock unavailable")?;
+            let _file = file_lock(path)?;
+            apply_with_source(
+                tool,
+                path,
+                backup,
+                Change {
+                    revision,
+                    id: selection.id,
+                    config: Some(config),
+                    select: false,
+                },
+                Some(&source),
+            )
+        },
+    )
+}
+#[derive(Serialize)]
+pub struct AccountSources {
+    sources: Vec<ProviderSource>,
+    unavailable: Vec<String>,
+}
+#[tauri::command]
+pub fn tuzi_native_tool_sources() -> Result<AccountSources, String> {
+    let _guard = LOCK.lock().map_err(|_| "Native tool lock unavailable")?;
+    let mut result = vec![];
+    let mut unavailable = vec![];
+    for tool in [NativeTool::Grokbuild, NativeTool::Pi, NativeTool::Mcode] {
+        let read = (|| -> Result<Vec<Origin>, String> {
+            let path = tool.path()?;
+            let bytes = read_bytes(&path)?;
+            let nodes = providers(tool, &decode(tool, bytes.as_deref())?)?;
+            origins(&path, &backup_path(tool), bytes.as_deref(), &nodes)
+        })();
+        let records = match read {
+            Ok(records) => records,
+            Err(_) => {
+                unavailable.push(tool.id().into());
+                continue;
+            }
+        };
+        for record in records {
+            result.push(ProviderSource {
+                site: record.site,
+                user_id: record.user_id,
+                token_id: record.token_id,
+                app: tool.id().into(),
+                provider_id: record.provider_id,
+            });
+        }
+    }
+    Ok(AccountSources {
+        sources: result,
+        unavailable,
+    })
+}
 #[tauri::command]
 pub fn native_tool_restore(tool: NativeTool, revision: String) -> Result<Snapshot, String> {
     let _guard = LOCK.lock().map_err(|_| "Native tool lock unavailable")?;
@@ -464,18 +760,30 @@ fn restore(
     backup: &Path,
     revision: &str,
 ) -> Result<Snapshot, String> {
-    let saved: Backup =
-        serde_json::from_slice(&fs::read(backup).map_err(|_| "No backup available")?)
-            .map_err(|_| "Invalid backup")?;
+    let original_backup = fs::read(backup).map_err(|_| "No backup available")?;
+    let mut saved: Backup =
+        serde_json::from_slice(&original_backup).map_err(|_| "Invalid backup")?;
     if saved.target != path.to_string_lossy()
+        || saved.restored
         || saved.after != revision
         || digest(read_bytes(path)?.as_deref()) != revision
     {
         return Err("Native configuration changed; refusing to overwrite external edits".into());
     }
-    match saved.before {
-        Some(bytes) => private_write(path, &bytes)?,
-        None => fs::remove_file(path).map_err(|_| "Cannot restore absent configuration")?,
+    // Persist the provenance direction before the atomic file operation. If
+    // interrupted, exact before/after hashes still select the correct records.
+    saved.restored = true;
+    private_write(
+        backup,
+        &serde_json::to_vec(&saved).map_err(|_| "Cannot encode backup")?,
+    )?;
+    let result = match saved.before {
+        Some(bytes) => private_write(path, &bytes),
+        None => fs::remove_file(path).map_err(|_| "Cannot restore absent configuration".into()),
+    };
+    if let Err(error) = result {
+        private_write(backup, &original_backup).map_err(|_| "恢复失败，备份状态需要人工核对")?;
+        return Err(error);
     }
     snapshot(tool, path, backup)
 }
@@ -495,6 +803,282 @@ mod tests {
                 json!({"options":{"baseURL":"https://example.invalid/v1","apiKey":"SYNTHETIC"},"api":"openai-completions","models":{"synthetic":{}}})
             }
         }
+    }
+    fn source(token: &str) -> Source {
+        Source {
+            site: "https://api.tu-zi.com".into(),
+            user_id: "7".into(),
+            token_id: token.into(),
+            generation: 1,
+        }
+    }
+    fn selection(protocol: &str) -> AccountSelection {
+        AccountSelection {
+            id: "tuzi-synthetic".into(),
+            name: "兔子线路-合成".into(),
+            model: "synthetic/model".into(),
+            protocol: protocol.into(),
+            key: "sk-SYNTHETIC_MODEL_KEY".into(),
+            context_window: None,
+        }
+    }
+    fn change(revision: &str, id: &str, config: Option<Value>) -> Change {
+        Change {
+            revision: revision.into(),
+            id: id.into(),
+            config,
+            select: false,
+        }
+    }
+    #[test]
+    fn account_protocol_matrix_generates_native_configs_without_changing_login_or_defaults() {
+        for tool in [NativeTool::Grokbuild, NativeTool::Pi, NativeTool::Mcode] {
+            for protocol in ["responses", "chat", "anthropic"] {
+                let config = account_config(tool, &selection(protocol)).unwrap();
+                let endpoint = match tool {
+                    NativeTool::Grokbuild => &config["base_url"],
+                    NativeTool::Pi => &config["baseUrl"],
+                    NativeTool::Mcode => &config["options"]["baseURL"],
+                };
+                assert_eq!(
+                    endpoint,
+                    if tool != NativeTool::Grokbuild && protocol == "anthropic" {
+                        "https://api.tu-zi.com"
+                    } else {
+                        "https://api.tu-zi.com/v1"
+                    }
+                );
+                assert!(serde_json::to_string(&config)
+                    .unwrap()
+                    .contains("sk-SYNTHETIC_MODEL_KEY"));
+                assert!(!serde_json::to_string(&config)
+                    .unwrap()
+                    .contains("system-token"));
+                assert!(account_config(tool, &selection("gemini")).is_err());
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("config");
+                let backup = dir.path().join("backup");
+                let saved = apply_with_source(
+                    tool,
+                    &path,
+                    &backup,
+                    change("missing", "tuzi-synthetic", Some(config)),
+                    Some(&source("9")),
+                )
+                .unwrap();
+                assert_eq!(saved.current, None);
+                let bytes = read_bytes(&path).unwrap();
+                let nodes = providers(tool, &decode(tool, bytes.as_deref()).unwrap()).unwrap();
+                assert_eq!(
+                    origins(&path, &backup, bytes.as_deref(), &nodes)
+                        .unwrap()
+                        .len(),
+                    1,
+                    "canonical hash must survive native serialization"
+                );
+                restore(tool, &path, &backup, &saved.revision).unwrap();
+                assert!(!path.exists());
+                assert!(origins(&path, &backup, None, &BTreeMap::new())
+                    .unwrap()
+                    .is_empty());
+            }
+        }
+        assert_eq!(
+            account_config(NativeTool::Grokbuild, &selection("chat")).unwrap()["api_backend"],
+            "chat_completions"
+        );
+        assert!(
+            account_config(NativeTool::Grokbuild, &selection("responses"))
+                .unwrap()
+                .get("context_window")
+                .is_none()
+        );
+        let mut custom = selection("responses");
+        custom.context_window = Some(32000);
+        assert_eq!(
+            account_config(NativeTool::Grokbuild, &custom).unwrap()["context_window"],
+            32000
+        );
+    }
+    #[test]
+    fn provenance_survives_unrelated_edits_and_restores_but_rejects_duplicate_and_changed_config() {
+        for tool in [NativeTool::Grokbuild, NativeTool::Pi, NativeTool::Mcode] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config");
+            let backup = dir.path().join("backup");
+            let cfg = account_config(tool, &selection("responses")).unwrap();
+            let first = apply_with_source(
+                tool,
+                &path,
+                &backup,
+                change("missing", "tuzi-synthetic", Some(cfg.clone())),
+                Some(&source("9")),
+            )
+            .unwrap();
+            let original = fs::read(&path).unwrap();
+            let saved_backup = fs::read(&backup).unwrap();
+            for (id, token) in [("different", "9"), ("tuzi-synthetic", "10")] {
+                assert!(apply_with_source(
+                    tool,
+                    &path,
+                    &backup,
+                    change(&first.revision, id, Some(cfg.clone())),
+                    Some(&source(token))
+                )
+                .is_err());
+                assert_eq!(fs::read(&path).unwrap(), original);
+                assert_eq!(fs::read(&backup).unwrap(), saved_backup);
+            }
+            let mut root = decode(tool, Some(&original)).unwrap();
+            root["unrelated"] = json!(true);
+            fs::write(&path, encode(tool, &root).unwrap()).unwrap();
+            let current = snapshot(tool, &path, &backup).unwrap();
+            assert_eq!(
+                origins(
+                    &path,
+                    &backup,
+                    read_bytes(&path).unwrap().as_deref(),
+                    &current.providers
+                )
+                .unwrap()
+                .len(),
+                1
+            );
+            let mut edited = cfg.clone();
+            edited["note"] = json!("synthetic edit");
+            let updated = apply(
+                tool,
+                &path,
+                &backup,
+                change(&current.revision, "tuzi-synthetic", Some(edited)),
+            )
+            .unwrap();
+            assert!(origins(
+                &path,
+                &backup,
+                read_bytes(&path).unwrap().as_deref(),
+                &updated.providers
+            )
+            .unwrap()
+            .is_empty());
+            let restored = restore(tool, &path, &backup, &updated.revision).unwrap();
+            assert!(!restored.can_restore);
+            assert_eq!(
+                origins(
+                    &path,
+                    &backup,
+                    read_bytes(&path).unwrap().as_deref(),
+                    &restored.providers
+                )
+                .unwrap()
+                .len(),
+                1
+            );
+            // Provenance also survives unrelated edits after restoring.
+            let mut restored_root = decode(tool, read_bytes(&path).unwrap().as_deref()).unwrap();
+            restored_root["after_restore_note"] = json!(true);
+            fs::write(&path, encode(tool, &restored_root).unwrap()).unwrap();
+            let restored = snapshot(tool, &path, &backup).unwrap();
+            assert_eq!(
+                origins(
+                    &path,
+                    &backup,
+                    read_bytes(&path).unwrap().as_deref(),
+                    &restored.providers
+                )
+                .unwrap()
+                .len(),
+                1
+            );
+            // A subsequent save retains the recovered association and adds another Key.
+            let second = apply_with_source(
+                tool,
+                &path,
+                &backup,
+                change(&restored.revision, "second", Some(cfg)),
+                Some(&source("10")),
+            )
+            .unwrap();
+            assert_eq!(
+                origins(
+                    &path,
+                    &backup,
+                    read_bytes(&path).unwrap().as_deref(),
+                    &second.providers
+                )
+                .unwrap()
+                .len(),
+                2
+            );
+        }
+    }
+    #[test]
+    fn account_backup_and_target_failures_leave_file_and_existing_provenance_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        let backup = dir.path().join("backup");
+        let cfg = account_config(NativeTool::Pi, &selection("chat")).unwrap();
+        let saved = apply_with_source(
+            NativeTool::Pi,
+            &path,
+            &backup,
+            change("missing", "first", Some(cfg.clone())),
+            Some(&source("9")),
+        )
+        .unwrap();
+        let original = fs::read(&path).unwrap();
+        let original_backup = fs::read(&backup).unwrap();
+        assert!(apply_transaction(
+            NativeTool::Pi,
+            &path,
+            &backup,
+            change(&saved.revision, "second", Some(cfg.clone())),
+            Some(&source("10")),
+            |_, _| Err("synthetic disk failure".into())
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(fs::read(&backup).unwrap(), original_backup);
+        let blocked = dir.path().join("blocked");
+        fs::write(&blocked, b"not a directory").unwrap();
+        assert!(apply_with_source(
+            NativeTool::Pi,
+            &path,
+            &blocked.join("backup"),
+            change(&saved.revision, "second", Some(cfg)),
+            Some(&source("10"))
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+    #[test]
+    fn account_selection_rejects_unsafe_or_missing_fields_and_stale_revisions() {
+        let mut sel = selection("chat");
+        sel.model = "bad\nmodel".into();
+        assert!(account_config(NativeTool::Pi, &sel).is_err());
+        sel = selection("chat");
+        sel.key = "SYSTEM_TOKEN_SYNTHETIC".into();
+        assert!(account_config(NativeTool::Pi, &sel).is_err());
+        sel = selection("chat");
+        sel.id = "../outside".into();
+        assert!(account_config(NativeTool::Pi, &sel).is_err());
+        sel = selection("chat");
+        sel.context_window = Some(0);
+        assert!(account_config(NativeTool::Grokbuild, &sel).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        let backup = dir.path().join("backup");
+        fs::write(&path, b"{}").unwrap();
+        assert!(apply_with_source(
+            NativeTool::Pi,
+            &path,
+            &backup,
+            change("missing", "demo", Some(config(NativeTool::Pi))),
+            Some(&source("9"))
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"{}");
+        assert!(!backup.exists());
     }
     #[test]
     fn all_adapters_preserve_unrelated_values_and_restore_exact_bytes() {

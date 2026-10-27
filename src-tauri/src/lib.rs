@@ -1252,6 +1252,8 @@ pub fn run() {
             aggregation::aggregation_read,
             aggregation::aggregation_apply,
             native_tools::native_tool_read,
+            native_tools::tuzi_native_tool_save,
+            native_tools::tuzi_native_tool_sources,
             agents::agents_read,
             agents::agents_write,
             agents::agents_restore,
