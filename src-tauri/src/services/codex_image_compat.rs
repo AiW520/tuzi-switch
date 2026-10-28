@@ -22,9 +22,8 @@ struct EmbeddedSkillFile {
 const EMBEDDED_SKILL_FILES: &[EmbeddedSkillFile] = &[
     EmbeddedSkillFile {
         path: SKILL_OWNER_FILE,
-        content: include_bytes!(
-            "../../resources/builtin-skills/codex-image-render-fallback/.tuzi-switch-managed"
-        ),
+        // Ownership bytes must not depend on Git's platform line-ending conversion.
+        content: SKILL_OWNER,
     },
     EmbeddedSkillFile {
         path: "SKILL.md",
@@ -942,10 +941,11 @@ mod tests {
 
     #[test]
     fn legacy_targets_cover_custom_default_and_unified_skill_storage() {
-        let home = Path::new("/home/test-user");
-        let custom_app_dir = Path::new("/data/custom-tuzi");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let custom_app_dir = temp.path().join("custom-tuzi");
         assert_eq!(
-            legacy_skill_dirs_for(home, custom_app_dir),
+            legacy_skill_dirs_for(&home, &custom_app_dir),
             vec![
                 custom_app_dir.join("skills").join(SKILL_NAME),
                 home.join(".tuzi-switch").join("skills").join(SKILL_NAME),
@@ -954,7 +954,7 @@ mod tests {
         );
 
         assert_eq!(
-            legacy_skill_dirs_for(home, &home.join(".tuzi-switch")),
+            legacy_skill_dirs_for(&home, &home.join(".tuzi-switch")),
             vec![
                 home.join(".tuzi-switch").join("skills").join(SKILL_NAME),
                 home.join(".agents").join("skills").join(SKILL_NAME),
