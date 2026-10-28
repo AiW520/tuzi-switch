@@ -40,6 +40,7 @@ export function useCodexCommonConfig({
   );
   const [commonConfigError, setCommonConfigError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
 
   // 用于跟踪是否正在通过通用配置更新
@@ -53,6 +54,7 @@ export function useCodexCommonConfig({
   useEffect(() => {
     hasInitializedNewMode.current = false;
     hasInitializedEditMode.current = false;
+    setIsInitialized(false);
   }, [selectedPresetId, initialEnabled]);
 
   const parseCommonConfigSnippet = useCallback((snippetString: string) => {
@@ -142,6 +144,7 @@ export function useCodexCommonConfig({
     }
 
     hasInitializedEditMode.current = true;
+    setIsInitialized(true);
 
     const parsedSnippet = parseCommonConfigSnippet(commonConfigSnippet);
     if (parsedSnippet.error) {
@@ -208,6 +211,7 @@ export function useCodexCommonConfig({
     }
 
     hasInitializedNewMode.current = true;
+    setIsInitialized(true);
 
     const parsedSnippet = parseCommonConfigSnippet(commonConfigSnippet);
     if (parsedSnippet.error) {
@@ -464,7 +468,8 @@ export function useCodexCommonConfig({
     useCommonConfig,
     commonConfigSnippet,
     commonConfigError,
-    isLoading,
+    // Loading includes the render that applies the inferred/explicit flag.
+    isLoading: isLoading || !isInitialized,
     isExtracting,
     handleCommonConfigToggle,
     handleCommonConfigSnippetChange,
