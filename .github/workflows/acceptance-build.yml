@@ -65,8 +65,14 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: '9'
+      - name: Read repository Rust version
+        id: rust-version
+        shell: bash
+        run: |
+          node -e 'const fs = require("fs"); const text = fs.readFileSync("rust-toolchain.toml", "utf8"); const version = text.match(/^channel\s*=\s*"([^"]+)"/m)?.[1]; if (!version) throw new Error("Missing pinned Rust channel"); fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);'
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
           targets: ${{ matrix.target }}
       - uses: swatinem/rust-cache@v2
         with:
