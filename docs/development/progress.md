@@ -1,3 +1,31 @@
+# MAIN-SYNC-01 主分支同步与 PR（2026-10-28）
+
+用户已确认目标为 tuziapi/tuzi-switch main，授权必要同步、推送及 PR。最新 main `0b5ff2bd` 的中文操作统计、默认账户启动页已合入改造基线 `37effff1`；新工作区和 MCP onSettled 失败刷新保留。77 文件543项前端、类型、renderer及格式检查通过；本次未改原生业务、未重新构建桌面安装包或发布。实际范围、历史验收 SHA 和发布限制见 [MAIN-SYNC-01](2026-10-28-main-sync-pr.md)。
+
+# NAV-01 默认启动账户 Tab（2026-10-26）
+
+按用户要求，在 `codex/account-default-tab` 基于 `c6416c5` 将 App 初始页面固定为账户，移除旧 `tuzi-switch-last-view` 的读取/写入与校验代码，不删除用户存储内容。最近工具选择及手动切换保持；已连接和未连接沿用各自账户界面。从托盘显示现存窗口不会重置当前页面。无 API/原生业务/依赖变更，包含之前中文埋点。
+
+本机 macOS：`pnpm typecheck`；`pnpm test:unit --run tests/integration/App.test.tsx tests/components/AppSwitcher.accountCompatibility.test.tsx tests/components/AccountPage.test.tsx tests/analytics`（5文件40项）；`pnpm exec prettier --check src/App.tsx tests/integration/App.test.tsx`；`git diff --check` 均通过。既有 App 集成用例增加无历史/历史工具页/历史设置页的启动断言，保留已连接配置到工具、七工具操作与账户往返回归；工具操作测试显式先切到工具页。
+
+`pnpm tauri build --debug --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'` 通过，含 renderer 构建，产物为 `src-tauri/target/debug/bundle/macos/兔子助手.app`。保留既有构建警告；未声称三平台或真实原生 UI 人工验收通过。当前运行实例需退出后重新打开本地包查看启动行为。本轮独立本地提交，未推送或发布，原有附件保留。
+
+# ANALYTICS-02 第一期操作统计（2026-10-26）
+
+### 后续：中文事件名称
+
+用户已确认在 Umami 后台看到第一期操作事件，并要求改用中文名称。本轮在同一分支将全部46个事件显示名称改为中文，内部 module/action、阶段、结果及隐私白名单保持不变；不双发英文事件，不迁移/删除后台历史记录。中英文对应表见 [操作统计说明](analytics-events.md)。统计定向11项测试、类型检查、格式及差异检查通过；macOS debug app（命令行关闭 updater 产物）重新构建通过。当前已运行的旧实例需退出后重新打开本地测试包才能使用中文名称。未推送或发布；中文事件后台入库尚待核对。
+
+用户确认方案后，在 `codex/umami-operation-events` 基于 `c699711` 实施统一白名单上报、导航去重与关键操作提交/结果统计。无 API/原生业务/依赖改动。新增11项合成统计测试通过，相关18文件214项回归通过（含先前9项统计测试），类型、renderer构建、macOS debug app构建、格式与差异检查通过。已启动本地包；桌面自动化读取受应用标识冲突/超时限制，新增事件真实网络/后台入库与三平台验收尚未完成。未推送或发布，原有附件保留。用户此前已确认基础访问上报成功。
+
+事件字典、测试命令、环境过滤、submit/result 计数口径和回退见 [操作统计说明](analytics-events.md) / [ADR-015](decisions/0015-operation-analytics.md)。
+
+# ANALYTICS-01 同步最新 main 并接入 Umami（2026-10-26）
+
+用户授权同步远程 main，保留基础统计脚本，不加自定义事件。旧分支 codex/umami-basic-analytics / 3e39ee6 基于旧版 1.3.1，保留作历史；当前从 origin/main `1a32301`（v1.4.2）建立 codex/umami-main-sync，仅迁入 Umami HTML 脚本与 CSP 域名放行，保留新版页面标题、账户实现及发布配置。原有未跟踪产品文档/附件保持，API 未改；不推送或发布。
+
+本机 macOS 的 `pnpm build:renderer`、`pnpm typecheck`、改动 HTML/JSON 的 Prettier 检查及 `git diff --check` 通过；构建保留既有浏览器数据、动态导入与包体积警告。桌面真实上报及 Umami 后台入库尚未验证。直接嵌入脚本也适用于开发/预览页面，未增加环境过滤。
+
 # UI-11 CLI 隔离兼容验证（2026-10-27）
 
 Grok Build、Pi、MiniMax Code 三种协议经实际 CLI 和本机合成上游验证；Claude/Codex 实际 CLI 经聚合代理完成流式合成请求，Codex 模型列表可见合成前缀模型。隔离 macOS 预览已重新构建启动。真实站点、图形选模、三平台及用户验收未完成；见 [UI-11记录](ui11-cli-compatibility.md)。

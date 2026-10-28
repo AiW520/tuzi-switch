@@ -1,3 +1,5 @@
+import { useAnalyticsView } from "@/hooks/useAnalyticsView";
+import { trackInteraction } from "@/lib/analytics";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -165,38 +167,6 @@ const getInitialApp = (): AppId => {
   return "claude";
 };
 
-const VIEW_STORAGE_KEY = "tuzi-switch-last-view";
-const VALID_VIEWS: View[] = [
-  "account",
-  "providers",
-  "settings",
-  "prompts",
-  "skills",
-  "skillsDiscovery",
-  "mcp",
-  "agents",
-  "universal",
-  "sessions",
-  "workspace",
-  "openclawEnv",
-  "openclawTools",
-  "openclawAgents",
-  "hermesMemory",
-  "grokbuild",
-  "pi",
-  "mcode",
-  "auth",
-  "usage",
-];
-
-const getInitialView = (): View => {
-  const saved = localStorage.getItem(VIEW_STORAGE_KEY) as View | null;
-  if (saved && VALID_VIEWS.includes(saved)) {
-    return saved;
-  }
-  return "providers";
-};
-
 function App() {
   const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
@@ -230,7 +200,7 @@ function App() {
 
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const [accountReturnRequest, setAccountReturnRequest] = useState(0);
-  const [currentView, setCurrentView] = useState<View>(getInitialView);
+  const [currentView, setCurrentView] = useState<View>("account");
   const [workspaceOrigin, setWorkspaceOrigin] = useState<WorkspaceTool>(() =>
     ["grokbuild", "pi", "mcode"].includes(currentView)
       ? (currentView as WorkspaceTool)
@@ -270,6 +240,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem("tuzi-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+  useAnalyticsView(
+    currentView,
+    currentView === "providers"
+      ? activeApp
+      : ["grokbuild", "pi", "mcode"].includes(currentView)
+        ? currentView
+        : (GLOBAL_WORKSPACE_VIEWS as readonly string[]).includes(currentView)
+          ? (workspaceTarget ?? undefined)
+          : undefined,
+  );
   useEffect(() => {
     if (
       accountProviderFocus &&
@@ -314,10 +294,6 @@ function App() {
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem(VIEW_STORAGE_KEY, currentView);
-  }, [currentView]);
 
   const { data: settingsData } = useSettingsQuery();
   const useAppWindowControls =
@@ -1030,7 +1006,7 @@ function App() {
       }
     }
 
-    await addProvider(duplicatedProvider);
+    await addProvider(duplicatedProvider, "duplicate");
   };
 
   const handleOpenTerminal = async (provider: Provider) => {
@@ -1135,7 +1111,10 @@ function App() {
                   ? "account.business.proxyRunning"
                   : "account.business.proxyStopped",
               )}
-              onConfigureKey={(key, model) => setConfigureKey({ key, model })}
+              onConfigureKey={(key, model) => {
+                trackInteraction("configure_tool", "open");
+                setConfigureKey({ key, model });
+              }}
             />
           );
         case "grokbuild":
