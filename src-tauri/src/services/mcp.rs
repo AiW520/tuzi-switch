@@ -73,6 +73,18 @@ mod native_integration_tests {
             .execute_batch("DROP TRIGGER fail_save;")
             .unwrap();
         McpService::upsert_server(&state, server.clone()).unwrap();
+        let snapshot = fs::read_to_string(&codex).unwrap();
+        let provider = crate::provider::Provider::with_id(
+            "codex-live-config".into(),
+            "Synthetic current config".into(),
+            json!({"auth":{}, "config":snapshot}),
+            None,
+        );
+        state.db.save_provider("codex", &provider).unwrap();
+        state
+            .db
+            .set_config_snippet("codex", Some(snapshot.clone()))
+            .unwrap();
         let claude = crate::config::get_claude_mcp_path();
         let claude_before = fs::read(&claude).unwrap();
         let pi_path = dir.path().join("pi/mcp.json");
@@ -80,6 +92,19 @@ mod native_integration_tests {
         let codex_before = fs::read(&codex).unwrap();
         state.db.conn.lock().unwrap().execute_batch("CREATE TRIGGER fail_delete BEFORE DELETE ON mcp_servers BEGIN SELECT RAISE(FAIL, 'synthetic failure'); END;").unwrap();
         assert!(McpService::delete_server(&state, &server.id).is_err());
+        assert_eq!(
+            state
+                .db
+                .get_provider_by_id("codex-live-config", "codex")
+                .unwrap()
+                .unwrap()
+                .settings_config["config"],
+            snapshot
+        );
+        assert_eq!(
+            state.db.get_config_snippet("codex").unwrap().unwrap(),
+            snapshot
+        );
         assert_eq!(fs::read(&claude).unwrap(), claude_before);
         assert_eq!(fs::read(&pi_path).unwrap(), pi_before);
         assert_eq!(fs::read(&codex).unwrap(), codex_before);
@@ -127,6 +152,21 @@ mod native_integration_tests {
         std::env::set_var("PI_CODING_AGENT_DIR", &device_b);
         McpService::import_from_native_tools(&state).unwrap();
         McpService::delete_server(&state, &server.id).unwrap();
+        assert!(!state
+            .db
+            .get_provider_by_id("codex-live-config", "codex")
+            .unwrap()
+            .unwrap()
+            .settings_config["config"]
+            .as_str()
+            .unwrap()
+            .contains("failure-fixture"));
+        assert!(!state
+            .db
+            .get_config_snippet("codex")
+            .unwrap()
+            .unwrap()
+            .contains("failure-fixture"));
         assert!(state.db.get_all_mcp_servers().unwrap().is_empty());
         assert!(serde_json::from_slice::<serde_json::Value>(
             &fs::read(device_b.join("mcp.json")).unwrap()
@@ -267,6 +307,7 @@ impl McpService {
 
     /// 添加或更新 MCP 服务器
     pub fn upsert_server(state: &AppState, mut server: McpServer) -> Result<(), AppError> {
+        let _provider_guard = crate::services::provider::OperationGuard::acquire()?;
         let _guard = mutation_lock()?;
         // 读取旧状态：用于处理“编辑时取消勾选某个应用”的场景（需要从对应 live 配置中移除）
         let previous = state.db.get_all_mcp_servers()?.get(&server.id).cloned();
@@ -277,7 +318,7 @@ impl McpService {
         server.apps.pi_managed = prev_apps.pi_managed || server.apps.pi;
 
         crate::native_mcp::commit(previous.as_ref(), Some(&server), || {
-            state.db.save_mcp_server(&server)
+            state.db.commit_mcp_change(previous.as_ref(), Some(&server))
         })?;
 
         Ok(())
@@ -285,11 +326,14 @@ impl McpService {
 
     /// 删除 MCP 服务器
     pub fn delete_server(state: &AppState, id: &str) -> Result<bool, AppError> {
+        let _provider_guard = crate::services::provider::OperationGuard::acquire()?;
         let _guard = mutation_lock()?;
         let server = state.db.get_all_mcp_servers()?.shift_remove(id);
 
         if let Some(server) = server {
-            crate::native_mcp::commit(Some(&server), None, || state.db.delete_mcp_server(id))?;
+            crate::native_mcp::commit(Some(&server), None, || {
+                state.db.commit_mcp_change(Some(&server), None)
+            })?;
 
             Ok(true)
         } else {
@@ -303,6 +347,7 @@ impl McpService {
         app: &str,
         enabled: bool,
     ) -> Result<(), AppError> {
+        let _provider_guard = crate::services::provider::OperationGuard::acquire()?;
         let _guard = mutation_lock()?;
         let previous = state
             .db
@@ -321,7 +366,7 @@ impl McpService {
             return Ok(());
         }
         crate::native_mcp::commit(Some(&previous), Some(&next), || {
-            state.db.save_mcp_server(&next)
+            state.db.commit_mcp_change(Some(&previous), Some(&next))
         })
     }
 
@@ -332,6 +377,7 @@ impl McpService {
         app: AppType,
         enabled: bool,
     ) -> Result<(), AppError> {
+        let _provider_guard = crate::services::provider::OperationGuard::acquire()?;
         let _guard = mutation_lock()?;
         let previous = state
             .db
@@ -341,7 +387,7 @@ impl McpService {
         let mut next = previous.clone();
         next.apps.set_enabled_for(&app, enabled);
         crate::native_mcp::commit(Some(&previous), Some(&next), || {
-            state.db.save_mcp_server(&next)
+            state.db.commit_mcp_change(Some(&previous), Some(&next))
         })
     }
 
