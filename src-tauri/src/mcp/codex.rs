@@ -89,7 +89,7 @@ pub fn import_from_codex(config: &mut MultiAppConfig) -> Result<usize, AppError>
             // 核心字段（需要手动处理的字段）
             let core_fields = match typ {
                 "stdio" => vec!["type", "command", "args", "env", "cwd"],
-                "http" | "sse" => vec!["type", "url", "http_headers"],
+                "http" | "sse" => vec!["type", "url", "headers", "http_headers"],
                 _ => vec!["type"],
             };
 
@@ -577,7 +577,7 @@ pub(super) fn json_server_to_toml_table(spec: &Value) -> Result<toml_edit::Table
     // 定义核心字段（已在下方处理，跳过通用转换）
     let core_fields = match typ {
         "stdio" => vec!["type", "command", "args", "env", "cwd"],
-        "http" | "sse" => vec!["type", "url", "http_headers"],
+        "http" | "sse" => vec!["type", "url", "headers", "http_headers"],
         _ => vec!["type"],
     };
 
@@ -676,9 +676,9 @@ pub(super) fn json_server_to_toml_table(spec: &Value) -> Result<toml_edit::Table
 
                 // 记录扩展字段的处理
                 if extended_fields.contains(&key.as_str()) {
-                    log::debug!("已转换扩展字段 '{key}' = {value:?}");
+                    log::debug!("已转换扩展字段 '{key}'");
                 } else {
-                    log::info!("已转换自定义字段 '{key}' = {value:?}");
+                    log::debug!("已转换自定义字段 '{key}'");
                 }
             }
         }

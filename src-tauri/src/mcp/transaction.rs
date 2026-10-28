@@ -111,7 +111,9 @@ fn converted(app: &AppType, path: &Path, spec: &Value) -> Result<Value, AppError
     match app {
         AppType::Codex => {
             let table = super::codex::json_server_to_toml_table(spec)?;
-            let doc: toml::Value = toml::from_str(&table.to_string()).map_err(|_| error())?;
+            let mut document = toml_edit::DocumentMut::new();
+            *document.as_table_mut() = table;
+            let doc: toml::Value = toml::from_str(&document.to_string()).map_err(|_| error())?;
             serde_json::to_value(doc).map_err(|_| error())
         }
         AppType::Hermes => super::hermes::convert_to_hermes_format(spec),
@@ -159,8 +161,9 @@ fn merge(
                 })
             }
             if *key == "type"
-                && expected.get(key) == Some(&json!("stdio"))
                 && entry.get(key).is_none()
+                && ((expected.get(key) == Some(&json!("stdio")) && entry.get("command").is_some())
+                    || (expected.get(key) == Some(&json!("http")) && entry.get("url").is_some()))
             {
                 return false;
             }
@@ -208,7 +211,9 @@ pub(crate) fn transform(
             .get(id)
             .map(|item| {
                 let val = if let Some(table) = item.as_table() {
-                    table.to_string()
+                    let mut document = toml_edit::DocumentMut::new();
+                    *document.as_table_mut() = table.clone();
+                    document.to_string()
                 } else if let Some(table) = item.as_inline_table() {
                     table.iter().map(|(k, v)| format!("{k} = {v}\n")).collect()
                 } else {
@@ -278,6 +283,53 @@ pub(crate) fn transform(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_mcp_codex_environment_nested_tables_survive_roundtrip() {
+        let spec = json!({"command":"fixture", "env":{"SYNTHETIC":"fixture"}});
+        let first = transform(
+            &AppType::Codex,
+            Path::new("config.toml"),
+            None,
+            "work",
+            None,
+            Some(&spec),
+        )
+        .unwrap();
+        let second = transform(
+            &AppType::Codex,
+            Path::new("config.toml"),
+            Some(&first),
+            "work",
+            Some(&spec),
+            Some(&spec),
+        )
+        .unwrap();
+        let doc: toml::Value = toml::from_str(std::str::from_utf8(&second).unwrap()).unwrap();
+        assert_eq!(
+            doc["mcp_servers"]["work"]["env"]["SYNTHETIC"].as_str(),
+            Some("fixture")
+        );
+    }
+    #[test]
+    fn legacy_mcp_codex_native_http_without_type_accepts_imported_headers() {
+        let before = b"[mcp_servers.remote]\nurl = \"https://example.invalid/mcp\"\n[mcp_servers.remote.http_headers]\nAuthorization = \"synthetic-only\"\n";
+        let spec = json!({"type":"http", "url":"https://example.invalid/mcp", "headers":{"Authorization":"synthetic-only"}});
+        let result = transform(
+            &AppType::Codex,
+            Path::new("config.toml"),
+            Some(before),
+            "remote",
+            Some(&spec),
+            Some(&spec),
+        )
+        .unwrap();
+        let doc: toml::Value = toml::from_str(std::str::from_utf8(&result).unwrap()).unwrap();
+        assert!(doc["mcp_servers"]["remote"].get("headers").is_none());
+        assert_eq!(
+            doc["mcp_servers"]["remote"]["http_headers"]["Authorization"].as_str(),
+            Some("synthetic-only")
+        );
+    }
     #[test]
     fn legacy_mcp_import_compares_native_transport_and_optional_fields() {
         for app in [AppType::OpenCode, AppType::Hermes] {
