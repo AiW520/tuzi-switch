@@ -86,6 +86,7 @@ import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { UpdateBadge } from "@/components/UpdateBadge";
+import { VersionHistory } from "@/components/version-history/VersionHistory";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { ProviderConnectionControls } from "@/components/providers/ProviderConnectionControls";
 import { ClaudeDesktopRouteToggle } from "@/components/proxy/ClaudeDesktopRouteToggle";
@@ -1613,6 +1614,7 @@ function App() {
                 >
                   <Settings className="w-4 h-4" />
                 </Button>
+                <VersionHistory />
                 <UpdateBadge
                   onOpenAbout={() => {
                     setSettingsDefaultTab("about");
