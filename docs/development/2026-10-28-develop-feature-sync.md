@@ -1,6 +1,6 @@
 # Develop 特性迁移记录
 
-来源为本地已获取的 `origin/develop` 快照 `d83d1a001a37f22c5bb13fe1c6138908d8cc875c`。2026-10-28 再次连接 GitHub 时 TLS 握手失败，未能确认远程最新 SHA。
+来源为本地已获取的 `origin/develop` 快照 `d83d1a001a37f22c5bb13fe1c6138908d8cc875c`。2026-10-28 排除本机旧代理配置后重新核对，远程 develop 仍为该 SHA。
 
 本地基线为 `32a333342edd75424056069c44a9c4e1c65d5373`，其中包含原工作区未提交 MCP 修改的快照。
 

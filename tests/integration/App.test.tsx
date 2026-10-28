@@ -1,3 +1,4 @@
+import { UpdateProvider } from "@/contexts/UpdateContext";
 import { Suspense, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -17,6 +18,10 @@ import { emitTauriEvent } from "../msw/tauriMocks";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
+
+vi.mock("@/lib/updater", () => ({
+  checkForUpdate: vi.fn().mockResolvedValue({ status: "up-to-date" }),
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -245,7 +250,9 @@ const renderApp = (AppComponent: ComponentType) => {
   return render(
     <QueryClientProvider client={client}>
       <Suspense fallback={<div data-testid="loading">loading</div>}>
-        <AppComponent />
+        <UpdateProvider>
+          <AppComponent />
+        </UpdateProvider>
       </Suspense>
     </QueryClientProvider>,
   );
