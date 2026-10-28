@@ -136,7 +136,7 @@ export function useCodexCommonConfig({
   // 初始化时检查通用配置片段（编辑模式）
   useEffect(() => {
     if (
-      !initialData?.settingsConfig ||
+      !initialData ||
       isLoading ||
       hasInitializedEditMode.current
     ) {
@@ -156,7 +156,7 @@ export function useCodexCommonConfig({
     }
 
     const config =
-      typeof initialData.settingsConfig.config === "string"
+      typeof initialData.settingsConfig?.config === "string"
         ? initialData.settingsConfig.config
         : "";
     const inferredHasCommon = hasTomlCommonConfigSnippet(
@@ -202,6 +202,7 @@ export function useCodexCommonConfig({
     isLoading,
     onConfigChange,
     parseCommonConfigSnippet,
+    selectedPresetId,
   ]);
 
   // 新建模式：如果通用配置片段存在且有效，默认启用
@@ -250,6 +251,7 @@ export function useCodexCommonConfig({
     codexConfig,
     onConfigChange,
     parseCommonConfigSnippet,
+    selectedPresetId,
   ]);
 
   // 处理通用配置开关
