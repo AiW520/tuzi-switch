@@ -77,6 +77,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:renderer
       - name: Native regression (host target)
@@ -121,9 +122,9 @@ jobs:
           (output / 'manifest.json').write_text(json.dumps({
               'repository': os.environ['GITHUB_REPOSITORY'], 'commit': os.environ['GITHUB_SHA'],
               'run': os.environ['GITHUB_RUN_ID'], 'target': os.environ['BUILD_TARGET'],
-              'version': json.loads(pathlib.Path('package.json').read_text())['version'],
+              'version': json.loads(pathlib.Path('package.json').read_text(encoding='utf-8'))['version'],
               'developerSigned': False, 'notarized': False, 'files': files
-          }, ensure_ascii=False, indent=2) + '\n')
+          }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           PY
       - uses: actions/upload-artifact@v4
         with:
