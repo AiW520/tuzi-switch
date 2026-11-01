@@ -586,3 +586,8 @@ Grok Build、Pi、MiniMax Code 的 MCP 适配已在工作区接入界面、数�
 ## 2026-10-28 MCP 构建前一致性修复
 
 用户授权验证修复后推送 AiW520/tuzi-switch 生成产物。旧工具文件与数据库补偿、Pi 本机归属、导入失败恢复已实施并通过 1465 原生单元、2 隔离集成、520 前端测试。验收构建流程仅上传产物；不自动公开发布。见 [修复记录](2026-10-28-mcp-release-hardening.md)。
+
+
+## 2026-11-01 DL-FORK-01 测试库下载页
+
+用户确认视觉并授权推送 AiW520/tuzi-switch 构建。独立下载页、同 SHA 四平台 artifact 校验、点击统计和无后端本地打开已验证；新增 Acceptance installers 后置页面构建，详见 [记录](2026-11-01-test-download-page.md)。本条记录时尚待远程构建，不代表正式网站或正式 Release 已发布。

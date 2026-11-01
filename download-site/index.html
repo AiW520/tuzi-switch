@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="New-Api-Version" content="" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>兔子助手测试版下载</title>
+    <meta
+      name="description"
+      content="下载兔子助手，管理账户、切换 AI 工具、配置 MCP。提供 macOS、Windows、Linux 安装包。"
+    />
+    <script
+      defer
+      src="https://umami.tu-zi.com/script.js"
+      data-website-id="853b4529-0976-4f8a-b00b-6e716f9a2f20"
+      data-auto-track="false"
+    ></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button {
+        font: inherit;
+      }
+      a {
+        text-decoration: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .embedded-switch-layout {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .embedded-switch-card {
+        width: 100%;
+        background: #fff;
+      }
+      .embedded-switch-download-grid {
+        display: grid;
+      }
+      .embedded-switch-download-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        text-decoration: none;
+      }
+      .embedded-switch-command-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .embedded-switch-command-code {
+        white-space: pre-wrap;
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .td-platform-icon svg {
+        height: 1em;
+        width: 1em;
+      }
+      .td-brand-icon svg {
+        height: 27px;
+        width: 27px;
+      }
+      .td-release-pill::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #84a479;
+      }
+      .td-release-pill.is-stale::before {
+        background: #d3a47c;
+      }
+      .td-os-hint {
+        font-size: 11px;
+        line-height: 1.8;
+        color: #8c8375;
+        margin: 0 0 13px;
+      }
+      .switch-toast {
+        position: fixed;
+        bottom: 28px;
+        left: 50%;
+        transform: translate(-50%, 8px);
+        opacity: 0;
+        pointer-events: none;
+        background: #292722;
+        color: #fff;
+        border-radius: 12px;
+        padding: 12px 20px;
+        font-size: 13px;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+      }
+      .switch-toast.is-visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .tuzi-download.embedded-switch-page {
+        background: #f8f7f4;
+        color: #292722;
+      }
+
+      .tuzi-download .embedded-switch-layout {
+        flex-direction: column;
+        padding: 48px 24px 32px;
+      }
+
+      .tuzi-download .embedded-switch-card {
+        max-width: 820px;
+        border: 1px solid #ebe8e3;
+        border-radius: 28px;
+        box-shadow: 0 12px 50px rgb(65 46 26 / 4.5%);
+        padding: 36px 42px 24px;
+      }
+
+      .tuzi-download .td-brand-row,
+      .tuzi-download .td-brand,
+      .tuzi-download .td-source,
+      .tuzi-download .td-section-heading,
+      .tuzi-download .td-platform-top,
+      .tuzi-download .td-download-action,
+      .tuzi-download .td-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .tuzi-download .td-brand {
+        gap: 12px;
+      }
+      .tuzi-download .td-brand strong {
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.025em;
+      }
+      .tuzi-download .td-brand-caption {
+        display: block;
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        color: #989187;
+        margin-top: 4px;
+      }
+      .tuzi-download .td-brand-icon {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        color: #e96a32;
+        background: #fff2e8;
+        border: 1px solid #ffe8d7;
+        border-radius: 16px;
+      }
+      .tuzi-download .td-source {
+        gap: 7px;
+        font-size: 12px;
+        color: #777168;
+        padding: 9px 12px;
+        border: 1px solid #ece9e4;
+        border-radius: 10px;
+        text-decoration: none;
+      }
+      .tuzi-download .td-source:hover {
+        color: #292722;
+        background: #faf9f7;
+      }
+      .tuzi-download .td-heading {
+        margin: 33px 0 30px;
+      }
+      .tuzi-download .embedded-switch-kicker {
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        color: #bd633b;
+        margin: 0 0 10px;
+      }
+      .tuzi-download .embedded-switch-title {
+        font-size: clamp(28px, 4vw, 36px);
+        font-weight: 750;
+        line-height: 1.3;
+        color: #292722;
+        margin: 0 0 12px;
+        letter-spacing: -0.045em;
+      }
+      .tuzi-download .embedded-switch-subtitle {
+        max-width: 570px;
+        font-size: 14px;
+        line-height: 1.9;
+        color: #81796f;
+        margin: 0;
+        text-wrap: pretty;
+      }
+      .tuzi-download .td-features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 24px;
+        margin-top: 20px;
+        font-size: 12px;
+        color: #766e65;
+      }
+      .tuzi-download .td-features > span {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .tuzi-download .td-features svg {
+        color: #a59b8f;
+      }
+      .tuzi-download .embedded-switch-download-section {
+        margin: 0;
+      }
+      .tuzi-download .td-section-heading {
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+      }
+      .tuzi-download .td-section-heading h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .tuzi-download .td-release-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #797368;
+        background: #f6f6f2;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 10px;
+        line-height: 1.5;
+      }
+      .tuzi-download .td-release-pill > span {
+        height: 5px;
+        width: 5px;
+        border-radius: 50%;
+        background: #84a479;
+      }
+      .tuzi-download .td-release-pill.is-stale > span {
+        background: #d3a47c;
+      }
+      .tuzi-download .embedded-switch-download-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .tuzi-download .embedded-switch-download-card {
+        grid-column: span 3;
+        min-width: 0;
+        padding: 18px;
+        gap: 0;
+        background: #fcfcfa;
+        border: 1px solid #eae7e1;
+        border-radius: 16px;
+        box-shadow: none;
+        color: #292722;
+        transition:
+          background 160ms,
+          border-color 160ms,
+          box-shadow 160ms,
+          transform 160ms;
+      }
+      .tuzi-download .embedded-switch-download-card.is-desktop {
+        grid-column: span 3;
+        padding: 21px;
+        background: #fff;
+      }
+      .tuzi-download .embedded-switch-download-card:hover {
+        background: #fff8f2;
+        border-color: #edae89;
+        box-shadow: 0 5px 18px rgb(132 78 35 / 6%);
+        transform: translateY(-2px);
+        color: #292722;
+      }
+      .tuzi-download .td-platform-top {
+        align-self: stretch;
+        margin-bottom: 15px;
+      }
+      .tuzi-download .td-platform-icon {
+        display: grid;
+        place-items: center;
+        color: #4d4942;
+        width: 34px;
+        height: 34px;
+        font-size: 25px;
+      }
+      .tuzi-download .is-desktop .td-platform-icon {
+        font-size: 29px;
+      }
+      .tuzi-download .td-file-type {
+        color: #7d7468;
+        border: 1px solid #ebe7df;
+        border-radius: 6px;
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        padding: 3px 6px;
+      }
+      .tuzi-download .embedded-switch-dl-title {
+        font-size: 15px;
+        font-weight: 650;
+        line-height: 1.6;
+      }
+      .tuzi-download .is-desktop .embedded-switch-dl-title {
+        font-size: 17px;
+      }
+      .tuzi-download .embedded-switch-dl-sub {
+        font-size: 11px;
+        line-height: 1.75;
+        color: #7a7166;
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+      }
+      .tuzi-download .td-download-action {
+        align-self: stretch;
+        gap: 8px;
+        color: #c86c3c;
+        font-size: 11px;
+        font-weight: 500;
+        margin-top: auto;
+        padding-top: 18px;
+      }
+      .tuzi-download .embedded-switch-download-card:hover .td-download-action {
+        color: #b9501d;
+      }
+      .tuzi-download .td-version-notice {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin: 12px 0 0;
+        color: #9b7b57;
+        font-size: 11px;
+        line-height: 1.8;
+      }
+      .tuzi-download .td-version-notice a {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .tuzi-download .td-terminal {
+        margin-top: 20px;
+        border: 1px solid #eeeae3;
+        border-radius: 13px;
+        background: #faf9f6;
+        overflow: hidden;
+      }
+      .tuzi-download .td-terminal summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        color: #82796c;
+        font-size: 12px;
+      }
+      .tuzi-download .td-terminal summary::-webkit-details-marker {
+        display: none;
+      }
+      .tuzi-download .td-terminal summary > span:first-of-type {
+        flex: 1;
+      }
+      .tuzi-download .td-terminal-plus {
+        font-size: 18px;
+        color: #a69c8e;
+        line-height: 1;
+      }
+      .tuzi-download .td-terminal[open] .td-terminal-plus {
+        transform: rotate(45deg);
+      }
+      .tuzi-download .td-terminal-body {
+        padding: 0 10px 10px;
+      }
+      .tuzi-download .embedded-switch-command-panel {
+        background: #272a2d;
+        border-radius: 9px;
+        padding: 14px 16px;
+        margin: 0;
+      }
+      .tuzi-download .embedded-switch-command-head {
+        margin-bottom: 10px;
+      }
+      .tuzi-download .embedded-switch-command-label {
+        color: #a9adb1;
+        font-size: 11px;
+      }
+      .tuzi-download .embedded-switch-command-code {
+        color: #e4e6e7;
+        font-size: 11px;
+        line-height: 1.9;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .tuzi-download .td-copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid #4d5054;
+        border-radius: 6px;
+        padding: 4px 8px;
+        background: transparent;
+        color: #dadddf;
+        font-size: 10px;
+        cursor: pointer;
+      }
+      .tuzi-download .td-copy:hover {
+        background: #3a3d40;
+      }
+      .tuzi-download .td-footer {
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+        color: #7e7569;
+        font-size: 10px;
+        line-height: 1.8;
+      }
+      .tuzi-download .td-footer a {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: #8d8375;
+        text-decoration: none;
+      }
+      .tuzi-download .td-outside-note {
+        display: flex;
+        justify-content: center;
+        gap: 9px;
+        flex-wrap: wrap;
+        color: #a89e91;
+        font-size: 10px;
+        line-height: 1.8;
+        margin: 20px 0 0;
+      }
+      .tuzi-download .td-source:focus-visible,
+      .tuzi-download .embedded-switch-download-card:focus-visible,
+      .tuzi-download .td-terminal summary:focus-visible,
+      .tuzi-download .td-copy:focus-visible,
+      .tuzi-download .td-footer a:focus-visible,
+      .tuzi-download .td-version-notice a:focus-visible {
+        outline: 3px solid #efac84;
+        outline-offset: 3px;
+      }
+
+      @media (max-width: 560px) {
+        .tuzi-download .embedded-switch-layout {
+          padding: 22px 14px 24px;
+        }
+        .tuzi-download .embedded-switch-card {
+          padding: 25px 21px 22px;
+          border-radius: 23px;
+        }
+        .tuzi-download .td-heading {
+          margin-top: 28px;
+        }
+        .tuzi-download .embedded-switch-subtitle {
+          font-size: 13px;
+        }
+        .tuzi-download .td-features {
+          gap: 12px 16px;
+          font-size: 11px;
+        }
+        .tuzi-download .embedded-switch-download-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .tuzi-download .embedded-switch-download-card,
+        .tuzi-download .embedded-switch-download-card.is-desktop {
+          grid-column: span 1;
+          padding: 15px 12px;
+        }
+        .tuzi-download
+          .embedded-switch-download-card:last-child:nth-child(odd) {
+          grid-column: 1 / -1;
+        }
+        .tuzi-download .td-section-heading {
+          gap: 9px;
+        }
+        .tuzi-download .embedded-switch-dl-title,
+        .tuzi-download .is-desktop .embedded-switch-dl-title {
+          font-size: 14px;
+        }
+        .tuzi-download .td-download-action {
+          font-size: 10px;
+        }
+        .tuzi-download .td-outside-note {
+          font-size: 9px;
+          max-width: 320px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .tuzi-download .embedded-switch-download-card {
+          transition: none;
+        }
+        .tuzi-download .embedded-switch-download-card:hover {
+          transform: none;
+        }
+      }
+
+      .tuzi-download.tuzi-switch-theme-dark {
+        color-scheme: dark;
+        background: #181a1e;
+        color: #f2eee7;
+      }
+      .tuzi-switch-theme-dark .embedded-switch-card {
+        background: #22252b;
+        border-color: #35373d;
+      }
+      .tuzi-switch-theme-dark .embedded-switch-title,
+      .tuzi-switch-theme-dark .embedded-switch-download-card {
+        color: #eee8df;
+      }
+      .tuzi-switch-theme-dark .embedded-switch-download-card,
+      .tuzi-switch-theme-dark .embedded-switch-download-card.is-desktop {
+        background: #272a30;
+        border-color: #3b3d42;
+      }
+      .tuzi-switch-theme-dark .embedded-switch-download-card:hover {
+        background: #34302d;
+        border-color: #b87955;
+      }
+      .tuzi-switch-theme-dark .td-platform-icon {
+        color: #e4ded5;
+      }
+      .tuzi-switch-theme-dark .td-terminal,
+      .tuzi-switch-theme-dark .td-release-pill {
+        background: #292b31;
+        border-color: #3b3d42;
+      }
+      .tuzi-switch-theme-dark .td-source,
+      .tuzi-switch-theme-dark .td-file-type {
+        border-color: #49433e;
+        color: #b6ada0;
+      }
+      .tuzi-switch-theme-dark .embedded-switch-subtitle,
+      .tuzi-switch-theme-dark .td-features {
+        color: #b2a99d;
+      }
+    </style>
+  </head>
+  <body class="tuzi-download embedded-switch-page tuzi-switch-page">
+    <main class="embedded-switch-layout">
+      <section
+        class="embedded-switch-card"
+        aria-labelledby="tuzi-download-title"
+      >
+        <div class="td-brand-row">
+          <div class="td-brand">
+            <span class="td-brand-icon"
+              ><svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-rabbit"
+                aria-hidden="true"
+              >
+                <path d="M13 16a3 3 0 0 1 2.24 5"></path>
+                <path d="M18 12h.01"></path>
+                <path
+                  d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"
+                ></path>
+                <path d="M20 8.54V4a2 2 0 1 0-4 0v3"></path>
+                <path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"></path></svg></span
+            ><span
+              ><strong>兔子助手</strong
+              ><span class="td-brand-caption">TUZI ASSISTANT</span></span
+            >
+          </div>
+          <a
+            id="githubSourceLink"
+            class="td-source"
+            href="https://github.com/AiW520/tuzi-switch"
+            target="_blank"
+            rel="noreferrer"
+            ><svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-github"
+              aria-hidden="true"
+            >
+              <path
+                d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"
+              ></path>
+              <path d="M9 18c-4.51 2-5-2-7-2"></path>
+            </svg>
+            GitHub
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-arrow-up-right"
+              aria-hidden="true"
+            >
+              <path d="M7 7h10v10"></path>
+              <path d="M7 17 17 7"></path></svg
+          ></a>
+        </div>
+        <header class="td-heading">
+          <p class="embedded-switch-kicker">
+            为你的 AI 工作流，少一点折腾 · 测试版
+          </p>
+          <h1 id="tuzi-download-title" class="embedded-switch-title">
+            下载兔子助手
+          </h1>
+          <p class="embedded-switch-subtitle">
+            管理账户、切换工具、配置 MCP。把常用的 AI
+            工具，放进一个顺手的桌面工作区。
+          </p>
+          <div class="td-features" aria-label="主要功能">
+            <span
+              ><svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-layers"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+                ></path>
+                <path
+                  d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+                ></path>
+                <path
+                  d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+                ></path>
+              </svg>
+              多工具管理</span
+            ><span
+              ><svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-plug"
+                aria-hidden="true"
+              >
+                <path d="M12 22v-5"></path>
+                <path d="M9 8V2"></path>
+                <path d="M15 8V2"></path>
+                <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path>
+              </svg>
+              MCP 配置</span
+            ><span
+              ><svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-route"
+                aria-hidden="true"
+              >
+                <circle cx="6" cy="19" r="3"></circle>
+                <path
+                  d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"
+                ></path>
+                <circle cx="18" cy="5" r="3"></circle>
+              </svg>
+              模型路由</span
+            >
+          </div>
+        </header>
+        <section
+          class="embedded-switch-download-section"
+          aria-labelledby="tuzi-platform-title"
+        >
+          <div class="td-section-heading">
+            <h2 id="tuzi-platform-title">选择你的安装包</h2>
+            <span class="td-release-pill is-stale" id="syncPill" role="status"
+              >正在读取测试构建</span
+            >
+          </div>
+
+          <p class="td-os-hint" id="buildInfo">正在读取测试构建信息…</p>
+          <p class="td-os-hint">
+            测试安装包以 ZIP 下载，需要登录 GitHub。解压后选择安装文件。
+          </p>
+          <div
+            class="download-grid embedded-switch-download-grid"
+            aria-live="polite"
+          ></div>
+          <template id="icon-macos"
+            ><span class="td-platform-icon" aria-hidden="true"
+              ><svg
+                stroke="currentColor"
+                fill="currentColor"
+                stroke-width="0"
+                viewBox="0 0 384 512"
+                aria-hidden="true"
+                height="16"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+                ></path></svg></span></template
+          ><template id="icon-windows"
+            ><span class="td-platform-icon" aria-hidden="true"
+              ><svg
+                stroke="currentColor"
+                fill="currentColor"
+                stroke-width="0"
+                viewBox="0 0 448 512"
+                aria-hidden="true"
+                height="16"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M0 93.7l183.6-25.3v177.4H0V93.7zm0 324.6l183.6 25.3V268.4H0v149.9zm203.8 28L448 480V268.4H203.8v177.9zm0-380.6v180.1H448V32L203.8 65.7z"
+                ></path></svg></span></template
+          ><template id="icon-rpm"
+            ><span class="td-platform-icon" aria-hidden="true"
+              ><svg
+                stroke="currentColor"
+                fill="currentColor"
+                stroke-width="0"
+                viewBox="0 0 448 512"
+                aria-hidden="true"
+                height="16"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M220.8 123.3c1 .5 1.8 1.7 3 1.7 1.1 0 2.8-.4 2.9-1.5.2-1.4-1.9-2.3-3.2-2.9-1.7-.7-3.9-1-5.5-.1-.4.2-.8.7-.6 1.1.3 1.3 2.3 1.1 3.4 1.7zm-21.9 1.7c1.2 0 2-1.2 3-1.7 1.1-.6 3.1-.4 3.5-1.6.2-.4-.2-.9-.6-1.1-1.6-.9-3.8-.6-5.5.1-1.3.6-3.4 1.5-3.2 2.9.1 1 1.8 1.5 2.8 1.4zM420 403.8c-3.6-4-5.3-11.6-7.2-19.7-1.8-8.1-3.9-16.8-10.5-22.4-1.3-1.1-2.6-2.1-4-2.9-1.3-.8-2.7-1.5-4.1-2 9.2-27.3 5.6-54.5-3.7-79.1-11.4-30.1-31.3-56.4-46.5-74.4-17.1-21.5-33.7-41.9-33.4-72C311.1 85.4 315.7.1 234.8 0 132.4-.2 158 103.4 156.9 135.2c-1.7 23.4-6.4 41.8-22.5 64.7-18.9 22.5-45.5 58.8-58.1 96.7-6 17.9-8.8 36.1-6.2 53.3-6.5 5.8-11.4 14.7-16.6 20.2-4.2 4.3-10.3 5.9-17 8.3s-14 6-18.5 14.5c-2.1 3.9-2.8 8.1-2.8 12.4 0 3.9.6 7.9 1.2 11.8 1.2 8.1 2.5 15.7.8 20.8-5.2 14.4-5.9 24.4-2.2 31.7 3.8 7.3 11.4 10.5 20.1 12.3 17.3 3.6 40.8 2.7 59.3 12.5 19.8 10.4 39.9 14.1 55.9 10.4 11.6-2.6 21.1-9.6 25.9-20.2 12.5-.1 26.3-5.4 48.3-6.6 14.9-1.2 33.6 5.3 55.1 4.1.6 2.3 1.4 4.6 2.5 6.7v.1c8.3 16.7 23.8 24.3 40.3 23 16.6-1.3 34.1-11 48.3-27.9 13.6-16.4 36-23.2 50.9-32.2 7.4-4.5 13.4-10.1 13.9-18.3.4-8.2-4.4-17.3-15.5-29.7zM223.7 87.3c9.8-22.2 34.2-21.8 44-.4 6.5 14.2 3.6 30.9-4.3 40.4-1.6-.8-5.9-2.6-12.6-4.9 1.1-1.2 3.1-2.7 3.9-4.6 4.8-11.8-.2-27-9.1-27.3-7.3-.5-13.9 10.8-11.8 23-4.1-2-9.4-3.5-13-4.4-1-6.9-.3-14.6 2.9-21.8zM183 75.8c10.1 0 20.8 14.2 19.1 33.5-3.5 1-7.1 2.5-10.2 4.6 1.2-8.9-3.3-20.1-9.6-19.6-8.4.7-9.8 21.2-1.8 28.1 1 .8 1.9-.2-5.9 5.5-15.6-14.6-10.5-52.1 8.4-52.1zm-13.6 60.7c6.2-4.6 13.6-10 14.1-10.5 4.7-4.4 13.5-14.2 27.9-14.2 7.1 0 15.6 2.3 25.9 8.9 6.3 4.1 11.3 4.4 22.6 9.3 8.4 3.5 13.7 9.7 10.5 18.2-2.6 7.1-11 14.4-22.7 18.1-11.1 3.6-19.8 16-38.2 14.9-3.9-.2-7-1-9.6-2.1-8-3.5-12.2-10.4-20-15-8.6-4.8-13.2-10.4-14.7-15.3-1.4-4.9 0-9 4.2-12.3zm3.3 334c-2.7 35.1-43.9 34.4-75.3 18-29.9-15.8-68.6-6.5-76.5-21.9-2.4-4.7-2.4-12.7 2.6-26.4v-.2c2.4-7.6.6-16-.6-23.9-1.2-7.8-1.8-15 .9-20 3.5-6.7 8.5-9.1 14.8-11.3 10.3-3.7 11.8-3.4 19.6-9.9 5.5-5.7 9.5-12.9 14.3-18 5.1-5.5 10-8.1 17.7-6.9 8.1 1.2 15.1 6.8 21.9 16l19.6 35.6c9.5 19.9 43.1 48.4 41 68.9zm-1.4-25.9c-4.1-6.6-9.6-13.6-14.4-19.6 7.1 0 14.2-2.2 16.7-8.9 2.3-6.2 0-14.9-7.4-24.9-13.5-18.2-38.3-32.5-38.3-32.5-13.5-8.4-21.1-18.7-24.6-29.9s-3-23.3-.3-35.2c5.2-22.9 18.6-45.2 27.2-59.2 2.3-1.7.8 3.2-8.7 20.8-8.5 16.1-24.4 53.3-2.6 82.4.6-20.7 5.5-41.8 13.8-61.5 12-27.4 37.3-74.9 39.3-112.7 1.1.8 4.6 3.2 6.2 4.1 4.6 2.7 8.1 6.7 12.6 10.3 12.4 10 28.5 9.2 42.4 1.2 6.2-3.5 11.2-7.5 15.9-9 9.9-3.1 17.8-8.6 22.3-15 7.7 30.4 25.7 74.3 37.2 95.7 6.1 11.4 18.3 35.5 23.6 64.6 3.3-.1 7 .4 10.9 1.4 13.8-35.7-11.7-74.2-23.3-84.9-4.7-4.6-4.9-6.6-2.6-6.5 12.6 11.2 29.2 33.7 35.2 59 2.8 11.6 3.3 23.7.4 35.7 16.4 6.8 35.9 17.9 30.7 34.8-2.2-.1-3.2 0-4.2 0 3.2-10.1-3.9-17.6-22.8-26.1-19.6-8.6-36-8.6-38.3 12.5-12.1 4.2-18.3 14.7-21.4 27.3-2.8 11.2-3.6 24.7-4.4 39.9-.5 7.7-3.6 18-6.8 29-32.1 22.9-76.7 32.9-114.3 7.2zm257.4-11.5c-.9 16.8-41.2 19.9-63.2 46.5-13.2 15.7-29.4 24.4-43.6 25.5s-26.5-4.8-33.7-19.3c-4.7-11.1-2.4-23.1 1.1-36.3 3.7-14.2 9.2-28.8 9.9-40.6.8-15.2 1.7-28.5 4.2-38.7 2.6-10.3 6.6-17.2 13.7-21.1.3-.2.7-.3 1-.5.8 13.2 7.3 26.6 18.8 29.5 12.6 3.3 30.7-7.5 38.4-16.3 9-.3 15.7-.9 22.6 5.1 9.9 8.5 7.1 30.3 17.1 41.6 10.6 11.6 14 19.5 13.7 24.6zM173.3 148.7c2 1.9 4.7 4.5 8 7.1 6.6 5.2 15.8 10.6 27.3 10.6 11.6 0 22.5-5.9 31.8-10.8 4.9-2.6 10.9-7 14.8-10.4s5.9-6.3 3.1-6.6-2.6 2.6-6 5.1c-4.4 3.2-9.7 7.4-13.9 9.8-7.4 4.2-19.5 10.2-29.9 10.2s-18.7-4.8-24.9-9.7c-3.1-2.5-5.7-5-7.7-6.9-1.5-1.4-1.9-4.6-4.3-4.9-1.4-.1-1.8 3.7 1.7 6.5z"
+                ></path></svg></span></template
+          ><template id="icon-deb"
+            ><span class="td-platform-icon" aria-hidden="true"
+              ><svg
+                stroke="currentColor"
+                fill="currentColor"
+                stroke-width="0"
+                viewBox="0 0 448 512"
+                aria-hidden="true"
+                height="16"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M220.8 123.3c1 .5 1.8 1.7 3 1.7 1.1 0 2.8-.4 2.9-1.5.2-1.4-1.9-2.3-3.2-2.9-1.7-.7-3.9-1-5.5-.1-.4.2-.8.7-.6 1.1.3 1.3 2.3 1.1 3.4 1.7zm-21.9 1.7c1.2 0 2-1.2 3-1.7 1.1-.6 3.1-.4 3.5-1.6.2-.4-.2-.9-.6-1.1-1.6-.9-3.8-.6-5.5.1-1.3.6-3.4 1.5-3.2 2.9.1 1 1.8 1.5 2.8 1.4zM420 403.8c-3.6-4-5.3-11.6-7.2-19.7-1.8-8.1-3.9-16.8-10.5-22.4-1.3-1.1-2.6-2.1-4-2.9-1.3-.8-2.7-1.5-4.1-2 9.2-27.3 5.6-54.5-3.7-79.1-11.4-30.1-31.3-56.4-46.5-74.4-17.1-21.5-33.7-41.9-33.4-72C311.1 85.4 315.7.1 234.8 0 132.4-.2 158 103.4 156.9 135.2c-1.7 23.4-6.4 41.8-22.5 64.7-18.9 22.5-45.5 58.8-58.1 96.7-6 17.9-8.8 36.1-6.2 53.3-6.5 5.8-11.4 14.7-16.6 20.2-4.2 4.3-10.3 5.9-17 8.3s-14 6-18.5 14.5c-2.1 3.9-2.8 8.1-2.8 12.4 0 3.9.6 7.9 1.2 11.8 1.2 8.1 2.5 15.7.8 20.8-5.2 14.4-5.9 24.4-2.2 31.7 3.8 7.3 11.4 10.5 20.1 12.3 17.3 3.6 40.8 2.7 59.3 12.5 19.8 10.4 39.9 14.1 55.9 10.4 11.6-2.6 21.1-9.6 25.9-20.2 12.5-.1 26.3-5.4 48.3-6.6 14.9-1.2 33.6 5.3 55.1 4.1.6 2.3 1.4 4.6 2.5 6.7v.1c8.3 16.7 23.8 24.3 40.3 23 16.6-1.3 34.1-11 48.3-27.9 13.6-16.4 36-23.2 50.9-32.2 7.4-4.5 13.4-10.1 13.9-18.3.4-8.2-4.4-17.3-15.5-29.7zM223.7 87.3c9.8-22.2 34.2-21.8 44-.4 6.5 14.2 3.6 30.9-4.3 40.4-1.6-.8-5.9-2.6-12.6-4.9 1.1-1.2 3.1-2.7 3.9-4.6 4.8-11.8-.2-27-9.1-27.3-7.3-.5-13.9 10.8-11.8 23-4.1-2-9.4-3.5-13-4.4-1-6.9-.3-14.6 2.9-21.8zM183 75.8c10.1 0 20.8 14.2 19.1 33.5-3.5 1-7.1 2.5-10.2 4.6 1.2-8.9-3.3-20.1-9.6-19.6-8.4.7-9.8 21.2-1.8 28.1 1 .8 1.9-.2-5.9 5.5-15.6-14.6-10.5-52.1 8.4-52.1zm-13.6 60.7c6.2-4.6 13.6-10 14.1-10.5 4.7-4.4 13.5-14.2 27.9-14.2 7.1 0 15.6 2.3 25.9 8.9 6.3 4.1 11.3 4.4 22.6 9.3 8.4 3.5 13.7 9.7 10.5 18.2-2.6 7.1-11 14.4-22.7 18.1-11.1 3.6-19.8 16-38.2 14.9-3.9-.2-7-1-9.6-2.1-8-3.5-12.2-10.4-20-15-8.6-4.8-13.2-10.4-14.7-15.3-1.4-4.9 0-9 4.2-12.3zm3.3 334c-2.7 35.1-43.9 34.4-75.3 18-29.9-15.8-68.6-6.5-76.5-21.9-2.4-4.7-2.4-12.7 2.6-26.4v-.2c2.4-7.6.6-16-.6-23.9-1.2-7.8-1.8-15 .9-20 3.5-6.7 8.5-9.1 14.8-11.3 10.3-3.7 11.8-3.4 19.6-9.9 5.5-5.7 9.5-12.9 14.3-18 5.1-5.5 10-8.1 17.7-6.9 8.1 1.2 15.1 6.8 21.9 16l19.6 35.6c9.5 19.9 43.1 48.4 41 68.9zm-1.4-25.9c-4.1-6.6-9.6-13.6-14.4-19.6 7.1 0 14.2-2.2 16.7-8.9 2.3-6.2 0-14.9-7.4-24.9-13.5-18.2-38.3-32.5-38.3-32.5-13.5-8.4-21.1-18.7-24.6-29.9s-3-23.3-.3-35.2c5.2-22.9 18.6-45.2 27.2-59.2 2.3-1.7.8 3.2-8.7 20.8-8.5 16.1-24.4 53.3-2.6 82.4.6-20.7 5.5-41.8 13.8-61.5 12-27.4 37.3-74.9 39.3-112.7 1.1.8 4.6 3.2 6.2 4.1 4.6 2.7 8.1 6.7 12.6 10.3 12.4 10 28.5 9.2 42.4 1.2 6.2-3.5 11.2-7.5 15.9-9 9.9-3.1 17.8-8.6 22.3-15 7.7 30.4 25.7 74.3 37.2 95.7 6.1 11.4 18.3 35.5 23.6 64.6 3.3-.1 7 .4 10.9 1.4 13.8-35.7-11.7-74.2-23.3-84.9-4.7-4.6-4.9-6.6-2.6-6.5 12.6 11.2 29.2 33.7 35.2 59 2.8 11.6 3.3 23.7.4 35.7 16.4 6.8 35.9 17.9 30.7 34.8-2.2-.1-3.2 0-4.2 0 3.2-10.1-3.9-17.6-22.8-26.1-19.6-8.6-36-8.6-38.3 12.5-12.1 4.2-18.3 14.7-21.4 27.3-2.8 11.2-3.6 24.7-4.4 39.9-.5 7.7-3.6 18-6.8 29-32.1 22.9-76.7 32.9-114.3 7.2zm257.4-11.5c-.9 16.8-41.2 19.9-63.2 46.5-13.2 15.7-29.4 24.4-43.6 25.5s-26.5-4.8-33.7-19.3c-4.7-11.1-2.4-23.1 1.1-36.3 3.7-14.2 9.2-28.8 9.9-40.6.8-15.2 1.7-28.5 4.2-38.7 2.6-10.3 6.6-17.2 13.7-21.1.3-.2.7-.3 1-.5.8 13.2 7.3 26.6 18.8 29.5 12.6 3.3 30.7-7.5 38.4-16.3 9-.3 15.7-.9 22.6 5.1 9.9 8.5 7.1 30.3 17.1 41.6 10.6 11.6 14 19.5 13.7 24.6zM173.3 148.7c2 1.9 4.7 4.5 8 7.1 6.6 5.2 15.8 10.6 27.3 10.6 11.6 0 22.5-5.9 31.8-10.8 4.9-2.6 10.9-7 14.8-10.4s5.9-6.3 3.1-6.6-2.6 2.6-6 5.1c-4.4 3.2-9.7 7.4-13.9 9.8-7.4 4.2-19.5 10.2-29.9 10.2s-18.7-4.8-24.9-9.7c-3.1-2.5-5.7-5-7.7-6.9-1.5-1.4-1.9-4.6-4.3-4.9-1.4-.1-1.8 3.7 1.7 6.5z"
+                ></path></svg></span
+          ></template>
+          <p
+            class="td-version-notice"
+            id="commandError"
+            role="status"
+            hidden
+          ></p>
+        </section>
+        <details class="td-terminal">
+          <summary>
+            <span>测试安装说明与校验</span
+            ><span class="td-terminal-plus" aria-hidden="true">+</span>
+          </summary>
+          <div class="td-terminal-body">
+            <div class="embedded-switch-command-panel">
+              <p class="embedded-switch-command-code">
+                下载 ZIP 并解压：macOS 打开 .dmg；Windows 选择 .exe 或
+                .msi；Linux 按发行版选择 .AppImage、.deb 或 .rpm。<br /><br />测试包未做正式开发者签名及
+                Apple 公证。每个平台 ZIP 内含
+                manifest.json，可核对源码提交及文件 SHA-256。<br /><br />GitHub
+                Actions 产物保留 30
+                天。若下载失效，请查看构建记录中的最新成功构建。
+              </p>
+            </div>
+          </div>
+        </details>
+        <footer class="td-footer">
+          <span>仅供测试验收，安装前请备份现有配置。</span
+          ><a id="readmeLink" href="#build" target="_blank" rel="noreferrer"
+            >查看本次构建
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-arrow-up-right"
+              aria-hidden="true"
+            >
+              <path d="M7 7h10v10"></path>
+              <path d="M7 17 17 7"></path></svg
+          ></a>
+        </footer>
+        <span id="commandMeta" hidden></span>
+      </section>
+      <p class="td-outside-note">
+        Claude Code · Codex · Gemini CLI · OpenClaw
+        <span aria-hidden="true">/</span> 还有更多工具
+      </p>
+    </main>
+    <div
+      class="switch-toast"
+      id="switchToast"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <!-- DOWNLOAD_RELEASE -->
+    <script src="./download.js"></script>
+  </body>
+</html>

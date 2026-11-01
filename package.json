@@ -19,7 +19,9 @@
     "release:minor": "npm version minor",
     "release:major": "npm version major",
     "version": "node scripts/bump-version.cjs",
-    "postversion": "git push && git push origin --tags"
+    "postversion": "git push && git push origin --tags",
+    "build:download-site": "node scripts/build-download-site.cjs",
+    "test:download-site": "node --test scripts/check-download-site.cjs"
   },
   "keywords": [],
   "author": "Jason Young",

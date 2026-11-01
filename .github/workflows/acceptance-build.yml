@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: acceptance-${{ github.ref }}
@@ -24,10 +25,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - uses: pnpm/action-setup@v4
         with:
-          version: '9'
+          version: "9"
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm exec vitest run --maxWorkers=2 --minWorkers=1
@@ -61,10 +62,10 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - uses: pnpm/action-setup@v4
         with:
-          version: '9'
+          version: "9"
       - name: Read repository Rust version
         id: rust-version
         shell: bash
@@ -76,7 +77,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: "./src-tauri -> target"
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:renderer
@@ -90,7 +91,7 @@ jobs:
       - name: Build installers
         shell: bash
         env:
-          APPLE_SIGNING_IDENTITY: '-'
+          APPLE_SIGNING_IDENTITY: "-"
           BUILD_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
@@ -132,3 +133,34 @@ jobs:
           path: acceptance-artifacts/*
           if-no-files-found: error
           retention-days: 30
+
+  download-page:
+    name: Build test download page
+    needs: installers
+    runs-on: ubuntu-22.04
+    if: github.repository == 'AiW520/tuzi-switch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify installer metadata validation
+        run: node --test scripts/check-download-site.cjs
+      - name: Build page from this run's installer artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/build-download-site.cjs
+      - uses: actions/upload-artifact@v4
+        id: page
+        with:
+          name: tuzi-assistant-download-page-${{ github.sha }}
+          path: dist/download-site/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Write test download instructions
+        env:
+          ARTIFACT_URL: ${{ steps.page.outputs.artifact-url }}
+        run: |
+          echo "### 兔子助手测试下载页" >> "$GITHUB_STEP_SUMMARY"
+          echo "[下载页面 ZIP]($ARTIFACT_URL)，解压后打开 index.html。页面按钮对应本次四个平台安装包，下载需要登录 GitHub。" >> "$GITHUB_STEP_SUMMARY"
+          echo "源码：$GITHUB_SHA。测试包未做正式开发者签名或 Apple 公证；未部署正式网站。" >> "$GITHUB_STEP_SUMMARY"
