@@ -1,5 +1,6 @@
 {
-  "sourceCommit": "95530ddae34815a0473667587fd5ce7f6e3f85a4",
-  "build": "download-page",
-  "installerRun": "41424346858"
+  "sourceCommit": "42ea9ed2352f8d303f9124752d0c0d4e5a3fa8bc",
+  "installerCommit": "95530ddae34815a0473667587fd5ce7f6e3f85a4",
+  "installerRun": "41424346858",
+  "primaryDownload": "opentu-acceptance"
 }

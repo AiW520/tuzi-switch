@@ -1,39 +1,48 @@
 {
   "success": true,
-  "tag": "v1.4.3",
-  "sourceUrl": "https://github.com/tuziapi/tuzi-switch/releases/tag/v1.4.3",
+  "channel": "acceptance",
+  "runId": "41424346858",
+  "commit": "95530ddae34815a0473667587fd5ce7f6e3f85a4",
+  "tag": "test-95530dda",
+  "sourceUrl": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858",
   "command": "",
-  "stale": true,
+  "stale": false,
   "downloads": [
     {
       "id": "macos",
       "title": "macOS",
-      "subtitle": "Apple Silicon · .dmg",
-      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-macos-aarch64.dmg"
+      "subtitle": "Apple Silicon · ARM64",
+      "contents": "ZIP · 内含 DMG",
+      "artifactId": "13133138302",
+      "expiresAt": "2026-12-02T10:30:05Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13133138302"
+    },
+    {
+      "id": "macos-intel",
+      "title": "macOS",
+      "subtitle": "Intel · x86_64",
+      "contents": "ZIP · 内含 DMG",
+      "artifactId": "13132219068",
+      "expiresAt": "2026-12-02T10:21:18Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13132219068"
     },
     {
       "id": "windows",
       "title": "Windows",
-      "subtitle": "x86_64",
-      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-windows-x86_64.msi"
+      "subtitle": "Intel / AMD · x86_64",
+      "contents": "ZIP · 内含 EXE / MSI",
+      "artifactId": "13131839772",
+      "expiresAt": "2026-12-02T10:20:55Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13131839772"
     },
     {
-      "id": "deb",
-      "title": "Linux · DEB",
-      "subtitle": "x86_64 · Debian / Ubuntu",
-      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.deb"
-    },
-    {
-      "id": "rpm",
-      "title": "Linux · RPM",
-      "subtitle": "x86_64 · Fedora / RHEL / openSUSE",
-      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.rpm"
-    },
-    {
-      "id": "appimage",
-      "title": "Linux · AppImage",
-      "subtitle": "x86_64 · .AppImage",
-      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.AppImage"
+      "id": "linux",
+      "title": "Linux",
+      "subtitle": "Intel / AMD · x86_64",
+      "contents": "ZIP · 内含 DEB / RPM / AppImage",
+      "artifactId": "13132617032",
+      "expiresAt": "2026-12-02T10:14:36Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13132617032"
     }
   ]
 }
