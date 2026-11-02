@@ -1,6 +1,0 @@
-兔子助手下载页
-
-将压缩包内所有文件解压并上传至静态网站目录，通过 HTTP/HTTPS 访问 tuzi-switch.html。支持子目录部署。请勿直接双击 HTML。
-页面保留原蓝兔图标、下载兔子助手按钮和 Umami 下载点击统计。
-默认下载链接指向已发布版本；集成测试安装包入口指向 GitHub Actions，需要登录 GitHub。
-source.tar.gz、LICENSE.txt 和 SOURCE.json 为源码与许可材料，请随页面保留。
