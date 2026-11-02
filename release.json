@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "tag": "v1.4.3",
+  "sourceUrl": "https://github.com/tuziapi/tuzi-switch/releases/tag/v1.4.3",
+  "command": "",
+  "stale": true,
+  "downloads": [
+    {
+      "id": "macos",
+      "title": "macOS",
+      "subtitle": "Apple Silicon · .dmg",
+      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-macos-aarch64.dmg"
+    },
+    {
+      "id": "windows",
+      "title": "Windows",
+      "subtitle": "x86_64",
+      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-windows-x86_64.msi"
+    },
+    {
+      "id": "deb",
+      "title": "Linux · DEB",
+      "subtitle": "x86_64 · Debian / Ubuntu",
+      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.deb"
+    },
+    {
+      "id": "rpm",
+      "title": "Linux · RPM",
+      "subtitle": "x86_64 · Fedora / RHEL / openSUSE",
+      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.rpm"
+    },
+    {
+      "id": "appimage",
+      "title": "Linux · AppImage",
+      "subtitle": "x86_64 · .AppImage",
+      "href": "https://github.com/tuziapi/tuzi-switch/releases/download/v1.4.3/tuzi-switch-linux-x86_64.AppImage"
+    }
+  ]
+}
