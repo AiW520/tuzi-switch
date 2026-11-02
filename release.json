@@ -1,4 +1,8 @@
 {
+  "schemaVersion": 1,
+  "repository": "AiW520/tuzi-switch",
+  "runNumber": 13,
+  "publishedAt": "2026-11-02T10:30:21Z",
   "success": true,
   "channel": "acceptance",
   "runId": "41424346858",
