@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "repository": "AiW520/tuzi-switch",
-  "runNumber": 13,
-  "publishedAt": "2026-11-02T10:30:21Z",
+  "runNumber": 15,
+  "publishedAt": "2026-11-02T12:33:02Z",
   "success": true,
   "channel": "acceptance",
-  "runId": "41424346858",
-  "commit": "95530ddae34815a0473667587fd5ce7f6e3f85a4",
-  "tag": "test-95530dda",
-  "sourceUrl": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858",
+  "runId": "41441329316",
+  "commit": "f86531a457c188bf0b692776942efde352259bc9",
+  "tag": "test-f86531a4",
+  "sourceUrl": "https://github.com/AiW520/tuzi-switch/actions/runs/41441329316",
   "command": "",
   "stale": false,
   "downloads": [
@@ -17,36 +17,36 @@
       "title": "macOS",
       "subtitle": "Apple Silicon · ARM64",
       "contents": "ZIP · 内含 DMG",
-      "artifactId": "13133138302",
-      "expiresAt": "2026-12-02T10:30:05Z",
-      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13133138302"
+      "artifactId": "13141547346",
+      "expiresAt": "2026-12-02T12:32:51Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41441329316/artifacts/13141547346"
     },
     {
       "id": "macos-intel",
       "title": "macOS",
       "subtitle": "Intel · x86_64",
       "contents": "ZIP · 内含 DMG",
-      "artifactId": "13132219068",
-      "expiresAt": "2026-12-02T10:21:18Z",
-      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13132219068"
+      "artifactId": "13142200065",
+      "expiresAt": "2026-12-02T12:22:18Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41441329316/artifacts/13142200065"
     },
     {
       "id": "windows",
       "title": "Windows",
       "subtitle": "Intel / AMD · x86_64",
       "contents": "ZIP · 内含 EXE / MSI",
-      "artifactId": "13131839772",
-      "expiresAt": "2026-12-02T10:20:55Z",
-      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13131839772"
+      "artifactId": "13141626446",
+      "expiresAt": "2026-12-02T12:28:00Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41441329316/artifacts/13141626446"
     },
     {
       "id": "linux",
       "title": "Linux",
       "subtitle": "Intel / AMD · x86_64",
       "contents": "ZIP · 内含 DEB / RPM / AppImage",
-      "artifactId": "13132617032",
-      "expiresAt": "2026-12-02T10:14:36Z",
-      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41424346858/artifacts/13132617032"
+      "artifactId": "13140809578",
+      "expiresAt": "2026-12-02T12:22:39Z",
+      "href": "https://github.com/AiW520/tuzi-switch/actions/runs/41441329316/artifacts/13140809578"
     }
   ]
 }
