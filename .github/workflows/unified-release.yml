@@ -1,5 +1,5 @@
 name: Official desktop staging build
-run-name: "正式 v1.5.5 · 手动安装重建 · 653ecba4"
+run-name: "正式 v1.5.5 · 手动安装重建 · 5ea61694"
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
   TUZI_SWITCH_RELEASE_REPOSITORY: tuziapi/tuzi-switch
   VITE_RELEASE_REPOSITORY: tuziapi/tuzi-switch
-  OFFICIAL_SOURCE_SHA: 653ecba4a2abc6937e590e5034462edcdb0d97ab
+  OFFICIAL_SOURCE_SHA: 5ea616945054f0944729d02b599271336ca15834
 
 jobs:
   verify:
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
+          ref: 5ea616945054f0944729d02b599271336ca15834
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
+          ref: 5ea616945054f0944729d02b599271336ca15834
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -203,7 +203,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
+          ref: 5ea616945054f0944729d02b599271336ca15834
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -223,7 +223,7 @@ jobs:
           cp "docs/releases/${RELEASE_TAG}.md" release-assets/RELEASE-NOTES.md
           cat > release-assets/STAGING-NOTICE.txt <<'NOTICE'
           Official v1.5.5 source and embedded update channel: tuziapi/tuzi-switch.
-          Source commit: 653ecba4a2abc6937e590e5034462edcdb0d97ab.
+          Source commit: 5ea616945054f0944729d02b599271336ca15834.
           Built on AiW520/tuzi-switch as an artifacts-only executor.
           Updater signatures are absent. These files are NOT publication-ready.
           Authorized unsigned manual delivery; final artifact and download checks remain required.
