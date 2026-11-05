@@ -1,5 +1,5 @@
 name: Official desktop staging build
-run-name: "正式 v1.5.6 · 手动安装重建 · c86a3def"
+run-name: "正式 v1.5.6 · 手动安装重建 · c86a3def macOS Intel runner"
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: official-staging-1.5.6
+  group: official-staging-1.5.6-macos
   cancel-in-progress: false
 
 env:
@@ -19,68 +19,17 @@ env:
   OFFICIAL_SOURCE_SHA: c86a3def84498dfa6c320470d0c7b6a903fdbf35
 
 jobs:
-  verify:
-    if: github.repository == 'AiW520/tuzi-switch'
-    runs-on: ubuntu-22.04
-    outputs:
-      tag: ${{ steps.identity.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: tuziapi/tuzi-switch
-          ref: c86a3def84498dfa6c320470d0c7b6a903fdbf35
-          persist-credentials: false
-      - name: Verify pinned official source
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
-      - name: Verify version identity
-        id: identity
-        env:
-          PUBLISH: "false"
-        run: node scripts/verify-release-identity.mjs
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '9'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:creative
-      - run: pnpm --filter @tuzi/download-page test
-      - name: Compile download page before building installers
-        run: pnpm --filter @tuzi/download-page exec vite build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: download-page-template
-          path: packages/download-page/dist
-          if-no-files-found: error
-          retention-days: 30
-      - run: python3 scripts/test_install_entry.py
-      - run: python3 scripts/test_release_assets.py
-      - run: node --test scripts/verify-updater-assets.mjs
-      - run: pnpm typecheck
-      - run: pnpm exec vitest run --maxWorkers=2 --minWorkers=1
-      - run: pnpm test:creative
-      - run: python3 -m unittest discover -s src-tauri/resources/builtin-skills/codex-image-render-fallback/scripts -p 'test_*.py'
-
   installers:
-    needs: verify
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15-intel
             target: aarch64-apple-darwin
             name: macos-arm64
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             name: macos-x64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: windows-x64
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            name: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +40,8 @@ jobs:
       - name: Verify pinned official source
         shell: bash
         run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
+      - name: Verify version identity
+        run: node scripts/verify-release-identity.mjs
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
@@ -190,51 +141,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}
-          path: release-assets/*
-          if-no-files-found: error
-          retention-days: 30
-
-  assemble:
-    needs: [verify, installers]
-    env:
-      RELEASE_TAG: ${{ needs.verify.outputs.tag }}
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: tuziapi/tuzi-switch
-          ref: c86a3def84498dfa6c320470d0c7b6a903fdbf35
-          persist-credentials: false
-      - name: Verify pinned official source
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: release-assets
-          merge-multiple: true
-      - name: Verify every package against its build manifest
-        shell: bash
-        run: GITHUB_REPOSITORY=tuziapi/tuzi-switch GITHUB_SHA="$OFFICIAL_SOURCE_SHA" python3 scripts/verify-release-assets.py release-assets
-      - name: Prepare release notes and source
-        shell: bash
-        run: |
-          git archive --format=tar.gz --output=release-assets/tuzi-assistant-source.tar.gz HEAD
-          cp "docs/releases/${RELEASE_TAG}.md" release-assets/RELEASE-NOTES.md
-          cat > release-assets/STAGING-NOTICE.txt <<'NOTICE'
-          Official v1.5.6 source and embedded update channel: tuziapi/tuzi-switch.
-          Source commit: c86a3def84498dfa6c320470d0c7b6a903fdbf35.
-          Built on AiW520/tuzi-switch as an artifacts-only executor.
-          Updater signatures are absent. These files are NOT publication-ready.
-          Authorized unsigned manual delivery; final artifact and download checks remain required.
-          No latest.json is provided and no Release or Pages deployment is performed.
-          NOTICE
-          cd release-assets
-          sha256sum tuzi-assistant-* > SHA256SUMS
-          sha256sum -c SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: official-unsigned-staging-v1.5.6
           path: release-assets/*
           if-no-files-found: error
           retention-days: 30
