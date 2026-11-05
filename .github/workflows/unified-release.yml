@@ -1,50 +1,43 @@
-name: Unified desktop release
-run-name: "兔子助手 · ${{ github.ref_name }}"
+name: Official desktop staging build
+run-name: "正式 v1.5.6 · 手动安装重建 · c86a3def"
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish verified installers and deploy the download page (version tag only)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: unified-release
+  group: official-staging-1.5.6
   cancel-in-progress: false
 
 env:
   # Creative workspace exceeds the 2 GiB heap default on macOS runners.
   NODE_OPTIONS: --max-old-space-size=4096
-  TUZI_SWITCH_RELEASE_REPOSITORY: ${{ github.repository }}
-  VITE_RELEASE_REPOSITORY: ${{ github.repository }}
+  TUZI_SWITCH_RELEASE_REPOSITORY: tuziapi/tuzi-switch
+  VITE_RELEASE_REPOSITORY: tuziapi/tuzi-switch
+  OFFICIAL_SOURCE_SHA: c86a3def84498dfa6c320470d0c7b6a903fdbf35
 
 jobs:
   verify:
-    if: github.repository == 'tuziapi/tuzi-switch' || github.repository == 'AiW520/tuzi-switch'
+    if: github.repository == 'AiW520/tuzi-switch'
     runs-on: ubuntu-22.04
     outputs:
       tag: ${{ steps.identity.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: tuziapi/tuzi-switch
+          ref: c86a3def84498dfa6c320470d0c7b6a903fdbf35
+          persist-credentials: false
+      - name: Verify pinned official source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
       - name: Verify version identity
         id: identity
         env:
-          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+          PUBLISH: "false"
         run: node scripts/verify-release-identity.mjs
-      - name: Require the existing channel signing key
-        shell: bash
-        env:
-          OFFICIAL_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TEST_UPDATER_KEY: ${{ secrets.TUZI_UPDATER_PRIVATE_KEY }}
-        run: |
-          if [[ "$GITHUB_REPOSITORY" == 'tuziapi/tuzi-switch' ]]; then UPDATER_KEY="$OFFICIAL_UPDATER_KEY"; else UPDATER_KEY="$TEST_UPDATER_KEY"; fi
-          if [[ -z "$UPDATER_KEY" ]]; then echo 'Missing channel signing key; refusing unsigned build'; exit 1; fi
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -62,6 +55,7 @@ jobs:
           path: packages/download-page/dist
           if-no-files-found: error
           retention-days: 30
+      - run: python3 scripts/test_install_entry.py
       - run: python3 scripts/test_release_assets.py
       - run: node --test scripts/verify-updater-assets.mjs
       - run: pnpm typecheck
@@ -90,6 +84,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: tuziapi/tuzi-switch
+          ref: c86a3def84498dfa6c320470d0c7b6a903fdbf35
+          persist-credentials: false
+      - name: Verify pinned official source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
@@ -115,23 +116,6 @@ jobs:
           workspaces: './src-tauri -> target'
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
-      - name: Prepare updater signing key
-        shell: bash
-        env:
-          OFFICIAL_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TEST_UPDATER_KEY: ${{ secrets.TUZI_UPDATER_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REPOSITORY" == 'tuziapi/tuzi-switch' ]]; then UPDATER_KEY="$OFFICIAL_UPDATER_KEY"; else UPDATER_KEY="$TEST_UPDATER_KEY"; fi
-          if [[ -z "$UPDATER_KEY" ]]; then echo 'Missing channel signing key; refusing unsigned release'; exit 1; fi
-          umask 077
-          KEY_PATH="$RUNNER_TEMP/tuzi-updater.key"
-          printf '%s' "$UPDATER_KEY" > "$KEY_PATH"
-          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_PATH" >> "$GITHUB_ENV"
-      - name: Verify signing key against channel public key
-        env:
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.repository == 'tuziapi/tuzi-switch' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
-        run: node scripts/updater-assets.mjs check-key
       - run: pnpm build:renderer
       - name: Native regression (host target)
         shell: bash
@@ -148,13 +132,13 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: '-'
           BUILD_TARGET: ${{ matrix.target }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.repository == 'tuziapi/tuzi-switch' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
+          export GITHUB_SHA="$OFFICIAL_SOURCE_SHA"
           if [[ "$RUNNER_OS" == "macOS" ]]; then
-            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs)"
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --unsigned)"
           else
-            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name)"
+            RELEASE_CONFIG="$(node scripts/tauri-release-config.cjs --desktop-product-name --unsigned)"
           fi
           pnpm tauri build --target "$BUILD_TARGET" --config "$RELEASE_CONFIG"
       - name: Collect installers and source manifest
@@ -178,22 +162,31 @@ jobs:
           if not files:
               raise SystemExit('No installers were produced')
           (output / ('manifest-' + os.environ['BUILD_NAME'] + '.json')).write_text(json.dumps({
-              'repository': os.environ['GITHUB_REPOSITORY'], 'commit': os.environ['GITHUB_SHA'],
+              'repository': 'tuziapi/tuzi-switch', 'commit': os.environ['OFFICIAL_SOURCE_SHA'],
+              'builderRepository': os.environ['GITHUB_REPOSITORY'], 'builderCommit': os.environ['GITHUB_SHA'],
+              'updaterSigned': False, 'publicationReady': False,
               'run': os.environ['GITHUB_RUN_ID'], 'target': os.environ['BUILD_TARGET'],
               'version': json.loads(pathlib.Path('package.json').read_text(encoding='utf-8'))['version'],
               'developerSigned': False, 'notarized': False, 'channel': 'stable',
               'applicationId': 'com.tuziswitch.desktop', 'isolatedLocalProfile': False, 'files': files
           }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           PY
-      - name: Collect and verify signed updater artifacts
+      - name: Prepare macOS updater archive for later official signing
+        if: runner.os == 'macOS'
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.repository == 'tuziapi/tuzi-switch' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
-        run: node scripts/updater-assets.mjs collect "src-tauri/target/${{ matrix.target }}/release/bundle" release-assets "${{ matrix.name }}"
-      - name: Remove temporary signing key
-        if: always()
-        shell: bash
-        run: rm -f "$RUNNER_TEMP/tuzi-updater.key"
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_NAME: ${{ matrix.name }}
+        run: |
+          python3 <<'PYTHON'
+          import os, pathlib, tarfile
+          source = pathlib.Path('src-tauri/target') / os.environ['BUILD_TARGET'] / 'release/bundle/macos'
+          apps = list(source.glob('*.app'))
+          if len(apps) != 1: raise SystemExit('Expected exactly one app bundle')
+          output = pathlib.Path('release-assets') / ('tuzi-assistant-' + os.environ['BUILD_NAME'] + '.app.tar.gz')
+          with tarfile.open(output, 'w:gz') as archive:
+              archive.add(apps[0], arcname=apps[0].name)
+          PYTHON
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}
@@ -208,100 +201,40 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: tuziapi/tuzi-switch
+          ref: c86a3def84498dfa6c320470d0c7b6a903fdbf35
+          persist-credentials: false
+      - name: Verify pinned official source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$OFFICIAL_SOURCE_SHA"
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           path: release-assets
           merge-multiple: true
       - name: Verify every package against its build manifest
-        run: python3 scripts/verify-release-assets.py release-assets
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Verify signatures and generate updater manifest
-        run: node scripts/updater-assets.mjs manifest release-assets
+        shell: bash
+        run: GITHUB_REPOSITORY=tuziapi/tuzi-switch GITHUB_SHA="$OFFICIAL_SOURCE_SHA" python3 scripts/verify-release-assets.py release-assets
       - name: Prepare release notes and source
         shell: bash
         run: |
           git archive --format=tar.gz --output=release-assets/tuzi-assistant-source.tar.gz HEAD
-          cp "docs/releases/${RELEASE_TAG}.md" /tmp/release-notes.md
+          cp "docs/releases/${RELEASE_TAG}.md" release-assets/RELEASE-NOTES.md
+          cat > release-assets/STAGING-NOTICE.txt <<'NOTICE'
+          Official v1.5.6 source and embedded update channel: tuziapi/tuzi-switch.
+          Source commit: c86a3def84498dfa6c320470d0c7b6a903fdbf35.
+          Built on AiW520/tuzi-switch as an artifacts-only executor.
+          Updater signatures are absent. These files are NOT publication-ready.
+          Authorized unsigned manual delivery; final artifact and download checks remain required.
+          No latest.json is provided and no Release or Pages deployment is performed.
+          NOTICE
           cd release-assets
           sha256sum tuzi-assistant-* > SHA256SUMS
           sha256sum -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: verified-release
+          name: official-unsigned-staging-v1.5.6
           path: release-assets/*
           if-no-files-found: error
           retention-days: 30
-
-  publish:
-    needs: [verify, assemble]
-    if: github.event_name == 'push' || inputs.publish
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: verified-release
-          path: release-assets
-      - name: Verify Pages configuration before publishing
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/pages" > /tmp/pages.json
-          node -e 'if (require("/tmp/pages.json").build_type !== "workflow") throw Error("Configure repository Pages source as GitHub Actions before publishing")'
-      - name: Restore verified release notes
-        run: cp "docs/releases/${GITHUB_REF_NAME}.md" /tmp/release-notes.md
-      - name: Publish complete installation files
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > /tmp/latest-release.json
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const latest = JSON.parse(fs.readFileSync('/tmp/latest-release.json')).tag_name;
-          const parts = s => s.replace(/^v/, '').split('.').map(Number);
-          const a = parts(process.env.RELEASE_TAG), b = parts(latest);
-          for (let i=0;i<3;i++) { if (a[i] < b[i]) throw Error('Refusing release rollback'); if(a[i] > b[i]) break; }
-          JS
-          if gh release view "$RELEASE_TAG" --json isDraft >/tmp/existing-release.json 2>/dev/null; then
-            node -e 'if(!require("/tmp/existing-release.json").isDraft) throw Error("Published releases are immutable; rerun page publication separately")'
-          else
-            gh release create "$RELEASE_TAG" --verify-tag --title "兔子助手 $RELEASE_TAG" --notes-file /tmp/release-notes.md --draft --latest=false
-          fi
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest --notes-file /tmp/release-notes.md
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '9'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:download
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          VITE_DOWNLOAD_SOURCE_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}/packages/download-page
-      - name: Include source and checksums on public download page
-        run: |
-          cp packages/download-page/dist/tuzi-switch.html packages/download-page/dist/index.html
-          cp packages/download-page/README.md packages/download-page/SOURCE.json packages/download-page/dist/
-          cp release-assets/tuzi-assistant-source.tar.gz packages/download-page/dist/source.tar.gz
-          touch packages/download-page/dist/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: packages/download-page/dist
-      - uses: actions/deploy-pages@v4
-        id: deployment
