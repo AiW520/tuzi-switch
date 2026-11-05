@@ -1,5 +1,5 @@
 name: Official desktop staging build
-run-name: "正式 v1.5.5 · 待签名构建 · 6bc275a1"
+run-name: "正式 v1.5.5 · 手动安装重建 · 653ecba4"
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
   TUZI_SWITCH_RELEASE_REPOSITORY: tuziapi/tuzi-switch
   VITE_RELEASE_REPOSITORY: tuziapi/tuzi-switch
-  OFFICIAL_SOURCE_SHA: 6bc275a1aa2916b573f5450a694927af2ef7b7fc
+  OFFICIAL_SOURCE_SHA: 653ecba4a2abc6937e590e5034462edcdb0d97ab
 
 jobs:
   verify:
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 6bc275a1aa2916b573f5450a694927af2ef7b7fc
+          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -55,6 +55,7 @@ jobs:
           path: packages/download-page/dist
           if-no-files-found: error
           retention-days: 30
+      - run: python3 scripts/test_install_entry.py
       - run: python3 scripts/test_release_assets.py
       - run: node --test scripts/verify-updater-assets.mjs
       - run: pnpm typecheck
@@ -85,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 6bc275a1aa2916b573f5450a694927af2ef7b7fc
+          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -202,7 +203,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 6bc275a1aa2916b573f5450a694927af2ef7b7fc
+          ref: 653ecba4a2abc6937e590e5034462edcdb0d97ab
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -222,10 +223,10 @@ jobs:
           cp "docs/releases/${RELEASE_TAG}.md" release-assets/RELEASE-NOTES.md
           cat > release-assets/STAGING-NOTICE.txt <<'NOTICE'
           Official v1.5.5 source and embedded update channel: tuziapi/tuzi-switch.
-          Source commit: 6bc275a1aa2916b573f5450a694927af2ef7b7fc.
+          Source commit: 653ecba4a2abc6937e590e5034462edcdb0d97ab.
           Built on AiW520/tuzi-switch as an artifacts-only executor.
           Updater signatures are absent. These files are NOT publication-ready.
-          Official-key signing, signature verification, and final release checks remain required.
+          Authorized unsigned manual delivery; final artifact and download checks remain required.
           No latest.json is provided and no Release or Pages deployment is performed.
           NOTICE
           cd release-assets
