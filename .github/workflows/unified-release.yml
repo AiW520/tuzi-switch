@@ -1,5 +1,5 @@
 name: Official desktop staging build
-run-name: "正式 v1.6.0 · 创作讨论正式构建 · 21cad50c"
+run-name: "正式 v1.6.1 · 更新入口修复 · 5950e9fc"
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: official-staging-1.6.0
+  group: official-staging-1.6.1
   cancel-in-progress: false
 
 env:
@@ -16,7 +16,7 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
   TUZI_SWITCH_RELEASE_REPOSITORY: tuziapi/tuzi-switch
   VITE_RELEASE_REPOSITORY: tuziapi/tuzi-switch
-  OFFICIAL_SOURCE_SHA: 21cad50c7f5b916b94bccf39c6d594724241bfb1
+  OFFICIAL_SOURCE_SHA: 5950e9fc773d2092ed7a630a4ebd3750e9767314
 
 jobs:
   verify:
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 21cad50c7f5b916b94bccf39c6d594724241bfb1
+          ref: 5950e9fc773d2092ed7a630a4ebd3750e9767314
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 21cad50c7f5b916b94bccf39c6d594724241bfb1
+          ref: 5950e9fc773d2092ed7a630a4ebd3750e9767314
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -127,6 +127,10 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib native_mcp_service_ -- --ignored --test-threads=1
+      - name: Windows real browser activation
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib windows_real_browser_activation -- --ignored --nocapture --test-threads=1
       - name: Build installers
         shell: bash
         env:
@@ -203,7 +207,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tuziapi/tuzi-switch
-          ref: 21cad50c7f5b916b94bccf39c6d594724241bfb1
+          ref: 5950e9fc773d2092ed7a630a4ebd3750e9767314
           persist-credentials: false
       - name: Verify pinned official source
         shell: bash
@@ -222,8 +226,8 @@ jobs:
           git archive --format=tar.gz --output=release-assets/tuzi-assistant-source.tar.gz HEAD
           cp "docs/releases/${RELEASE_TAG}.md" release-assets/RELEASE-NOTES.md
           cat > release-assets/STAGING-NOTICE.txt <<'NOTICE'
-          Official v1.6.0 source and embedded update channel: tuziapi/tuzi-switch.
-          Source commit: 21cad50c7f5b916b94bccf39c6d594724241bfb1.
+          Official v1.6.1 source and embedded update channel: tuziapi/tuzi-switch.
+          Source commit: 5950e9fc773d2092ed7a630a4ebd3750e9767314.
           Built on AiW520/tuzi-switch as an artifacts-only executor.
           Updater signatures are absent. These files are NOT publication-ready.
           Authorized unsigned manual delivery; final artifact and download checks remain required.
@@ -234,7 +238,7 @@ jobs:
           sha256sum -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: official-unsigned-staging-v1.6.0
+          name: official-unsigned-staging-v1.6.1
           path: release-assets/*
           if-no-files-found: error
           retention-days: 30
