@@ -19,6 +19,21 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("native Codex channel", () => {
+  it('routes tool events and approval requests without completing the reply', async () => {
+    let channel: any;
+    mocks.invoke.mockImplementation(async (_command, args) => { channel = args.onEvent; });
+    const onActivity=vi.fn(),onApproval=vi.fn(),finished=vi.fn();
+    const pending=nativeLocalCodex.request({...input(),onActivity,onApproval}).then(finished);
+    channel.onmessage({type:'activity',id:'tool-1',kind:'mcpToolCall',label:'OpenTU',status:'running'});
+    channel.onmessage({type:'approval',id:'approval-1',kind:'command',description:'synthetic command'});
+    await Promise.resolve();
+    expect(onActivity).toHaveBeenCalledWith(expect.objectContaining({id:'tool-1'}));
+    expect(onApproval).toHaveBeenCalledWith(expect.objectContaining({id:'approval-1',requestId:expect.any(String)}));
+    expect(finished).not.toHaveBeenCalled();
+    channel.onmessage({type:'complete',content:'actual result',reasoning:''});
+    await pending;
+    expect(finished).toHaveBeenCalledWith({content:'actual result',reasoning:''});
+  });
   it("waits for explicit completion, delivers actual summary and final text", async () => {
     let channel: any;
     mocks.invoke.mockImplementation(async (_command, args) => {

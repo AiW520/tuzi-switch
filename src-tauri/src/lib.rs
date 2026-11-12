@@ -14,6 +14,7 @@ mod commands;
 mod config;
 mod creative_http;
 mod creative_codex;
+pub mod creative_collaboration;
 mod creative_images;
 mod creative_media;
 mod database;
@@ -1270,6 +1271,11 @@ pub fn run() {
             creative_codex::creative_codex_probe,
             creative_codex::creative_codex_chat,
             creative_codex::creative_codex_cancel,
+            creative_codex::creative_codex_approve,
+            creative_codex::creative_codex_capabilities,
+            creative_collaboration::creative_collaboration_start,
+            creative_collaboration::creative_collaboration_stop,
+            creative_collaboration::creative_collaboration_reply,
             creative_http::check_update_ready,
             creative_images::creative_image_action,
             creative_media::creative_save_media,
@@ -1726,6 +1732,8 @@ pub fn run() {
 /// 确保 Claude Code/Codex/Gemini 的配置不会处于损坏状态。
 /// 使用 stop_with_restore_keep_state 保留 settings 表中的代理状态，下次启动时自动恢复。
 pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
+    creative_codex::shutdown();
+    creative_collaboration::shutdown();
     if let Some(state) = app_handle.try_state::<store::AppState>() {
         let proxy_service = &state.proxy_service;
 

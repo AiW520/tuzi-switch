@@ -1,3 +1,5 @@
+2026-11-12 UC-CODEX-COLLAB-01：按用户选择 B 实现首期 OpenTU / Codex 双向创作协同：App Server 执行、画板 MCP、Skill 发现/包装、工具审批及持久操作记录。98 项创作、5 项宿主、25 项原生测试通过；能力握手和 8 项浏览器合成检查通过，真实模型与安装包验收尚未完成。见 [方案](2026-11-12-opentu-codex-collaboration-proposal.md) 与 [实施记录](2026-11-12-opentu-codex-collaboration-implementation.md)。仅本地，无付费调用或发布。
+
 2026-11-12 TEST-SYNC-1112：用户授权将当前菜单/品牌及统一供应商修复推送合并到测试仓库 AiW520/tuzi-switch main；正式发布继续暂停，版本仍为 1.6.1。授权、验证和交付边界见 [同步记录](2026-11-12-test-repository-sync.md)。
 
 2026-11-11 UC-UNIVERSAL-01：按用户选择 B 定向复用统一供应商改进，补齐添加入口、保存失败恢复与三工具实际配置同步；17 项原生、16 项前端、双浏览器各 6 组及类型/构建通过。见 [实施记录](2026-11-11-universal-provider.md) 和 [ADR-021](decisions/0021-universal-provider-sync.md)。仅本地，未重新打包安装或发布。

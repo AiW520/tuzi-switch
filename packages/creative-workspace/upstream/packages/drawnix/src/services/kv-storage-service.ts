@@ -48,7 +48,7 @@ function openDatabase(): Promise<IDBDatabase> {
 /**
  * 获取存储的值
  */
-async function get<T>(key: string): Promise<T | null> {
+async function get<T>(key: string, options?: { strict?: boolean }): Promise<T | null> {
   if (!key) {
     return null;
   }
@@ -76,6 +76,7 @@ async function get<T>(key: string): Promise<T | null> {
     });
   } catch (error) {
     console.error('[KVStorage] Get error:', error);
+    if (options?.strict) throw error;
     return null;
   }
 }
@@ -83,7 +84,7 @@ async function get<T>(key: string): Promise<T | null> {
 /**
  * 设置存储的值
  */
-async function set<T>(key: string, value: T): Promise<void> {
+async function set<T>(key: string, value: T, options?: { durability?: IDBTransactionDurability }): Promise<void> {
   if (!key) {
     return;
   }
@@ -91,7 +92,7 @@ async function set<T>(key: string, value: T): Promise<void> {
   try {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(DB_CONFIG.STORES.DATA, 'readwrite');
+      const transaction = db.transaction(DB_CONFIG.STORES.DATA, 'readwrite', options);
       const store = transaction.objectStore(DB_CONFIG.STORES.DATA);
 
       const item: StoredItem<T> = {
@@ -102,10 +103,6 @@ async function set<T>(key: string, value: T): Promise<void> {
 
       const request = store.put(item);
 
-      request.onsuccess = () => {
-        resolve();
-      };
-
       request.onerror = () => {
         console.error('[KVStorage] Failed to set:', key, request.error);
         reject(request.error);
@@ -113,6 +110,11 @@ async function set<T>(key: string, value: T): Promise<void> {
 
       transaction.oncomplete = () => {
         db.close();
+        resolve();
+      };
+      transaction.onabort = () => {
+        db.close();
+        reject(transaction.error || new DOMException('Storage transaction aborted', 'AbortError'));
       };
     });
   } catch (error) {

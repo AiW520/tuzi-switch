@@ -1,3 +1,5 @@
+2026-11-12 UC-CODEX-COLLAB-01：B 方案首期双向创作桥已实现并通过 98 项创作、5 项宿主、25 项原生测试；本机 CLI 只读发现 9 个模型、8 个 Skill、2 个 MCP。浏览器完成 8 项合成验证，修正确认区遮挡；真实生成、完整安装包验收及增强能力管理仍待后续完成。见 [实施记录](2026-11-12-opentu-codex-collaboration-implementation.md)。仅本地，无推送或发布。
+
 2026-11-12 TEST-SYNC-1112：用户授权将当前菜单/品牌及统一供应商修复推送合并到测试仓库 AiW520/tuzi-switch main；正式发布继续暂停，版本仍为 1.6.1。授权、验证和交付边界见 [同步记录](2026-11-12-test-repository-sync.md)。
 
 2026-11-11 UC-UNIVERSAL-01：按用户选择 B 定向复用统一供应商改进，补齐添加入口、保存失败恢复与三工具实际配置同步；17 项原生、16 项前端、双浏览器各 6 组及类型/构建通过。见 [实施记录](2026-11-11-universal-provider.md) 和 [ADR-021](decisions/0021-universal-provider-sync.md)。仅本地，未重新打包安装或发布。

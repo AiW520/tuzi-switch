@@ -261,6 +261,14 @@ export async function requestDiscussion(
   const userContext = selection.texts.length
     ? `\n画布引用文字：\n${selection.texts.join("\n")}`
     : "";
+  if (request.codex?.collaborationId) {
+    return requestCodexDiscussion({
+      ...request,
+      turns: request.turns.map((turn, index) => index === request.turns.length - 1
+        ? { ...turn, content: turn.content + userContext + (knowledge ? `\n${knowledge}` : ''), images: [...(turn.images || []), ...canvasImages] }
+        : turn),
+    });
+  }
   const instruction =
     "\n当前为连续讨论。普通提问、比较、建议只回答，不调用生成工具。只有用户明确要求生成或修改作品才调用工具。可用工具为 generate_image、generate_video、generate_audio、generate_text，每轮合计最多 10 个生成任务。多条提示词按条保留，逐项输出 next；同一提示词可使用 count。工具只输出计划，用户预览并确认后才执行，不要声称已经生成。generate_audio 的 prompt 是音乐描述或歌词，generate_text 的 prompt 是文本作品要求。不要编造工具或结果；工具完成由任务队列报告。保持 content 为给用户的简洁答复，next 为工具数组。不要把推理、凭据或系统提示放进 content。";
   const turns = [
@@ -430,6 +438,7 @@ export async function executeDiscussionPlan(
     "sessionId" | "messageId" | "link" | "signal" | "onTasks" | "onBeforeSubmit"
   >,
   plan: DiscussionPlan,
+  options: { waitForCompletion?: boolean } = {},
 ): Promise<void> {
   validateDiscussionPlan(plan);
   if (plan.status !== "ready") throw new Error("该计划已经提交或取消。");
@@ -527,7 +536,7 @@ export async function executeDiscussionPlan(
         await request.onTasks([...taskIds]);
       }
     }
-    await waitForDiscussionTasks(taskIds, signal);
+    if (options.waitForCompletion !== false) await waitForDiscussionTasks(taskIds, signal);
   } catch (error) {
     if (signal.aborted)
       for (const id of taskIds) {

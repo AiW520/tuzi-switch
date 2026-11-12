@@ -7,6 +7,7 @@ vi.mock("../../utils/gemini-api/message-utils", () => ({
   normalizeImageUrlForMultimodalInput: async (url: string) => url,
 }));
 import { localCodex, requestCodexDiscussion } from "./local-codex";
+import { setCollaborationLink } from './collaboration-link';
 const models = [
   {
     id: "synthetic-codex",
@@ -24,6 +25,7 @@ const request = () => ({
   onUpdate: vi.fn(),
 });
 beforeEach(() => {
+  setCollaborationLink(undefined);
   localCodex.disconnect();
   mocks.bridge = {
     probe: vi.fn(async () => ({ models, defaultModel: models[0].id })),
@@ -35,6 +37,19 @@ beforeEach(() => {
 });
 afterEach(() => localCodex.disconnect());
 describe("explicit local Codex selection", () => {
+  it('does not send a turn from another board discussion to a connected collaboration',async()=>{
+    await localCodex.connect();
+    setCollaborationLink({id:'bridge',scope:{boardId:'board',sessionId:'allowed'},activity:vi.fn(),approval:async()=>{}});
+    await expect(requestCodexDiscussion({...request(),sessionId:'other'})).rejects.toThrow('不属于');
+    expect(mocks.bridge.request).not.toHaveBeenCalled();
+  });
+  it('uses plain replies and carries the scoped execution identity in collaboration mode',async()=>{
+    await localCodex.connect();
+    setCollaborationLink({id:'bridge',scope:{boardId:'board',sessionId:'allowed'},activity:vi.fn(),approval:async()=>{}});
+    await requestCodexDiscussion({...request(),sessionId:'allowed'});
+    expect(mocks.bridge.request).toHaveBeenCalledWith(expect.objectContaining({collaborationId:'bridge',sessionId:'allowed',userPrompt:expect.stringContaining('hello')}));
+    expect(mocks.bridge.request.mock.calls[0][0].prompt).not.toContain('返回 JSON');
+  });
   it("defaults to existing text model and restores that route after disconnect", async () => {
     expect(localCodex.selection()).toBeUndefined();
     await localCodex.connect();

@@ -24,6 +24,7 @@ export interface CreativeAccountBinding {
   updatedAt: number;
 }
 export interface CreativeAccountBridge {
+  collaboration?: import('./collaboration-types').CollaborationBridge;
   /** Optional native discussion backend; independent of Rabbit account login. */
   localCodex?: CreativeCodexBridge;
   state: CreativeAccountState;
@@ -67,12 +68,19 @@ export interface CreativeCodexModel {
   supportsImages: boolean;
 }
 export interface CreativeCodexBridge {
+  capabilities?: () => Promise<import('./collaboration-types').CodexCapabilityCatalog>;
+  approve?: (requestId: string, approvalId: string, allow: boolean) => Promise<void>;
   probe: () => Promise<{ models: CreativeCodexModel[]; defaultModel: string }>;
   request: (input: {
     model: string;
     effort?: string;
     prompt: string;
     images: string[];
+    collaborationId?: string;
+    sessionId?: string;
+    userPrompt?: string;
+    onActivity?: (value: import('./collaboration-types').CodexActivity) => void;
+    onApproval?: (value: import('./collaboration-types').CodexApproval & { requestId: string }) => void;
     signal: AbortSignal;
     onUpdate: (value: { content: string; reasoning: string }) => void;
   }) => Promise<{ content: string; reasoning: string }>;

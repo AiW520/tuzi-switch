@@ -29,15 +29,19 @@ export function codexError(error: unknown): Error {
 }
 type Event =
   | { type: "ready" }
+  | ({ type: 'activity' } & import('../../../packages/creative-workspace/src/collaboration-types').CodexActivity)
+  | ({ type: 'approval' } & import('../../../packages/creative-workspace/src/collaboration-types').CodexApproval)
   | { type: "delta" | "complete"; content: string; reasoning: string };
 export const nativeLocalCodex: CreativeCodexBridge = {
+  capabilities: () => invoke<import('../../../packages/creative-workspace/src/collaboration-types').CodexCapabilityCatalog>('creative_codex_capabilities').catch(e => { throw codexError(e); }),
+  approve: (requestId, approvalId, allow) => invoke('creative_codex_approve', { requestId, approvalId, allow }),
   probe: () =>
     invoke<Awaited<ReturnType<CreativeCodexBridge["probe"]>>>(
       "creative_codex_probe",
     ).catch((e) => {
       throw codexError(e);
     }),
-  request: ({ signal, onUpdate, ...input }) => {
+  request: ({ signal, onUpdate, onActivity, onApproval, ...input }) => {
     signal.throwIfAborted();
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
@@ -74,6 +78,8 @@ export const nativeLocalCodex: CreativeCodexBridge = {
           return;
         }
         if (settled) return;
+        if (event.type === 'activity') { onActivity?.(event); return; }
+        if (event.type === 'approval') { onApproval?.({ ...event, requestId }); return; }
         if (event.type === "delta") {
           snapshot = {
             content: snapshot.content + event.content,

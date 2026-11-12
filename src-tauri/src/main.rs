@@ -2,6 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--opentu-mcp")) {
+        let Some(path) = args.next() else {
+            std::process::exit(2)
+        };
+        if tuzi_switch_lib::creative_collaboration::run_proxy(path.into()).is_err() {
+            std::process::exit(1);
+        }
+        return;
+    }
     // 在 Linux 上设置 WebKit 环境变量以解决 DMA-BUF 渲染问题
     // 某些 Linux 系统（如 Debian 13.2、Nvidia GPU）上 WebKitGTK 的 DMA-BUF 渲染器可能导致白屏/黑屏
     // 参考: https://github.com/tauri-apps/tauri/issues/9394

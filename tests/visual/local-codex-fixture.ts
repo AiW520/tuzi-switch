@@ -17,6 +17,11 @@ const fixture = {
 };
 (window as any).__localCodexFixture = fixture;
 export async function localCodexPreviewIPC(command: string, args: any) {
+  if (command === 'creative_codex_capabilities') return {
+    skills: [{name:'Synthetic creative skill',description:'Browser QA only',path:'/synthetic/skill',enabled:true}],
+    servers: [{name:'opentu-synthetic',tools:['board_read','canvas_insert_text'],authStatus:'notLoggedIn'}],errors:[],
+  };
+  if (command === 'creative_codex_approve') return;
   if (command === "creative_codex_probe") {
     if (fixture.probeFail) throw "codex_not_found";
     return {

@@ -199,6 +199,16 @@ export class TextChatRuntime {
     await this.save(session.id);
     return session.id;
   };
+  /** Tool results are messages, never new agent prompts. */
+  appendCollaborationResult = async (id: string, message: TextMessage) => {
+    const session = this.get(id);
+    const existing = session.textChat.messages.find(m => m.id === message.id);
+    this.replace({ ...session, textChat: { ...session.textChat,
+      messages: existing ? session.textChat.messages.map(m => m.id === message.id ? message : m)
+        : [...session.textChat.messages, message],
+    } });
+    await this.save(id);
+  };
   configure = (
     id: string,
     patch: Partial<

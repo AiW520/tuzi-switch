@@ -1,5 +1,6 @@
 import { creativeManualPreviewIPC, creativeAccountMediaPreviewIPC } from "./creative-request-fixture";
 import { localCodexPreviewIPC } from "./local-codex-fixture";
+import { collaborationPreviewIPC } from "./collaboration-fixture";
 import { CreativeWorkspace } from "@/features/creative/CreativeWorkspace";
 import { disconnectedAccount, type AccountState } from "@/lib/api/account";
 import { nativePreviewIPC } from "./native-tool-fixture";
@@ -119,6 +120,7 @@ const agentBackups: Partial<Record<AgentTool, AgentSnapshot>> = {};
 mockWindows("main");
 mockIPC(
   async (command, args) => {
+    if (command.startsWith("creative_collaboration_")) return collaborationPreviewIPC(command, args);
     if (command.startsWith("creative_codex_")) return localCodexPreviewIPC(command, args);
     if (command === "creative_save_media") {
       const state = window as unknown as { __creativeMediaFixture?: { sizes: number[] } };

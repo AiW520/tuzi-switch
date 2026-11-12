@@ -15,6 +15,7 @@ import { requestCreativeManual } from "./manualTransport";
 import { nativeImageAction } from "./imageActions";
 import { nativeSaveMedia } from "./mediaSave";
 import { nativeLocalCodex } from "./localCodex";
+import { nativeCollaboration } from "./collaboration";
 import { selectCreativeMediaAction } from "./mediaActions";
 
 const PREFIX = "tuzi-account:";
@@ -172,6 +173,7 @@ export function createCreativeAccountBridge(
     manageAccount,
     selectedKeyId,
     localCodex: typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? nativeLocalCodex : undefined,
+    collaboration: typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? nativeCollaboration : undefined,
     imageAction:
       typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
         ? nativeImageAction

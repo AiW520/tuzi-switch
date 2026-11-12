@@ -1,6 +1,7 @@
 import React, { useSyncExternalStore } from "react";
 import { Plug, Unplug, Loader2 } from "lucide-react";
 import { localCodex } from "../../services/text-chat/local-codex";
+import { CollaborationControls } from './CollaborationControls';
 
 export function DiscussionBackend({
   children,
@@ -103,6 +104,7 @@ export function DiscussionBackend({
           )}
         </div>
       )}
+      <CollaborationControls busy={working} />
     </div>
   );
 }
