@@ -6665,6 +6665,11 @@
       "path": "packages/drawnix/src/services/assistant-creation-setup.test.ts",
       "reason": "Desktop send-time configuration handoff; preserves drafts and reuses host creative settings.",
       "origin": "assistant-integration"
+    },
+    {
+      "path": "packages/drawnix/src/components/CanvasImageContextMenu.test.tsx",
+      "origin": "assistant-integration",
+      "reason": "Regression coverage for canvas image/video menus, native overlay targeting and delayed WebKit scroll dismissal"
     }
   ],
   "integration": {
