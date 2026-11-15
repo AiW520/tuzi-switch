@@ -9,6 +9,8 @@ const errors: Record<string, string> = {
   codex_request_rejected:
     "Codex 未接受请求，请检查 CLI 版本、模型配置和登录状态。",
   codex_turn_failed: "Codex 本轮回复失败，请检查额度、模型或登录状态后重试。",
+  codex_provider_model_unavailable: "当前供应商分组不支持所选 Codex 模型，请选择该分组实际可用的模型。模型列表中的条目不保证账户可用。",
+  codex_context_compaction_failed: "Codex 无法压缩旧会话上下文，请检查原模型是否仍可用，或新建讨论后重试。",
   codex_timeout: "等待 Codex 超时，本次已停止。请检查本地 CLI 后重试。",
   codex_model_unavailable:
     "所选 Codex 模型或思考强度已不可用，请重新连接并选择。",
@@ -49,6 +51,13 @@ export const nativeLocalCodex: CreativeCodexBridge = {
       let aborted = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let snapshot = { content: "", reasoning: "" };
+      const activities = new Map<string, import('../../../packages/creative-workspace/src/collaboration-types').CodexActivity>();
+      const finishActivities = (status: string) => {
+        for (const activity of activities.values())
+          if (activity.status === 'running' || activity.status === 'inProgress')
+            onActivity?.({ ...activity, status });
+        activities.clear();
+      };
       const cancel = () => {
         void invoke("creative_codex_cancel", { requestId }).catch(() => {});
       };
@@ -61,6 +70,7 @@ export const nativeLocalCodex: CreativeCodexBridge = {
         settled = true;
         cleanup();
         cancel();
+        finishActivities(signal.aborted ? 'cancelled' : 'failed');
         reject(
           signal.aborted
             ? new DOMException("已停止", "AbortError")
@@ -78,7 +88,7 @@ export const nativeLocalCodex: CreativeCodexBridge = {
           return;
         }
         if (settled) return;
-        if (event.type === 'activity') { onActivity?.(event); return; }
+        if (event.type === 'activity') { activities.set(event.id, event); onActivity?.(event); return; }
         if (event.type === 'approval') { onApproval?.({ ...event, requestId }); return; }
         if (event.type === "delta") {
           snapshot = {
@@ -89,6 +99,7 @@ export const nativeLocalCodex: CreativeCodexBridge = {
         } else {
           settled = true;
           cleanup();
+          finishActivities('interrupted');
           resolve({ content: event.content, reasoning: event.reasoning });
         }
       };

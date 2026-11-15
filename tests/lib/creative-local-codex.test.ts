@@ -19,6 +19,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("native Codex channel", () => {
+  it('ends running activities on failure and ignores late events', async () => {
+    let channel: any, fail!: (reason: string) => void;
+    mocks.invoke.mockImplementation((command, args) => {
+      if (command !== 'creative_codex_chat') return Promise.resolve();
+      channel = args.onEvent;
+      return new Promise((_resolve, reject) => { fail = reject; });
+    });
+    const onActivity = vi.fn();
+    const pending = nativeLocalCodex.request({ ...input(), onActivity });
+    channel.onmessage({ type:'activity', id:'compact', kind:'contextCompaction', label:'压缩上下文', status:'running' });
+    fail('codex_provider_model_unavailable');
+    await expect(pending).rejects.toThrow('当前供应商分组不支持');
+    expect(onActivity).toHaveBeenLastCalledWith(expect.objectContaining({id:'compact',status:'failed'}));
+    channel.onmessage({type:'activity',id:'compact',status:'running'});
+    expect(onActivity).toHaveBeenCalledTimes(2);
+  });
   it('routes tool events and approval requests without completing the reply', async () => {
     let channel: any;
     mocks.invoke.mockImplementation(async (_command, args) => { channel = args.onEvent; });

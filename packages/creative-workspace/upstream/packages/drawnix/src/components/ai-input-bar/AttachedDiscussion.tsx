@@ -15,6 +15,7 @@ import {
 } from "../../utils/settings-manager";
 import { useChatDrawerControl } from "../../contexts/ChatDrawerContext";
 import { useTextSelection } from "../../hooks/useTextSelection";
+import { getCollaborationPending } from "../../services/text-chat/collaboration-link";
 
 const Transcript = lazy(() => import("../text-chat/TextChatWorkspace"));
 
@@ -92,7 +93,11 @@ export function AttachedDiscussion({
     void settingsManager
       .waitForInitialization()
       .then(async () => {
-        const id = await textChatRuntime.ensureDiscussion(
+        const pending = getCollaborationPending(boardId);
+        const pendingSession = pending && textChatRuntime.getSnapshot().sessions.find(
+          session => session.id === pending.scope.sessionId && session.textChat.linkedBoardId === boardId,
+        );
+        const id = pendingSession?.id ?? await textChatRuntime.ensureDiscussion(
           boardId,
           discussionDefaultModel(),
         );

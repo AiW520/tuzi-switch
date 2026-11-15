@@ -112,11 +112,7 @@ export function CollaborationControls({ busy }: { busy: boolean }) {
             {state.activities.map((a) => (
               <li key={a.id}>
                 {a.label} ·{" "}
-                {a.status === "running"
-                  ? "进行中"
-                  : a.status === "completed"
-                    ? "完成"
-                    : a.status}
+                {({ running: "进行中", inProgress: "进行中", completed: "完成", failed: "失败", cancelled: "已停止", interrupted: "已结束" } as Record<string, string>)[a.status] || a.status}
               </li>
             ))}
           </ol>

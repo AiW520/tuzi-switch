@@ -24,6 +24,7 @@ export function DiscussionBackend({
           <>
             <select
               aria-label="Codex 文本模型"
+              title="切换模型会新建 Codex 执行会话，并带入当前讨论上下文"
               value={state.model}
               disabled={working || state.connecting}
               onChange={(e) => localCodex.select(e.target.value)}

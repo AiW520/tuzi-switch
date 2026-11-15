@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { textChatRuntime as runtime } from "../../services/text-chat/runtime";
 import { taskQueueService } from "../../services/task-queue";
+import { getCollaborationPending, subscribeCollaborationPending } from "../../services/text-chat/collaboration-link";
 
 export function DiscussionStrip({
   boardId,
@@ -28,6 +29,7 @@ export function DiscussionStrip({
   // A primitive snapshot keeps token updates local and avoids re-rendering the canvas/composer.
   const read = useCallback(() => {
     const state = runtime.getSnapshot();
+    const confirmation = getCollaborationPending(boardId);
     const sessions = state.sessions.filter(
       (s) =>
         s.textChat.executionMode === "agent" &&
@@ -54,7 +56,9 @@ export function DiscussionStrip({
     const failed = tasks.filter((t) =>
       ["failed", "cancelled"].includes(t.status),
     ).length;
-    const status = tasks.length
+    const status = confirmation
+      ? `协同操作待确认 · ${confirmation.title}`
+      : tasks.length
       ? pending
         ? `生成作品 ${complete}/${tasks.length}`
         : failed
@@ -73,7 +77,7 @@ export function DiscussionStrip({
               : message
                 ? "讨论已完成"
                 : "用文本模型讨论，再预览并批量生成";
-    const phase = busy || pending
+    const phase = confirmation ? "ready" : busy || pending
       ? "working"
       : failed || message?.status === "error"
         ? "error"
@@ -87,6 +91,7 @@ export function DiscussionStrip({
   const subscribe = useCallback(
     (notify: () => void) => {
       const off = runtime.subscribe(notify);
+      const offConfirmation = subscribeCollaborationPending(notify);
       const sub = taskQueueService
         .observeTaskUpdates()
         .subscribe(({ task }) => {
@@ -94,6 +99,7 @@ export function DiscussionStrip({
         });
       return () => {
         off();
+        offConfirmation();
         sub.unsubscribe();
       };
     },
@@ -136,7 +142,7 @@ export function DiscussionStrip({
           )}
         </span>
         <span className="discussion-strip__label">创作讨论</span>
-        <span className="discussion-strip__status" title={status}>{status}</span>
+        <span className="discussion-strip__status" title={status} role="status">{status}</span>
         <span className="discussion-strip__toggle" aria-hidden="true">
           <span>{expanded ? "收起" : "展开"}</span>
           {expanded ? <ChevronDown size={12} /> : <ChevronUp size={12} />}

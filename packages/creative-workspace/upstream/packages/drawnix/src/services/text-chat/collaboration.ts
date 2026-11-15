@@ -28,7 +28,7 @@ import {
 import type { TextMessage } from "./conversation";
 import { runOnce, validateChanges } from "./collaboration-core";
 import { normalizeImageUrlForMultimodalInput } from "../../utils/gemini-api/message-utils";
-import { setCollaborationLink } from "./collaboration-link";
+import { setCollaborationLink, setCollaborationPending } from "./collaboration-link";
 
 const journal = {
   get: <T>(key: string) => kvStorageService.get<T>(key, { strict: true }),
@@ -58,6 +58,9 @@ let state: State = {
 const listeners = new Set<() => void>();
 const emit = (patch: Partial<State>) => {
   state = { ...state, ...patch };
+  setCollaborationPending(state.scope && state.pending
+    ? { scope: state.scope, title: state.pending.title }
+    : undefined);
   listeners.forEach((f) => f());
 };
 let writes: Promise<unknown> = Promise.resolve();

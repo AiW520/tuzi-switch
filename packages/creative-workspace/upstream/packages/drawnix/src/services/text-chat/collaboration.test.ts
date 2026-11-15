@@ -113,6 +113,7 @@ vi.mock("../../utils/gemini-api/message-utils", () => ({
   normalizeImageUrlForMultimodalInput: async (url: string) => url,
 }));
 import { collaboration } from "./collaboration";
+import { getCollaborationPending } from "./collaboration-link";
 let unsubscribe: () => void;
 beforeEach(async () => {
   vi.stubGlobal("crypto", webcrypto);
@@ -145,6 +146,7 @@ beforeEach(async () => {
 afterEach(async () => {
   unsubscribe();
   await collaboration.disconnect();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 const call = (name: string, args: Record<string, unknown> = {}) =>
@@ -156,6 +158,30 @@ const call = (name: string, args: Record<string, unknown> = {}) =>
     expiresAt: Date.now() + 110000,
   });
 describe("OpenTU collaboration business operations", () => {
+  it("clears the collapsed notice on timeout without writing a result", async () => {
+    unsubscribe();
+    unsubscribe = () => {};
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const result = call('discussion_append', { operationId: 'timeout-notice', content: 'Synthetic timeout' });
+    const rejected = expect(result).rejects.toThrow('超时');
+    await vi.waitFor(() => expect(getCollaborationPending('board-1')).toBeDefined());
+    await vi.advanceTimersByTimeAsync(105_000);
+    await rejected;
+    expect(getCollaborationPending('board-1')).toBeUndefined();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it("notifies the scoped collapsed strip and clears the notice on rejection", async () => {
+    unsubscribe();
+    unsubscribe = () => {};
+    const result = call('discussion_append', { operationId: 'notice', content: 'Synthetic result' });
+    const rejected = expect(result).rejects.toThrow('未批准');
+    await vi.waitFor(() => expect(getCollaborationPending('board-1')?.title).toBe('记录创作结果'));
+    expect(getCollaborationPending('board-2')).toBeUndefined();
+    collaboration.getSnapshot().pending!.decide(false);
+    await rejected;
+    expect(getCollaborationPending('board-1')).toBeUndefined();
+    expect(m.save).not.toHaveBeenCalled();
+  });
   it('reads asynchronous Skill metadata with its source and content fingerprint', async () => {
     expect(await call('skills_read', {id:'skill-1'})).toMatchObject({source:'synthetic-package',content:'Synthetic instructions',contentHash:expect.stringMatching(/^[a-f0-9]{64}$/)});
   });
@@ -274,6 +300,7 @@ describe("OpenTU collaboration business operations", () => {
     );
     await collaboration.disconnect();
     expect((await outcomes).every((r) => r.status === "rejected")).toBe(true);
+    expect(getCollaborationPending('board-1')).toBeUndefined();
     expect(m.save).not.toHaveBeenCalled();
   });
 });

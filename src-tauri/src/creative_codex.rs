@@ -51,6 +51,34 @@ fn thread_file(bridge: &crate::creative_collaboration::Bridge) -> PathBuf {
         .join("collaboration/threads")
         .join(format!("{}.json", bridge.scope.session_id))
 }
+// App Server may compact with the previous model when resuming across models.
+// Keep the discussion history, but start a fresh execution thread after selection changes.
+fn reusable_thread<'a>(
+    saved: &'a Value,
+    board: &str,
+    session: &str,
+    model: &str,
+) -> Option<&'a str> {
+    (saved["boardId"] == board && saved["sessionId"] == session && saved["model"] == model)
+        .then(|| saved["threadId"].as_str())
+        .flatten()
+}
+fn turn_error(error: &Value) -> String {
+    // Classify locally; never expose provider payloads, URLs or credentials to the UI.
+    let detail = format!(
+        "{} {}",
+        error["message"].as_str().unwrap_or(""),
+        error["additionalDetails"].as_str().unwrap_or("")
+    )
+    .to_ascii_lowercase();
+    if detail.contains("not supported by any configured account") {
+        "codex_provider_model_unavailable".into()
+    } else if detail.contains("compact") || error["codexErrorInfo"] == "contextWindowExceeded" {
+        "codex_context_compaction_failed".into()
+    } else {
+        "codex_turn_failed".into()
+    }
+}
 pub fn disconnect(id: &str) {
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.remove(id);
@@ -553,13 +581,15 @@ fn run_initialized(
         let path = thread_file(b);
         if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
-                if saved["sessionId"] == b.scope.session_id && saved["boardId"] == b.scope.board_id
-                {
-                    if let Some(id) = saved["threadId"].as_str() {
-                        params["threadId"] = json!(id);
-                        method = "thread/resume";
-                        resumed = true;
-                    }
+                if let Some(id) = reusable_thread(
+                    &saved,
+                    &b.scope.board_id,
+                    &b.scope.session_id,
+                    &request.model,
+                ) {
+                    params["threadId"] = json!(id);
+                    method = "thread/resume";
+                    resumed = true;
                 }
             }
         }
@@ -577,7 +607,7 @@ fn run_initialized(
         .ok_or("codex_invalid_protocol")?
         .to_owned();
     if let Some(b) = &bridge {
-        crate::config::atomic_write(&thread_file(b),&serde_json::to_vec(&json!({"threadId":thread,"sessionId":b.scope.session_id,"boardId":b.scope.board_id})).unwrap()).map_err(|_|"codex_workspace_unavailable")?;
+        crate::config::atomic_write(&thread_file(b),&serde_json::to_vec(&json!({"threadId":thread,"sessionId":b.scope.session_id,"boardId":b.scope.board_id,"model":request.model})).unwrap()).map_err(|_|"codex_workspace_unavailable")?;
     }
     rpc.events.clear();
     let prompt = if resumed {
@@ -717,14 +747,14 @@ fn run_initialized(
                 }
             }
             "error" if params["willRetry"].as_bool() != Some(true) => {
-                return Err("codex_turn_failed".into())
+                return Err(turn_error(&params["error"]))
             }
             "turn/completed" => {
                 if params["turn"]["id"].as_str() != Some(&turn_id) {
                     continue;
                 }
                 if params["turn"]["status"] != "completed" {
-                    return Err("codex_turn_failed".into());
+                    return Err(turn_error(&params["turn"]["error"]));
                 }
                 let final_text = final_content.unwrap_or(content);
                 if final_text.trim().is_empty() {
@@ -922,6 +952,44 @@ pub fn creative_codex_cancel(request_id: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resume_requires_matching_scope_and_explicit_model() {
+        let saved =
+            json!({"boardId":"board","sessionId":"session","threadId":"thread","model":"new"});
+        assert_eq!(
+            reusable_thread(&saved, "board", "session", "new"),
+            Some("thread")
+        );
+        assert_eq!(reusable_thread(&saved, "board", "session", "old"), None);
+        assert_eq!(reusable_thread(&saved, "other", "session", "new"), None);
+        assert_eq!(reusable_thread(&saved, "board", "other", "new"), None);
+        let mut legacy = saved.clone();
+        legacy.as_object_mut().unwrap().remove("model");
+        assert_eq!(reusable_thread(&legacy, "board", "session", "new"), None);
+    }
+    #[test]
+    fn provider_errors_are_classified_without_disclosing_details() {
+        assert_eq!(
+            turn_error(
+                &json!({"message":"Model X is not supported by any configured account in this group; SYNTHETIC_SECRET"})
+            ),
+            "codex_provider_model_unavailable"
+        );
+        assert_eq!(
+            turn_error(
+                &json!({"message":"failed", "additionalDetails":"Model X is not supported by any configured account in this group"})
+            ),
+            "codex_provider_model_unavailable"
+        );
+        assert_eq!(
+            turn_error(&json!({"message":"Error compacting remote context"})),
+            "codex_context_compaction_failed"
+        );
+        assert_eq!(
+            turn_error(&json!({"message":"SYNTHETIC_SECRET"})),
+            "codex_turn_failed"
+        );
+    }
     #[test]
     fn validates_input_without_paths_or_remote_images() {
         let mut request = CodexRequest {
