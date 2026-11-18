@@ -2,6 +2,24 @@ param([switch]$Worker, [string]$Lab, [switch]$ExpectStandard, [switch]$RequireSu
 $ErrorActionPreference = 'Stop'
 
 if ($Worker) {
+    function Invoke-NativeProbe([string[]]$Paths) {
+        $info = [Diagnostics.ProcessStartInfo]::new()
+        $info.FileName = Join-Path $Lab 'private-dir-probe.exe'
+        $info.Arguments = ($Paths | ForEach-Object { '"' + $_ + '"' }) -join ' '
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $info
+        $process.Start() | Out-Null
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Native probe timed out' }
+        $result = @{ exitCode=$process.ExitCode; stderr=$stderr.Result; stdout=$stdout.Result }
+        $process.Dispose()
+        return $result
+    }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $elevated = ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($ExpectStandard -and $elevated) { throw 'Test requires a non-administrator token' }
@@ -46,8 +64,8 @@ if ($Worker) {
     if ($RequireSuccess) {
         # Exercise the compiled Rust wrapper, not just its embedded script.
         $nativeDirectory = Join-Path $Lab 'native repeat'
-        & (Join-Path $Lab 'private-dir-probe.exe') $nativeDirectory $nativeDirectory $nativeDirectory
-        $results += @{ case='native-repeat'; exitCode=$LASTEXITCODE; passed=$LASTEXITCODE -eq 0 }
+        $native = Invoke-NativeProbe @($nativeDirectory, $nativeDirectory, $nativeDirectory)
+        $results += @{ case='native-repeat'; exitCode=$native.exitCode; passed=$native.exitCode -eq 0 }
 
         # A junction must be rejected without changing its target's permissions.
         $target = Join-Path $Lab 'junction-target'
@@ -55,21 +73,17 @@ if ($Worker) {
         $before = ([IO.Directory]::GetAccessControl($target)).Sddl
         $junction = Join-Path $Lab 'junction'
         New-Item -ItemType Junction -Path $junction -Target $target | Out-Null
-        $oldPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $nativeError = (& (Join-Path $Lab 'private-dir-probe.exe') $junction 2>&1 | Out-String)
-        $nativeExit = $LASTEXITCODE
-        $ErrorActionPreference = $oldPreference
+        $native = Invoke-NativeProbe @($junction)
+        $nativeError = $native.stderr
+        $nativeExit = $native.exitCode
         $unchanged = $before -eq ([IO.Directory]::GetAccessControl($target)).Sddl
         $passed = $nativeExit -ne 0 -and $nativeError -match 'symbolic link|reparse point' -and $unchanged
         $results += @{ case='native-reject-junction'; exitCode=$(if ($passed) {0} else {1}); passed=$passed; rejected=$nativeExit -ne 0; targetUnchanged=$unchanged }
 
         if ($ExpectStandard) {
-            $oldPreference = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            $nativeError = (& (Join-Path $Lab 'private-dir-probe.exe') (Join-Path $Lab 'no-write-acl') 2>&1 | Out-String)
-            $nativeExit = $LASTEXITCODE
-            $ErrorActionPreference = $oldPreference
+            $native = Invoke-NativeProbe @((Join-Path $Lab 'no-write-acl'))
+            $nativeError = $native.stderr
+            $nativeExit = $native.exitCode
             $passed = $nativeExit -ne 0 -and $nativeError -match 'stage=write-acl, HRESULT=0x[0-9A-F]{8}' -and $nativeError -notmatch [regex]::Escape($Lab)
             $results += @{ case='native-denied-diagnostic'; exitCode=$(if ($passed) {0} else {1}); passed=$passed; rejected=$nativeExit -ne 0; diagnostic=$nativeError.Trim() }
         }
