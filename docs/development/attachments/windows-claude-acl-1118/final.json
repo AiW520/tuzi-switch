@@ -1,0 +1,265 @@
+{
+  "kind": "actual-windows-production-script-and-rust-probe",
+  "runId": 44251974977,
+  "source": "5a314033dc7ecf207eb3e08ddd5ddfb598a8f123",
+  "reports": [
+    {
+      "runner": "windows-11-arm",
+      "elevated": true,
+      "os": "Microsoft Windows NT 10.0.26200.0",
+      "powershell": "5.1.26100.9974",
+      "cases": [
+        {
+          "stdout": "",
+          "case": "new directory",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "兔子 space & quote' dollar$",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-repeat",
+          "passed": true
+        },
+        {
+          "targetUnchanged": true,
+          "exitCode": 0,
+          "case": "native-reject-junction",
+          "rejected": true,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "runner": "windows-11-arm",
+      "elevated": false,
+      "os": "Microsoft Windows NT 10.0.26200.0",
+      "powershell": "5.1.26100.9974",
+      "cases": [
+        {
+          "stdout": "",
+          "case": "new directory",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "兔子 space & quote' dollar$",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-repeat",
+          "passed": true
+        },
+        {
+          "targetUnchanged": true,
+          "exitCode": 0,
+          "case": "native-reject-junction",
+          "rejected": true,
+          "passed": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-denied-diagnostic",
+          "rejected": true,
+          "diagnostic": "Cannot secure private directory permissions (stage=write-acl, HRESULT=0x80070005, type=UnauthorizedAccessException)",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "runner": "windows-x64",
+      "elevated": true,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "powershell": "5.1.26100.33648",
+      "cases": [
+        {
+          "stdout": "",
+          "case": "new directory",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "兔子 space & quote' dollar$",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-repeat",
+          "passed": true
+        },
+        {
+          "targetUnchanged": true,
+          "exitCode": 0,
+          "case": "native-reject-junction",
+          "rejected": true,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "runner": "windows-x64",
+      "elevated": false,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "powershell": "5.1.26100.33648",
+      "cases": [
+        {
+          "stdout": "",
+          "case": "new directory",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "兔子 space & quote' dollar$",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "stdout": "",
+          "case": "repeat",
+          "stderr": "",
+          "timedOut": false,
+          "exitCode": 0,
+          "childPrivate": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-repeat",
+          "passed": true
+        },
+        {
+          "targetUnchanged": true,
+          "exitCode": 0,
+          "case": "native-reject-junction",
+          "rejected": true,
+          "passed": true
+        },
+        {
+          "exitCode": 0,
+          "case": "native-denied-diagnostic",
+          "rejected": true,
+          "diagnostic": "Cannot secure private directory permissions (stage=write-acl, HRESULT=0x80070005, type=UnauthorizedAccessException)",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "macCoreTests": 63,
+  "customerMachineTested": false,
+  "installerBuilt": false,
+  "published": false
+}

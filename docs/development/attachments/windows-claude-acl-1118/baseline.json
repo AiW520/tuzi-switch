@@ -1,0 +1,138 @@
+{
+  "kind": "actual-windows-original-script-reproduction",
+  "runId": 44250713075,
+  "scriptSource": "be5bd7bb2f61cdc289504837bbacc181a24b3d3a",
+  "harnessSource": "61de3398",
+  "reports": [
+    {
+      "runner": "claude-acl-windows-11-arm",
+      "elevated": true,
+      "os": "Microsoft Windows NT 10.0.26200.0",
+      "powershell": "5.1.26100.9974",
+      "cases": [
+        {
+          "case": "new directory",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "兔子 space & quote' dollar$",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        }
+      ]
+    },
+    {
+      "runner": "claude-acl-windows-11-arm",
+      "elevated": false,
+      "os": "Microsoft Windows NT 10.0.26200.0",
+      "powershell": "5.1.26100.9974",
+      "cases": [
+        {
+          "case": "new directory",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "兔子 space & quote' dollar$",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 1,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": true
+        }
+      ]
+    },
+    {
+      "runner": "claude-acl-windows-latest",
+      "elevated": true,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "powershell": "5.1.26100.33648",
+      "cases": [
+        {
+          "case": "new directory",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "兔子 space & quote' dollar$",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        }
+      ]
+    },
+    {
+      "runner": "claude-acl-windows-latest",
+      "elevated": false,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "powershell": "5.1.26100.33648",
+      "cases": [
+        {
+          "case": "new directory",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "兔子 space & quote' dollar$",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 0,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": false
+        },
+        {
+          "case": "repeat",
+          "exitCode": 1,
+          "timedOut": false,
+          "missingSeSecurityPrivilege": true
+        }
+      ]
+    }
+  ],
+  "customerMachineTested": false,
+  "installerAcceptance": false
+}
