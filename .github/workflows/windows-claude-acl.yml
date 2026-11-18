@@ -1,0 +1,31 @@
+name: Windows Claude private directory regression
+on:
+  push:
+    branches: [codex/windows-claude-acl-1118]
+    paths:
+      - '.github/workflows/windows-claude-acl.yml'
+      - 'scripts/qa/windows-claude-acl.ps1'
+      - 'src-tauri/vendor/claude-local/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  permissions:
+    if: github.repository == 'AiW520/tuzi-switch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise production ACL script with elevated and standard users
+        shell: powershell
+        run: scripts/qa/windows-claude-acl.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-acl-${{ matrix.os }}
+          path: acl-results/*.json
+          if-no-files-found: error
