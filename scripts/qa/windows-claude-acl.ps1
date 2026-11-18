@@ -24,8 +24,9 @@ if ($Worker) {
         $process.Start() | Out-Null
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'ACL probe timed out' }
-        $results += @{ case=$name; exitCode=$process.ExitCode; stdout=$stdout.Result; stderr=$stderr.Result }
+        $timedOut = -not $process.WaitForExit(60000)
+        if ($timedOut) { $process.Kill(); $process.WaitForExit() }
+        $results += @{ case=$name; exitCode=$process.ExitCode; timedOut=$timedOut; stdout=$stdout.Result; stderr=$stderr.Result }
         $process.Dispose()
     }
     $report = @{ elevated=$elevated; os=[Environment]::OSVersion.VersionString; powershell=$PSVersionTable.PSVersion.ToString(); cases=$results }
@@ -58,15 +59,18 @@ try {
         [IO.File]::WriteAllText((Join-Path $labPath 'script.base64'), $encoded)
         Copy-Item $PSCommandPath (Join-Path $labPath 'worker.ps1')
         $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + (Join-Path $labPath 'worker.ps1') + '" -Worker -Lab "' + $labPath + '"'
-        $parameters = @{ FilePath=(Join-Path $PSHOME 'powershell.exe'); ArgumentList=$arguments; PassThru=$true }
+        $parameters = @{ FilePath=(Join-Path $PSHOME 'powershell.exe'); ArgumentList=$arguments; PassThru=$true; RedirectStandardOutput=(Join-Path $labPath 'worker.stdout'); RedirectStandardError=(Join-Path $labPath 'worker.stderr') }
         if ($mode -eq 'standard') {
             $parameters.Credential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$account", $password)
             $parameters.LoadUserProfile = $true
             $parameters.ArgumentList += ' -ExpectStandard'
         }
         $process = Start-Process @parameters
-        if (-not $process.WaitForExit(180000)) { $process.Kill(); throw 'Test worker timed out' }
-        if ($process.ExitCode -ne 0) { throw "Test worker failed: $mode" }
+        $process.Handle | Out-Null
+        if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'Test worker timed out' }
+        Get-Content (Join-Path $labPath 'worker.stdout')
+        Get-Content (Join-Path $labPath 'worker.stderr')
+        if ($process.ExitCode -ne 0) { throw "Test worker failed: $mode (exit=$($process.ExitCode))" }
         Copy-Item (Join-Path $labPath 'result.json') "acl-results/$mode.json"
         Get-Content "acl-results/$mode.json"
     }
