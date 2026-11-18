@@ -1,4 +1,4 @@
-param([switch]$Worker, [string]$Lab, [switch]$ExpectStandard, [switch]$RequireSuccess)
+param([switch]$Worker, [string]$Lab, [switch]$ExpectStandard, [switch]$RequireSuccess, [string]$NativeProbe)
 $ErrorActionPreference = 'Stop'
 
 if ($Worker) {
@@ -43,6 +43,37 @@ if ($Worker) {
         $results += $entry
         $process.Dispose()
     }
+    if ($RequireSuccess) {
+        # Exercise the compiled Rust wrapper, not just its embedded script.
+        $nativeDirectory = Join-Path $Lab 'native repeat'
+        & (Join-Path $Lab 'private-dir-probe.exe') $nativeDirectory $nativeDirectory $nativeDirectory
+        $results += @{ case='native-repeat'; exitCode=$LASTEXITCODE; childPrivate=$true }
+
+        # A junction must be rejected without changing its target's permissions.
+        $target = Join-Path $Lab 'junction-target'
+        New-Item -ItemType Directory -Path $target | Out-Null
+        $before = ([IO.Directory]::GetAccessControl($target)).Sddl
+        $junction = Join-Path $Lab 'junction'
+        New-Item -ItemType Junction -Path $junction -Target $target | Out-Null
+        $oldPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $nativeError = (& (Join-Path $Lab 'private-dir-probe.exe') $junction 2>&1 | Out-String)
+        $nativeExit = $LASTEXITCODE
+        $ErrorActionPreference = $oldPreference
+        $unchanged = $before -eq ([IO.Directory]::GetAccessControl($target)).Sddl
+        $passed = $nativeExit -ne 0 -and $nativeError -match 'symbolic link|reparse point' -and $unchanged
+        $results += @{ case='native-reject-junction'; exitCode=$(if ($passed) {0} else {1}); childPrivate=$true; rejected=$nativeExit -ne 0; targetUnchanged=$unchanged }
+
+        if ($ExpectStandard) {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $nativeError = (& (Join-Path $Lab 'private-dir-probe.exe') (Join-Path $Lab 'no-write-acl') 2>&1 | Out-String)
+            $nativeExit = $LASTEXITCODE
+            $ErrorActionPreference = $oldPreference
+            $passed = $nativeExit -ne 0 -and $nativeError -match 'stage=write-acl, HRESULT=0x[0-9A-F]{8}' -and $nativeError -notmatch [regex]::Escape($Lab)
+            $results += @{ case='native-denied-diagnostic'; exitCode=$(if ($passed) {0} else {1}); childPrivate=$true; rejected=$nativeExit -ne 0; diagnostic=$nativeError.Trim() }
+        }
+    }
     $report = @{ elevated=$elevated; os=[Environment]::OSVersion.VersionString; powershell=$PSVersionTable.PSVersion.ToString(); cases=$results }
     $report | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $Lab 'result.json')
     if ($RequireSuccess -and @($results | Where-Object { $_.exitCode -ne 0 -or -not $_.childPrivate }).Count) { exit 1 }
@@ -78,6 +109,22 @@ try {
         New-Item -ItemType Directory -Path $labPath | Out-Null
         [IO.File]::WriteAllText((Join-Path $labPath 'script.base64'), $encoded)
         Copy-Item $PSCommandPath (Join-Path $labPath 'worker.ps1')
+        if ($variant -eq 'fixed') {
+            Copy-Item $NativeProbe (Join-Path $labPath 'private-dir-probe.exe')
+            if ($mode -eq 'standard') {
+                $deniedDirectory = Join-Path $labPath 'no-write-acl'
+                New-Item -ItemType Directory -Path $deniedDirectory | Out-Null
+                $deniedAcl = [Security.AccessControl.DirectorySecurity]::new()
+                $deniedAcl.SetAccessRuleProtection($true, $false)
+                $runnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+                $deniedAcl.SetOwner($runnerSid)
+                foreach ($principal in @($runnerSid, [Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
+                    $deniedAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+                }
+                $deniedAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid), 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+                [IO.Directory]::SetAccessControl($deniedDirectory, $deniedAcl)
+            }
+        }
         $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + (Join-Path $labPath 'worker.ps1') + '" -Worker -Lab "' + $labPath + '"'
         $parameters = @{ FilePath=(Join-Path $PSHOME 'powershell.exe'); ArgumentList=$arguments; PassThru=$true; RedirectStandardOutput=(Join-Path $labPath 'worker.stdout'); RedirectStandardError=(Join-Path $labPath 'worker.stderr') }
         if ($mode -eq 'standard') {
