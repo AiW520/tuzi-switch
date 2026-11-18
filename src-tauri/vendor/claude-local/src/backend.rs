@@ -277,31 +277,22 @@ pub fn private_dir(path: &Path) -> Result<()> {
         // Replace inherited permissions with current-user and SYSTEM access.
         // Child state/receipt files inherit this ACL, since Windows chmod does
         // not implement Unix 0600/0700 semantics.
-        let script = r#"$ErrorActionPreference = 'Stop'
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = New-Object System.Security.AccessControl.DirectorySecurity
-$acl.SetOwner($sid)
-$acl.SetAccessRuleProtection($true, $false)
-foreach ($principal in @($sid, [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
-    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-}
-Set-Acl -LiteralPath $env:TUZI_CLAUDE_PRIVATE_DIR -AclObject $acl
-$actual = Get-Acl -LiteralPath $env:TUZI_CLAUDE_PRIVATE_DIR
-if (-not $actual.AreAccessRulesProtected -or $actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Private directory ACL verification failed' }
-foreach ($rule in $actual.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
-    if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value, 'S-1-5-18')) { throw 'Unexpected private directory access' }
-}
-"#;
+        let script = include_str!("private_dir_windows.ps1");
         let mut command = hidden_command("powershell.exe");
         command.args(["-NoProfile", "-NonInteractive", "-Command", script])
             .env("TUZI_CLAUDE_PRIVATE_DIR", path)
-            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        let mut child = command.spawn().context("Cannot set private directory permissions")?;
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+        let mut child = command.spawn().context("Cannot start Windows private directory permission setup")?;
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if let Some(status) = child.try_wait()? {
-                ensure!(status.success(), "Cannot secure private directory permissions");
+                if !status.success() {
+                    let mut diagnostic = Vec::new();
+                    if let Some(stdout) = child.stdout.take() {
+                        let _ = stdout.take(1024).read_to_end(&mut diagnostic);
+                    }
+                    bail!("{}", private_dir_failure(status.code(), &diagnostic));
+                }
                 break;
             }
             if Instant::now() >= deadline {
@@ -313,6 +304,25 @@ foreach ($rule in $actual.GetAccessRules($true, $true, [System.Security.Principa
         }
     }
     Ok(())
+}
+
+// Parse only the bounded, path-free report from our embedded Windows script.
+// Ignore arbitrary host output (including policy messages containing user data).
+#[cfg(any(windows, test))]
+fn private_dir_failure(code: Option<i32>, output: &[u8]) -> String {
+    for line in String::from_utf8_lossy(output).lines() {
+        let fields: Vec<_> = line.trim().split('|').collect();
+        if fields.len() == 4 && fields[0] == "TUZI_ACL_ERROR"
+            && ["identity", "reparse-check", "build-acl", "write-acl", "verify-acl"].contains(&fields[1])
+            && fields[2].len() == 8 && fields[2].bytes().all(|b| b.is_ascii_hexdigit())
+            && !fields[3].is_empty() && fields[3].len() <= 80
+            && fields[3].bytes().all(|b| b.is_ascii_alphanumeric())
+        {
+            return format!("Cannot secure private directory permissions (stage={}, HRESULT=0x{}, type={})",
+                fields[1], fields[2], fields[3]);
+        }
+    }
+    format!("Cannot secure private directory permissions (PowerShell exit={code:?}; no safe diagnostic available)")
 }
 
 /// 完整功能模式里内置 Claude Code 的配置目录（`CLAUDE_CONFIG_DIR`，会话记录在它的 `projects/` 下）。
@@ -2569,6 +2579,54 @@ pub fn perform(action: &str) -> Result<ClaudeLocalResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_dir_error_preserves_only_safe_os_diagnostics() {
+        let message = private_dir_failure(Some(1), b"TUZI_ACL_ERROR|write-acl|80070005|UnauthorizedAccessException\r\n");
+        assert!(message.contains("stage=write-acl, HRESULT=0x80070005"));
+        for output in [
+            "secret profile path and token",
+            "TUZI_ACL_ERROR|secret-stage|80070005|UnauthorizedAccessException",
+            "TUZI_ACL_ERROR|write-acl|secret-value|UnauthorizedAccessException",
+            "TUZI_ACL_ERROR|write-acl|80070005|C:\\Users\\private",
+        ] {
+            let message = private_dir_failure(Some(1), output.as_bytes());
+            assert!(message.contains("no safe diagnostic available"));
+            assert!(!message.contains("secret"));
+            assert!(!message.contains("Users"));
+        }
+    }
+
+    #[test]
+    fn private_dir_repeated_calls_preserve_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("兔子 space & quote' dollar$");
+        private_dir(&directory).unwrap();
+        let file = directory.join("synthetic.txt");
+        fs::write(&file, b"SYNTHETIC").unwrap();
+        private_dir(&directory).unwrap();
+        private_dir(&directory).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"SYNTHETIC");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dir_rejects_symlinks_without_changing_target() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = temp.path().join("link");
+        symlink(&target, &link).unwrap();
+        assert!(private_dir(&link).unwrap_err().to_string().contains("symbolic link"));
+        assert_eq!(fs::metadata(target).unwrap().permissions().mode() & 0o777, 0o755);
+    }
 
     #[test]
     fn upstream_web_proxy_prefers_inherited_then_system_and_only_http() {

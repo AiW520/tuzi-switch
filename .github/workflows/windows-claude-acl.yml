@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Exercise production ACL script with elevated and standard users
         shell: powershell
         run: scripts/qa/windows-claude-acl.ps1
