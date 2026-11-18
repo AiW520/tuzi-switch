@@ -47,7 +47,7 @@ if ($Worker) {
         # Exercise the compiled Rust wrapper, not just its embedded script.
         $nativeDirectory = Join-Path $Lab 'native repeat'
         & (Join-Path $Lab 'private-dir-probe.exe') $nativeDirectory $nativeDirectory $nativeDirectory
-        $results += @{ case='native-repeat'; exitCode=$LASTEXITCODE; childPrivate=$true }
+        $results += @{ case='native-repeat'; exitCode=$LASTEXITCODE; passed=$LASTEXITCODE -eq 0 }
 
         # A junction must be rejected without changing its target's permissions.
         $target = Join-Path $Lab 'junction-target'
@@ -62,7 +62,7 @@ if ($Worker) {
         $ErrorActionPreference = $oldPreference
         $unchanged = $before -eq ([IO.Directory]::GetAccessControl($target)).Sddl
         $passed = $nativeExit -ne 0 -and $nativeError -match 'symbolic link|reparse point' -and $unchanged
-        $results += @{ case='native-reject-junction'; exitCode=$(if ($passed) {0} else {1}); childPrivate=$true; rejected=$nativeExit -ne 0; targetUnchanged=$unchanged }
+        $results += @{ case='native-reject-junction'; exitCode=$(if ($passed) {0} else {1}); passed=$passed; rejected=$nativeExit -ne 0; targetUnchanged=$unchanged }
 
         if ($ExpectStandard) {
             $oldPreference = $ErrorActionPreference
@@ -71,12 +71,12 @@ if ($Worker) {
             $nativeExit = $LASTEXITCODE
             $ErrorActionPreference = $oldPreference
             $passed = $nativeExit -ne 0 -and $nativeError -match 'stage=write-acl, HRESULT=0x[0-9A-F]{8}' -and $nativeError -notmatch [regex]::Escape($Lab)
-            $results += @{ case='native-denied-diagnostic'; exitCode=$(if ($passed) {0} else {1}); childPrivate=$true; rejected=$nativeExit -ne 0; diagnostic=$nativeError.Trim() }
+            $results += @{ case='native-denied-diagnostic'; exitCode=$(if ($passed) {0} else {1}); passed=$passed; rejected=$nativeExit -ne 0; diagnostic=$nativeError.Trim() }
         }
     }
     $report = @{ elevated=$elevated; os=[Environment]::OSVersion.VersionString; powershell=$PSVersionTable.PSVersion.ToString(); cases=$results }
     $report | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $Lab 'result.json')
-    if ($RequireSuccess -and @($results | Where-Object { $_.exitCode -ne 0 -or -not $_.childPrivate }).Count) { exit 1 }
+    if ($RequireSuccess -and @($results | Where-Object { $_.exitCode -ne 0 -or ($_.ContainsKey('childPrivate') -and -not $_.childPrivate) -or ($_.ContainsKey('passed') -and -not $_.passed) }).Count) { exit 1 }
     exit 0
 }
 

@@ -11,7 +11,10 @@ try {
     }
     $stage = 'build-acl'
     $acl = [System.Security.AccessControl.DirectorySecurity]::new()
-    $acl.SetOwner($sid)
+    # Owners can change the DACL without WRITE_OWNER. Do not request an owner
+    # write when it is already correct (e.g. a directory inheriting Modify).
+    $owner = ([IO.Directory]::GetAccessControl($path, [Security.AccessControl.AccessControlSections]::Owner)).GetOwner([Security.Principal.SecurityIdentifier])
+    if ($owner.Value -ne $sid.Value) { $acl.SetOwner($sid) }
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($principal in @($sid, $system)) {
         $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
@@ -20,7 +23,7 @@ try {
     $stage = 'write-acl'
     # Set-Acl persists unrelated descriptor sections and, on repeated calls by
     # a standard user, can require SeSecurityPrivilege. Persist ONLY the owner
-    # and DACL marked modified above; do not request or change the audit SACL.
+    # (if changed) and DACL marked modified above; do not request the audit SACL.
     [IO.Directory]::SetAccessControl($path, $acl)
     $stage = 'verify-acl'
     $sections = [Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access
