@@ -43,6 +43,7 @@ function removePreference(key: string): void {
 }
 
 interface UpdateContextValue {
+  setCanvasNoticeActive: (active: boolean) => void;
   installState: InstallState;
   manualDownloadState: {
     phase: "idle" | "opening" | "opened" | "error";
@@ -67,7 +68,8 @@ interface UpdateContextValue {
   dismissUpdate: () => void;
 
   // 操作方法
-  checkUpdate: () => Promise<boolean>;
+  // null means updates are disabled for this app identity, not "up to date".
+  checkUpdate: () => Promise<boolean | null>;
   resetDismiss: () => void;
 }
 
@@ -86,6 +88,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
+  const [canvasNoticeActive, setCanvasNoticeActive] = useState(false);
 
   const [installState, setInstallState] =
     useState<InstallState>(initialInstallState);
@@ -163,6 +166,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
           await invoke("check_update_ready");
         },
         relaunchApp,
+        () => invoke<void>("release_update_reservation"),
       );
     await session.current.download();
   }, [updateHandle, runManualDownload]);
@@ -170,9 +174,9 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     await session.current?.installAndRestart();
   }, []);
 
-  const inFlight = useRef<Promise<boolean> | null>(null);
+  const inFlight = useRef<Promise<boolean | null> | null>(null);
 
-  const checkUpdate = useCallback((): Promise<boolean> => {
+  const checkUpdate = useCallback((): Promise<boolean | null> => {
     if (session.current || manualDownloadInFlight.current)
       return Promise.resolve(true); // Keep downloaded bytes and the selected version pinned.
     if (inFlight.current) return inFlight.current;
@@ -211,7 +215,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
           setUpdateInfo(null);
           setUpdateHandle(null);
           setIsDismissed(false);
-          return false; // 已是最新
+          return result.status === "disabled" ? null : false;
         }
       } catch (err) {
         if (session.current) return true;
@@ -269,9 +273,9 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     };
   }, [checkUpdate]);
 
-  // Global toast also reaches the creative workspace where the host header folds.
+  // The canvas owns a persistent top-left notice; other pages retain the toast.
   useEffect(() => {
-    if (!hasUpdate) {
+    if (!hasUpdate || canvasNoticeActive) {
       toast.dismiss("tuzi-client-update");
       return;
     }
@@ -312,6 +316,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       onDismiss: dismissUpdate,
     });
   }, [
+    canvasNoticeActive,
     hasUpdate,
     updateInfo,
     updateHandle,
@@ -322,6 +327,10 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   useEffect(() => {
+    if (canvasNoticeActive) {
+      toast.dismiss("tuzi-update-ready");
+      return;
+    }
     if (installState.phase === "ready" && !installState.error) {
       toast.success("更新已下载并完成校验", {
         id: "tuzi-update-ready",
@@ -329,9 +338,15 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
         action: { label: "查看更新", onClick: openUpdateDialog },
       });
     }
-  }, [installState.phase, installState.error, openUpdateDialog]);
+  }, [
+    canvasNoticeActive,
+    installState.phase,
+    installState.error,
+    openUpdateDialog,
+  ]);
 
   const value: UpdateContextValue = {
+    setCanvasNoticeActive,
     installState,
     manualDownloadState,
     openManualDownloadPage,

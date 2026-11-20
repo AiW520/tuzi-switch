@@ -5,6 +5,8 @@ mod app_store;
 mod auto_launch;
 mod capabilities;
 mod claude_desktop_config;
+#[cfg(feature = "claude-desktop-local")]
+mod claude_local_integration;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
@@ -13,6 +15,7 @@ mod codex_state_db;
 mod commands;
 mod config;
 mod creative_http;
+mod creative_attribution;
 mod creative_codex;
 pub mod creative_collaboration;
 mod creative_images;
@@ -31,6 +34,7 @@ mod mcp;
 mod native_tools;
 mod native_mcp;
 mod openclaw_config;
+mod opentu_mcp;
 mod opencode_config;
 mod panic_hook;
 mod prompt;
@@ -47,7 +51,11 @@ mod tuzi_account;
 
 mod tray;
 mod usage_script;
+mod workbuddy_config;
+mod sync_utils;
 mod web_hot_update;
+#[cfg(feature = "updater-acceptance")]
+mod updater_acceptance;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{
@@ -83,7 +91,6 @@ use tauri::image::Image;
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::RunEvent;
 use tauri::{Emitter, Manager};
-use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 fn redact_url_for_log(url_str: &str) -> String {
@@ -118,55 +125,6 @@ fn redact_url_for_log(url_str: &str) -> String {
             }
         }
     }
-}
-
-fn should_verify_updater_install() -> bool {
-    std::env::args().any(|arg| arg == "--tuzi-verify-updater-install")
-}
-
-fn run_updater_install_verification(app: &tauri::AppHandle) {
-    if !should_verify_updater_install() {
-        return;
-    }
-
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let result = async {
-            let updater = app.updater().map_err(|err| err.to_string())?;
-            let Some(update) = updater.check().await.map_err(|err| err.to_string())? else {
-                return Err("没有可用更新".to_string());
-            };
-
-            println!("TUZI_UPDATER_VERIFY_AVAILABLE={}", update.version);
-            update
-                .download_and_install(
-                    |downloaded, total| {
-                        println!(
-                            "TUZI_UPDATER_VERIFY_PROGRESS downloaded={downloaded} total={}",
-                            total.unwrap_or_default()
-                        );
-                    },
-                    || {
-                        println!("TUZI_UPDATER_VERIFY_DOWNLOAD_FINISHED");
-                    },
-                )
-                .await
-                .map_err(|err| err.to_string())?;
-            Ok::<(), String>(())
-        }
-        .await;
-
-        match result {
-            Ok(()) => {
-                println!("TUZI_UPDATER_VERIFY_INSTALLED=1");
-                app.exit(0);
-            }
-            Err(err) => {
-                eprintln!("TUZI_UPDATER_VERIFY_ERROR={err}");
-                app.exit(2);
-            }
-        }
-    });
 }
 
 /// 统一处理 tuziswitch:// 深链接 URL
@@ -288,6 +246,11 @@ fn macos_tray_icon() -> Option<Image<'static>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(feature = "updater-acceptance")]
+    if let Err(error) = updater_acceptance::restore_launch_profile() {
+        eprintln!("Isolated updater profile rejected: {error}");
+        std::process::exit(2);
+    }
     // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.tuzi-switch/crash.log）
     panic_hook::setup_panic_hook();
 
@@ -376,6 +339,11 @@ pub fn run() {
         .setup(|app| {
             let _ = rustls::crypto::ring::default_provider().install_default();
 
+            // Local ChatGPT Desktop integration. The bridge binds to loopback
+            // and uses a per-launch bearer token; provider credentials stay in
+            // OpenTu and are never sent to the MCP client.
+            opentu_mcp::start(app.handle());
+
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
             app_store::refresh_app_config_dir_override(app.handle());
             panic_hook::init_app_config_dir(crate::config::get_app_config_dir());
@@ -391,7 +359,6 @@ pub fn run() {
                     log::warn!("初始化 Updater 插件失败，已跳过：{e}");
                 }
             }
-            run_updater_install_verification(app.handle());
             // 初始化日志（单文件输出到 <app_config_dir>/logs/tuzi-switch.log）
             {
                 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -1276,9 +1243,16 @@ pub fn run() {
             creative_collaboration::creative_collaboration_start,
             creative_collaboration::creative_collaboration_stop,
             creative_collaboration::creative_collaboration_reply,
+            opentu_mcp::opentu_mcp_pairing,
+            opentu_mcp::opentu_mcp_copy,
+            opentu_mcp::opentu_mcp_check,
+            opentu_mcp::opentu_mcp_set_ready,
+            opentu_mcp::opentu_mcp_respond,
             creative_http::check_update_ready,
+            creative_http::release_update_reservation,
             creative_images::creative_image_action,
             creative_media::creative_save_media,
+            creative_media::creative_video_action,
             creative_http::creative_manual_cancel,
             tuzi_account::creative::creative_account_bindings,
             tuzi_account::creative::creative_account_bind,
@@ -1307,6 +1281,9 @@ pub fn run() {
             commands::switch_provider,
             commands::import_default_config,
             commands::get_claude_desktop_status,
+            commands::get_claude_local_status,
+            commands::detect_official_claude_installation,
+            commands::claude_local_action,
             commands::get_claude_desktop_default_routes,
             commands::import_claude_desktop_providers_from_claude,
             commands::get_claude_config_status,
@@ -1401,6 +1378,7 @@ pub fn run() {
             commands::get_current_prompt_file_content,
             // model list fetch (OpenAI-compatible /v1/models)
             commands::fetch_models_for_config,
+            commands::fetch_claude_desktop_models,
             // ours: endpoint speed test + custom endpoint management
             commands::test_api_endpoints,
             commands::get_custom_endpoints,
@@ -1583,6 +1561,8 @@ pub fn run() {
             commands::auth_remove_account,
             commands::auth_set_default_account,
             commands::auth_logout,
+            commands::workbuddy_model_owners,
+            commands::workbuddy_account_open_app,
             // Copilot OAuth commands (multi-account support)
             commands::copilot_start_device_flow,
             commands::copilot_poll_for_auth,
@@ -1627,8 +1607,25 @@ pub fn run() {
         .expect("error while running tauri application");
 
     app.run(|app_handle, event| {
+        #[cfg(feature = "updater-acceptance")]
+        if matches!(event, RunEvent::Ready) {
+            updater_acceptance::run(app_handle);
+        }
         // 处理退出请求（所有平台）
         if let RunEvent::ExitRequested { api, code, .. } = &event {
+            #[cfg(feature = "claude-desktop-local")]
+            if code.is_some() && *code != Some(tauri::RESTART_EXIT_CODE) {
+                if let Err(message) = claude_local_integration::begin_shutdown() {
+                    api.prevent_exit();
+                    log::warn!("{message}");
+                    let _ = app_handle.emit("claude-local-exit-blocked", message);
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                    return;
+                }
+            }
             if *code == Some(tauri::RESTART_EXIT_CODE) {
                 log::info!("收到应用重启请求，交由 Tauri 原生重启流程处理");
                 return;
@@ -1647,9 +1644,12 @@ pub fn run() {
             log::info!("收到用户主动退出请求 (code={code:?})，开始清理...");
             api.prevent_exit();
 
+            // Window-state holds its cache mutex while querying native windows.
+            // Keep this on the event-loop thread: a worker waiting for a window
+            // query can otherwise deadlock with a window event taking that mutex.
+            save_window_state_before_exit(app_handle);
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                save_window_state_before_exit(&app_handle);
                 cleanup_before_exit(&app_handle).await;
                 log::info!("清理完成，退出应用");
 

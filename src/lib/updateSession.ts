@@ -1,4 +1,5 @@
 import type { UpdateHandle, UpdateProgressEvent } from "./updater";
+import { isMac } from "./platform";
 
 export type InstallPhase =
   | "idle"
@@ -31,6 +32,7 @@ export class UpdateSession {
     private notify: (state: InstallState) => void,
     private prepare: () => Promise<void>,
     private relaunch: () => Promise<void>,
+    private release: () => Promise<void> = async () => {},
   ) {}
   private set(change: Partial<InstallState>) {
     this.state = { ...this.state, ...change };
@@ -94,12 +96,21 @@ export class UpdateSession {
           ? { error: "更新已安装，自动重启失败。请退出并重新打开兔子助手。" }
           : {
               phase: "error",
-              error:
-                "安装未完成，请重新下载后重试。若从 DMG 中运行，请先将兔子助手安装到“应用程序”。",
+              error: isMac()
+                ? "安装未完成，请重新下载后重试。若从 DMG 中运行，请先将兔子助手安装到“应用程序”。"
+                : "安装未完成，请检查安装目录的写入权限及系统安装授权，然后重新下载重试。",
             },
       );
     } finally {
-      this.busy = false;
+      try {
+        await this.release();
+      } catch {
+        this.set({
+          error: "更新状态清理失败，请退出并重新打开兔子助手后继续。",
+        });
+      } finally {
+        this.busy = false;
+      }
     }
   }
 }

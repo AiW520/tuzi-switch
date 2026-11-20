@@ -1,4 +1,4 @@
-; Pinned from tauri-apps/tauri tag tauri-cli-v2.8.1, crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi.
+; Pinned from tauri-apps/tauri tag tauri-cli-v2.10.1, crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi.
 ; Upstream license: MIT OR Apache-2.0. Local changes separate display/shortcut
 ; names from the published install/registry identity and migrate owned shortcuts.
 ; Update with the CLI version and review the diff against that upstream template.

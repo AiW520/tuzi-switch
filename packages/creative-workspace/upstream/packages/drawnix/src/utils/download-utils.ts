@@ -26,7 +26,7 @@ import {
 import { isDesktopAssetUrl } from './desktop-asset-url';
 import { isVirtualMediaUrl } from './virtual-media-url';
 import { writeDesktopBinaryFile } from './desktop-binary-writer';
-import { getAssistantAccount } from '../services/assistant-account';
+import { getAssistantAccount, fetchOutputMedia } from '../services/assistant-account';
 import { runCanvasImageAction } from './canvas-image-actions';
 import { unifiedCacheService } from '../services/unified-cache-service';
 
@@ -504,7 +504,7 @@ function replaceFilenameExtension(filename: string, extension: string): string {
 }
 
 async function readDownloadBlob(item: BatchDownloadItem): Promise<Blob> {
-  if (isVirtualMediaUrl(item.url)) {
+  if (isVirtualMediaUrl(item.url) || isDesktopAssetUrl(item.url)) {
     const cachedBlob = await unifiedCacheService.getCachedBlob(item.url);
     if (!cachedBlob?.size) {
       throw new Error('原图缓存暂不可用，请从任务列表找回已有结果后重试');
@@ -514,11 +514,32 @@ async function readDownloadBlob(item: BatchDownloadItem): Promise<Blob> {
 
   const assetUrl =
     item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
-  const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });
+  const response = await fetchOutputMedia(assetUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch ${assetUrl}: ${response.status}`);
   }
   return response.blob();
+}
+
+/** Desktop file actions use the same original bytes as video export. */
+export async function runCanvasVideoAction(
+  action: 'copy' | 'copy-path' | 'reveal' | 'save',
+  url: string,
+  name?: string,
+) {
+  if (action === 'save') {
+    const result = await smartDownload([{ url, type: 'video', filename: name }]);
+    return result.downloadedCount > 0 ? 'saved' as const : 'cancelled' as const;
+  }
+  const native = getAssistantAccount()?.videoAction;
+  if (!native) throw new Error('请在兔子助手桌面客户端中操作视频文件。');
+  // Remote results may already have an offline copy. Never use a poster or
+  // regenerate a video when its virtual cache entry is missing.
+  const cached = await unifiedCacheService.getCachedBlob(url, { allowNetwork: false });
+  const blob = cached?.size ? cached : await readDownloadBlob({ url, type: 'video' });
+  if (!blob.size || blob.size > 128 * 1024 * 1024)
+    throw new Error('视频为空或超过 128 MB，无法处理。');
+  return native(action, blob);
 }
 
 function resolveDownloadExtension(

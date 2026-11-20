@@ -9,6 +9,10 @@ on:
         required: true
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
+      OFFICIAL_UPDATER_PRIVATE_KEY:
+        required: false
+      OFFICIAL_UPDATER_PRIVATE_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -46,3 +50,47 @@ jobs:
           node scripts/updater-assets.mjs check-key
       - name: Verify packaging contracts using synthetic signatures
         run: node --test scripts/verify-updater-assets.mjs
+
+  protected-test-runner:
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment: official-updater-signing
+    env:
+      TUZI_SWITCH_RELEASE_REPOSITORY: tuziapi/tuzi-switch
+      VITE_RELEASE_REPOSITORY: tuziapi/tuzi-switch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify the user-approved transition public key
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const key=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json')).plugins.updater.pubkey.trim();
+          // User authorized a new official key and one manual transition on 2026-11-15.
+          if(createHash('sha256').update(key).digest('hex')!=='8118379cd76c3f4be522498e732856efd5b1a56aed12f0e50a1155993e7d0fb5')
+            throw Error('Unexpected transition public key');
+          JS
+      - name: Verify the protected official key without publishing or exporting it
+        shell: bash
+        env:
+          OFFICIAL_UPDATER_KEY: ${{ secrets.OFFICIAL_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.OFFICIAL_UPDATER_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$OFFICIAL_UPDATER_KEY" ]]; then echo 'Configure OFFICIAL_UPDATER_PRIVATE_KEY in the protected environment first'; exit 1; fi
+          umask 077
+          KEY_PATH="$(mktemp "$RUNNER_TEMP/tuzi-protected-official-key.XXXXXX")"
+          trap 'rm -f "$KEY_PATH"' EXIT
+          printf '%s' "$OFFICIAL_UPDATER_KEY" > "$KEY_PATH"
+          export TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH"
+          node scripts/updater-assets.mjs check-key

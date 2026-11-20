@@ -39,6 +39,9 @@ export interface SemanticLayerMetadata {
   description: string;
   boundingBox: LayerArtifact['boundingBox'];
   confidence?: number;
+  background?: unknown;
+  textRecognition?: unknown;
+  providerMetadata?: Record<string, unknown>;
   hidden?: boolean;
 }
 
@@ -117,6 +120,15 @@ function createLayerElement(
     zIndex: artifact.zIndex,
     name: artifact.name,
     description: artifact.description,
+    ...(artifact.background === undefined
+      ? {}
+      : { background: structuredClone(artifact.background) }),
+    ...(artifact.textRecognition === undefined
+      ? {}
+      : { textRecognition: structuredClone(artifact.textRecognition) }),
+    ...(artifact.providerMetadata === undefined
+      ? {}
+      : { providerMetadata: structuredClone(artifact.providerMetadata) }),
     boundingBox: {
       absolute: [...artifact.boundingBox.absolute],
       normalized: [...artifact.boundingBox.normalized],
@@ -133,6 +145,12 @@ function createLayerElement(
     url: artifact.url,
     groupId,
     angle,
+    // Replacing a just-generated image must keep its result association until
+    // every layer paints, so the existing generation placeholder can finish.
+    ...(typeof source.generationTaskId === 'string'
+      ? { generationTaskId: source.generationTaskId } : {}),
+    ...(typeof source.generationAnchorId === 'string'
+      ? { generationAnchorId: source.generationAnchorId } : {}),
     ...(typeof source.opacity === 'number' ? { opacity: source.opacity } : {}),
     metadata: {
       ...(source.metadata || {}),
@@ -179,7 +197,7 @@ async function cacheArtifactsSequentially(
     // stable local copy, while allowing a verified remote URL to keep the
     // native layer result usable. The service worker still gets a chance to
     // retain the opaque response under its original URL.
-    await loadImageElementForCanvas(url as any);
+    await loadImageElementForCanvas(url as DataURL, { signal: options.signal });
     cached.push({ ...artifact, url });
   }
   return cached;
@@ -216,7 +234,10 @@ export function getSemanticLayerMetadata(
 export async function exportSemanticLayerGroup(
   board: PlaitBoard,
   providerGroupId: string,
-  options: { filename?: string; onProgress?: (progress: number) => void } = {}
+  options: {
+    filename?: string;
+    onProgress?: (progress: number) => void;
+  } = {}
 ): Promise<void> {
   const group = board.children.find(
     (element) =>
@@ -240,6 +261,25 @@ export async function exportSemanticLayerGroup(
   if (layers.length === 0) throw new Error('语义分层组没有可导出的图层');
 
   const manifest = group.metadata?.semanticLayerGroup?.manifest;
+  const editableTextLayers = board.children
+    .filter(
+      (element) =>
+        element.groupId === group.id &&
+        element.metadata?.semanticText?.providerGroupId === providerGroupId
+    )
+    .map((element) => ({
+      id: element.id,
+      points: element.points,
+      angle: element.angle,
+      text: element.text,
+      sourceElementId: element.metadata.semanticText.sourceElementId,
+      sourceZIndex: element.metadata.semanticText.zIndex,
+      sourceRasterHidden:
+        layers.find(
+          ({ element: raster }) =>
+            raster.id === element.metadata.semanticText.sourceElementId
+        )?.metadata?.hidden === true,
+    }));
   const items: BatchDownloadItem[] = layers.map(
     ({ element, metadata }, index) => ({
       url: element.url,
@@ -257,7 +297,14 @@ export async function exportSemanticLayerGroup(
       ? [
           {
             filename: 'manifest.json',
-            content: JSON.stringify(manifest, null, 2),
+            content: JSON.stringify(
+              {
+                ...manifest,
+                ...(editableTextLayers.length ? { editableTextLayers } : {}),
+              },
+              null,
+              2
+            ),
           },
         ]
       : undefined

@@ -8,6 +8,8 @@ import {
   buildTaskDownloadItems,
   smartDownload,
   downloadMediaFile,
+  downloadAsZip,
+  runCanvasVideoAction,
 } from '../download-utils';
 
 const {
@@ -103,6 +105,37 @@ function createTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('download-utils', () => {
+  it.each(['copy', 'copy-path', 'reveal'] as const)('uses cached original video for %s even if remote URL expired', async (action) => {
+    vi.stubGlobal('fetch', vi.fn());
+    const original = new Blob(['original-mp4'], { type: 'video/mp4' });
+    getCachedBlobMock.mockResolvedValue(original);
+    const videoAction = vi.fn().mockResolvedValue(action === 'reveal' ? 'revealed' : action === 'copy-path' ? 'path-copied' : 'copied');
+    setAssistantAccount({ videoAction } as any);
+    await runCanvasVideoAction(action, 'https://expired.synthetic.invalid/video.mp4');
+    expect(videoAction).toHaveBeenCalledWith(action, original);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('reports missing virtual video without fetching a thumbnail or regenerating', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    getCachedBlobMock.mockResolvedValue(null);
+    const videoAction = vi.fn();
+    setAssistantAccount({ videoAction } as any);
+    await expect(runCanvasVideoAction('copy', '/__aitu_cache__/video/missing.mp4')).rejects.toThrow('缓存');
+    expect(videoAction).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('rejects oversized cached video before IPC', async () => {
+    getCachedBlobMock.mockResolvedValue({ size: 128 * 1024 * 1024 + 1 } as Blob);
+    const videoAction = vi.fn();
+    setAssistantAccount({ videoAction } as any);
+    await expect(runCanvasVideoAction('reveal', '/__aitu_cache__/video/huge.mp4')).rejects.toThrow('128 MB');
+    expect(videoAction).not.toHaveBeenCalled();
+  });
+  it('does not claim file copy when the browser host has no native capability', async () => {
+    setAssistantAccount(undefined);
+    await expect(runCanvasVideoAction('copy', '/__aitu_cache__/video/1.mp4')).rejects.toThrow('桌面客户端');
+    expect(getCachedBlobMock).not.toHaveBeenCalled();
+  });
   it.each([['gif', 'image/gif'], ['svg', 'image/svg+xml']])(
     'downloads original cached %s bytes and corrects a stale PNG extension', async (extension, mime) => {
       const original = new Blob(['original-media'], { type: mime });
@@ -138,6 +171,24 @@ describe('download-utils', () => {
   afterEach(() => {
     setAssistantAccount(undefined);
     vi.unstubAllGlobals();
+  });
+
+  it('exports remote layer PNGs and the OCR manifest through the native host despite browser CORS', async () => {
+    const png = new Blob([new Uint8Array([137,80,78,71,13,10,26,10])], { type: 'image/png' });
+    const requestManual = vi.fn().mockResolvedValue({ ok: true, blob: async () => png });
+    const saveMedia = vi.fn().mockResolvedValue('saved');
+    setAssistantAccount({ requestManual, saveMedia } as any);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('CORS')));
+    const result = await downloadAsZip([{ url: 'https://cdn.example.test/layer.png?signature=synthetic', type: 'image', filename: '01-layer.png' }],
+      'layers.zip', undefined, [{filename: 'manifest.json', content: JSON.stringify({ textRecognition: { text: 'TUZI 55' } })}]);
+    expect(result).toMatchObject({ downloadedCount: 1, failedCount: 0 });
+    expect(saveMedia).toHaveBeenCalledWith(expect.any(Blob), 'layers.zip', 'archive');
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(saveMedia.mock.calls[0][0]);
+    expect(Object.keys(zip.files)).toEqual(['01-layer.png', 'manifest.json']);
+    expect(await zip.file('manifest.json')!.async('string')).toContain('TUZI 55');
+    expect(requestManual).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('saves cached video through the host media dialog without image decoding or remote fetch', async () => {

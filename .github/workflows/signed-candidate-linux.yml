@@ -1,0 +1,211 @@
+name: Real signed Linux candidate upgrade
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  resolve-pair:
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: ubuntu-22.04
+    outputs:
+      base_run_id: ${{ steps.pair.outputs.base_run_id }}
+      target_run_id: ${{ steps.pair.outputs.target_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: pair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/signed-candidate-pair.mjs resolve
+  installed-candidate:
+    needs: resolve-pair
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [deb, appimage]
+        legacy_version: ['1.6.0', '1.6.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-base
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.base_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-target
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.target_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify unchanged official candidate bytes and signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_RUN_ID: ${{ needs.resolve-pair.outputs.base_run_id }}
+          TARGET_RUN_ID: ${{ needs.resolve-pair.outputs.target_run_id }}
+        run: |
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$BASE_RUN_ID" > "$RUNNER_TEMP/base-run.json"
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$TARGET_RUN_ID" > "$RUNNER_TEMP/target-run.json"
+          node scripts/verify-signed-linux-pair.mjs "$RUNNER_TEMP"
+      - name: Download immutable published legacy installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEGACY_VERSION: ${{ matrix.legacy_version }}
+          INSTALLER_TYPE: ${{ matrix.installer }}
+        run: |
+          extension="$INSTALLER_TYPE"
+          if [ "$extension" = appimage ]; then extension=AppImage; fi
+          gh release download "v$LEGACY_VERSION" --repo tuziapi/tuzi-switch \
+            --pattern manifest-linux-x64.json --pattern "tuzi-assistant-linux-x64.$extension" \
+            --dir "$RUNNER_TEMP/signed-legacy"
+      - name: Install candidate and create offline disposable desktop user
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-0 webkit2gtk-driver libayatana-appindicator3-1 xvfb dbus-x11 desktop-file-utils fonts-noto-cjk at-spi2-core imagemagick
+          sudo dpkg -i "$RUNNER_TEMP/signed-base/tuzi-assistant-linux-x64.deb"
+          test -x /usr/bin/tu-zi-switch
+          sudo useradd --create-home --shell /bin/bash tuziqa
+          test ! -e /tmp/tuzi-signed-linux-probe
+          sudo install -d -o tuziqa -g tuziqa /tmp/tuzi-signed-linux-probe /tmp/tuzi-signed-linux-probe/evidence
+          sudo install -d -m 0700 -o tuziqa -g tuziqa /tmp/tuzi-signed-linux-probe/runtime
+          sudo install -m 0644 scripts/signed-linux-driver-probe.py /tmp/tuzi-signed-linux-probe/probe.py
+          sudo install -m 0644 scripts/signed_candidate_identity.py scripts/signed-candidate-pair.json /tmp/tuzi-signed-linux-probe/
+          sudo iptables -I OUTPUT 1 -m owner --uid-owner tuziqa ! -d 127.0.0.0/8 -j REJECT
+          sudo ip6tables -I OUTPUT 1 -m owner --uid-owner tuziqa ! -d ::1 -j REJECT
+      - name: Read actual installed WebKit UI and native identity
+        run: |
+          cd /tmp/tuzi-signed-linux-probe
+          sudo -H -u tuziqa env -i HOME=/home/tuziqa USER=tuziqa PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/tmp/tuzi-signed-linux-probe/runtime \
+            GITHUB_ACTIONS=true GITHUB_REPOSITORY=AiW520/tuzi-switch RUNNER_ENVIRONMENT=github-hosted \
+            xvfb-run -a dbus-run-session -- python3 /tmp/tuzi-signed-linux-probe/probe.py \
+            /usr/bin/tu-zi-switch /tmp/tuzi-signed-linux-probe/evidence
+      - name: Prepare independent upgrade profile
+        run: |
+          sudo useradd --create-home --shell /bin/bash tuziupgrade
+          test ! -e /tmp/tuzi-signed-linux-upgrade
+          sudo install -d -m 0755 /tmp/tuzi-signed-linux-upgrade /tmp/tuzi-signed-linux-upgrade/evidence
+          sudo install -d -m 0700 -o tuziupgrade -g tuziupgrade /tmp/tuzi-signed-linux-upgrade/runtime
+          sudo iptables -I OUTPUT 1 -m owner --uid-owner tuziupgrade ! -d 127.0.0.0/8 -j REJECT
+          sudo ip6tables -I OUTPUT 1 -m owner --uid-owner tuziupgrade ! -d ::1 -j REJECT
+          # A graphical password prompt would require human input; this runner
+          # verifies denied privileges then the real updater's sudo fallback.
+          ! command -v zenity
+          ! command -v kdialog
+      - name: Exercise real signed Linux UI, failures, install and automatic restart
+        env:
+          INSTALLER_TYPE: ${{ matrix.installer }}
+          LEGACY_VERSION: ${{ matrix.legacy_version }}
+        run: |
+          sudo env GITHUB_ACTIONS=true GITHUB_REPOSITORY=AiW520/tuzi-switch RUNNER_ENVIRONMENT=github-hosted \
+            LEGACY_INSTALLER_DIR="$RUNNER_TEMP/signed-legacy" LEGACY_VERSION="$LEGACY_VERSION" \
+            python3 scripts/signed-linux-upgrade.py "$RUNNER_TEMP/signed-base" "$RUNNER_TEMP/signed-target" /tmp/tuzi-signed-linux-upgrade/evidence "$INSTALLER_TYPE"
+      - name: Stop disposable applications and restore network rules
+        if: always()
+        run: |
+          for account in tuziqa tuziupgrade; do
+            if id "$account" >/dev/null 2>&1; then
+              sudo pkill -u "$account" || true
+              sudo iptables -D OUTPUT -m owner --uid-owner "$account" ! -d 127.0.0.0/8 -j REJECT || true
+              sudo ip6tables -D OUTPUT -m owner --uid-owner "$account" ! -d ::1 -j REJECT || true
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signed-installed-linux-driver-probe-${{ matrix.installer }}-${{ matrix.legacy_version }}
+          path: |
+            /tmp/tuzi-signed-linux-probe/evidence/results.json
+            /tmp/tuzi-signed-linux-probe/evidence/driver.log
+            /tmp/tuzi-signed-linux-probe/evidence/*.png
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signed-installed-linux-${{ matrix.installer }}-${{ matrix.legacy_version }}
+          path: |
+            /tmp/tuzi-signed-linux-upgrade/evidence/results.json
+            /tmp/tuzi-signed-linux-upgrade/evidence/driver.log
+            /tmp/tuzi-signed-linux-upgrade/evidence/*.png
+          if-no-files-found: warn
+  installed-rpm:
+    strategy:
+      fail-fast: false
+      matrix:
+        legacy_version: ['1.6.0', '1.6.1']
+    needs: resolve-pair
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-base
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.base_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-target
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.target_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact approved candidate pair and signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_RUN_ID: ${{ needs.resolve-pair.outputs.base_run_id }}
+          TARGET_RUN_ID: ${{ needs.resolve-pair.outputs.target_run_id }}
+        run: |
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$BASE_RUN_ID" > "$RUNNER_TEMP/base-run.json"
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$TARGET_RUN_ID" > "$RUNNER_TEMP/target-run.json"
+          node scripts/verify-signed-linux-pair.mjs "$RUNNER_TEMP"
+      - name: Download immutable published legacy installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEGACY_VERSION: ${{ matrix.legacy_version }}
+          INSTALLER_TYPE: rpm
+        run: |
+          extension="$INSTALLER_TYPE"
+          if [ "$extension" = appimage ]; then extension=AppImage; fi
+          gh release download "v$LEGACY_VERSION" --repo tuziapi/tuzi-switch \
+            --pattern manifest-linux-x64.json --pattern "tuzi-assistant-linux-x64.$extension" \
+            --dir "$RUNNER_TEMP/signed-legacy"
+      - name: Exercise unchanged RPM in offline disposable Fedora user
+        run: |
+          mkdir "$RUNNER_TEMP/signed-rpm"
+          docker run --rm --init --cap-add NET_ADMIN --cap-add SYS_PTRACE \
+            -v "$GITHUB_WORKSPACE:/work:ro" \
+            -v "$RUNNER_TEMP/signed-base:/base:ro" \
+            -v "$RUNNER_TEMP/signed-target:/target:ro" \
+            -v "$RUNNER_TEMP/signed-legacy:/legacy:ro" \
+            -v "$RUNNER_TEMP/signed-rpm:/lab" -w /work \
+            -e GITHUB_ACTIONS=true -e GITHUB_REPOSITORY=AiW520/tuzi-switch \
+            -e RUNNER_ENVIRONMENT=github-hosted \
+            -e LEGACY_INSTALLER_DIR=/legacy -e LEGACY_VERSION="${{ matrix.legacy_version }}" \
+            fedora:43 bash scripts/signed-rpm-container.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signed-installed-linux-rpm-${{ matrix.legacy_version }}
+          path: |
+            ${{ runner.temp }}/signed-rpm/evidence/results.json
+            ${{ runner.temp }}/signed-rpm/evidence/driver.log
+            ${{ runner.temp }}/signed-rpm/evidence/runtime-os-release.txt
+            ${{ runner.temp }}/signed-rpm/evidence/*.png
+          if-no-files-found: warn

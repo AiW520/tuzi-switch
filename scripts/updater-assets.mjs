@@ -73,10 +73,17 @@ function walk(dir) {
       e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)],
     );
 }
-function signArtifact(target) {
+export function signArtifact(target) {
   const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY;
   if (!keyPath || !fs.existsSync(keyPath))
     throw Error("Missing updater signing key file");
+  // Build accepts a key file in this variable, but signer treats it as an
+  // inline key and rejects it alongside --private-key-path. Keep the build
+  // environment intact and pass exactly one key source to the child signer.
+  const env = { ...process.env };
+  delete env.TAURI_SIGNING_PRIVATE_KEY;
+  delete env.TAURI_SIGNING_PRIVATE_KEY_PATH;
+  env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
   const result = spawnSync(
     process.execPath,
     [
@@ -85,11 +92,9 @@ function signArtifact(target) {
       "sign",
       "-f",
       keyPath,
-      "-p",
-      process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "",
       target,
     ],
-    { stdio: "pipe" },
+    { stdio: "pipe", env },
   );
   if (result.status !== 0)
     throw Error(`Could not sign ${path.basename(target)}`);
@@ -124,13 +129,15 @@ export function collect(source, output, name) {
     signArtifact(target);
   }
 }
-export function manifest(dir, env = process.env) {
+export function manifest(dir, env = process.env, write = true) {
   const version = JSON.parse(
     fs.readFileSync(path.join(root, "package.json"), "utf8"),
   ).version;
   const tag = env.RELEASE_TAG || env.GITHUB_REF_NAME;
   const { repository, pubkey } = channels.releaseChannel(env);
-  if (tag !== `v${version}` || env.GITHUB_REPOSITORY !== repository)
+  const protectedTest = env.GITHUB_REPOSITORY === "AiW520/tuzi-switch"
+    && repository === "tuziapi/tuzi-switch" && env.TUZI_OFFICIAL_TEST_CANDIDATE === "1";
+  if (tag !== `v${version}` || (env.GITHUB_REPOSITORY !== repository && !protectedTest))
     throw Error("Invalid updater release identity");
   const platforms = {};
   for (const [name, entries] of Object.entries(targets)) {
@@ -142,6 +149,7 @@ export function manifest(dir, env = process.env) {
       source.commit !== env.GITHUB_SHA ||
       source.run !== env.GITHUB_RUN_ID ||
       source.repository !== env.GITHUB_REPOSITORY
+      || (protectedTest && source.releaseRepository !== repository)
     )
       throw Error("Updater source mismatch");
     for (const [target, ext] of Object.entries(entries)) {
@@ -155,7 +163,7 @@ export function manifest(dir, env = process.env) {
         pubkey,
       );
       platforms[target] = {
-        url: `https://github.com/${env.GITHUB_REPOSITORY}/releases/download/${tag}/${filename}`,
+        url: `https://github.com/${repository}/releases/download/${tag}/${filename}`,
         signature,
       };
     }
@@ -169,6 +177,19 @@ export function manifest(dir, env = process.env) {
     pub_date: new Date().toISOString(),
     platforms,
   };
+  if (!write) {
+    const existing = JSON.parse(
+      fs.readFileSync(path.join(dir, "latest.json"), "utf8"),
+    );
+    if (
+      existing.version !== result.version ||
+      existing.notes !== result.notes ||
+      !Number.isFinite(Date.parse(existing.pub_date)) ||
+      JSON.stringify(existing.platforms) !== JSON.stringify(result.platforms)
+    )
+      throw Error("Candidate updater manifest mismatch");
+    return existing;
+  }
   fs.writeFileSync(
     path.join(dir, "latest.json"),
     JSON.stringify(result, null, 2) + "\n",
@@ -182,5 +203,7 @@ if (
   if (process.argv[2] === "check-key") checkKey();
   else if (process.argv[2] === "collect") collect(...process.argv.slice(3));
   else if (process.argv[2] === "manifest") manifest(process.argv[3]);
+  else if (process.argv[2] === "verify-manifest")
+    manifest(process.argv[3], process.env, false);
   else throw Error("Expected collect or manifest");
 }

@@ -1,0 +1,128 @@
+name: Native upgrade laboratory
+run-name: "隔离真实升级验收 · ${{ github.ref_name }}"
+on:
+  workflow_dispatch:
+    inputs:
+      windows_only:
+        type: boolean
+        default: false
+      windows_environment_probe_only:
+        type: boolean
+        default: false
+      rpm_only:
+        type: boolean
+        default: false
+      package_installers_only:
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      windows_only:
+        type: boolean
+        default: false
+      windows_environment_probe_only:
+        type: boolean
+        default: false
+      rpm_only:
+        type: boolean
+        default: false
+      package_installers_only:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: native-upgrade-lab-${{ inputs.package_installers_only && 'packages' || 'default' }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-environment-probe:
+    if: inputs.windows_environment_probe_only && github.repository == 'AiW520/tuzi-switch'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose the pinned NSIS restart helper
+        shell: pwsh
+        run: ./scripts/windows-updater-environment-probe.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-updater-environment-probe
+          path: ${{ runner.temp }}/tuzi-nsis-environment-probe/*.json
+          if-no-files-found: warn
+  native-upgrade:
+    if: github.repository == 'AiW520/tuzi-switch' && !inputs.windows_environment_probe_only
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.rpm_only && '[{"os":"ubuntu-22.04","installer":"rpm"}]' || inputs.package_installers_only && '[{"os":"windows-latest","installer":"msi"},{"os":"ubuntu-22.04","installer":"deb"},{"os":"ubuntu-22.04","installer":"rpm"}]' || inputs.windows_only && '[{"os":"windows-latest","installer":"nsis"}]' || '[{"os":"macos-15","installer":"app"},{"os":"macos-15-intel","installer":"app"},{"os":"windows-latest","installer":"nsis"},{"os":"ubuntu-22.04","installer":"appimage"}]') }}
+    runs-on: ${{ matrix.os }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux libraries and virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev xvfb
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95'
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/tauri-compatibility.mjs
+      - run: pnpm build:renderer
+      - name: Native transport attribution regression
+        shell: bash
+        run: |
+          cargo test --release --locked --manifest-path src-tauri/Cargo.toml --lib --features updater-acceptance -- desktop_attribution creative_http::tests tuzi_account::creative::tests updater_acceptance::launch_profile_tests --test-threads=1
+      - name: Install, reject corrupt packages, upgrade and restart isolated apps
+        shell: bash
+        env:
+          LAB_INSTALLER: ${{ matrix.installer }}
+        run: |
+          set -euo pipefail
+          if [[ "$LAB_INSTALLER" == rpm ]]; then
+            python3 scripts/native-upgrade-lab.py --installer rpm --build-only --output "$RUNNER_TEMP/tuzi-upgrade-lab"
+            docker run --rm --init \
+              -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+              -v "$RUNNER_TEMP/tuzi-upgrade-lab:$RUNNER_TEMP/tuzi-upgrade-lab" \
+              -w "$GITHUB_WORKSPACE" \
+              -e GITHUB_ACTIONS=true -e GITHUB_REPOSITORY=AiW520/tuzi-switch \
+              -e LAB_ROOT="$RUNNER_TEMP/tuzi-upgrade-lab" \
+              fedora:43 bash scripts/native-upgrade-rpm-container.sh
+          elif [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a python3 scripts/native-upgrade-lab.py --installer "$LAB_INSTALLER" --output "$RUNNER_TEMP/tuzi-upgrade-lab"
+          else
+            python3 scripts/native-upgrade-lab.py --installer "$LAB_INSTALLER" --output "$RUNNER_TEMP/tuzi-upgrade-lab"
+          fi
+      - name: Upload native evidence (never keys or synthetic credentials)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-upgrade-${{ matrix.os }}${{ (inputs.package_installers_only || inputs.rpm_only) && format('-{0}', matrix.installer) || '' }}
+          path: |
+            ${{ runner.temp }}/tuzi-upgrade-lab/results.json
+            ${{ runner.temp }}/tuzi-upgrade-lab/build-*.log
+            ${{ runner.temp }}/tuzi-upgrade-lab/runtime-os-release.txt
+            ${{ runner.temp }}/tuzi-upgrade-lab/xvfb.log
+            ${{ runner.temp }}/tuzi-upgrade-lab/runs/*/*events.jsonl
+            ${{ runner.temp }}/tuzi-upgrade-lab/runs/*/*process.log
+            ${{ runner.temp }}/tuzi-upgrade-lab/runs/*/initial-install.log
+            ${{ runner.temp }}/tuzi-upgrade-lab/runs/*/failure-diagnostics.json
+          if-no-files-found: warn

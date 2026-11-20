@@ -1,0 +1,96 @@
+name: Real signed Windows candidate upgrade
+on:
+  workflow_call:
+    inputs:
+      manual_transition:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  resolve-pair:
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: ubuntu-22.04
+    outputs:
+      base_run_id: ${{ steps.pair.outputs.base_run_id }}
+      target_run_id: ${{ steps.pair.outputs.target_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: pair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/signed-candidate-pair.mjs resolve
+  installed-candidate:
+    needs: resolve-pair
+    if: github.repository == 'AiW520/tuzi-switch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [nsis, msi]
+        legacy: ${{ inputs.manual_transition && fromJSON('["1.6.0","1.6.1"]') || fromJSON('["none"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-base
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.base_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: ${{ runner.temp }}/signed-target
+          repository: AiW520/tuzi-switch
+          run-id: ${{ needs.resolve-pair.outputs.target_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify pinned candidate identities, all bytes and signatures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_RUN_ID: ${{ needs.resolve-pair.outputs.base_run_id }}
+          TARGET_RUN_ID: ${{ needs.resolve-pair.outputs.target_run_id }}
+        run: |
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$BASE_RUN_ID" > "$RUNNER_TEMP/base-run.json"
+          gh api "repos/AiW520/tuzi-switch/actions/runs/$TARGET_RUN_ID" > "$RUNNER_TEMP/target-run.json"
+          node scripts/verify-signed-linux-pair.mjs "$RUNNER_TEMP" windows
+      - name: Download the immutable published manual-transition source
+        if: inputs.manual_transition
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEGACY_VERSION: ${{ matrix.legacy }}
+        run: |
+          gh release download "v$LEGACY_VERSION" -R tuziapi/tuzi-switch --dir "$RUNNER_TEMP/signed-legacy" --pattern 'tuzi-assistant-windows-x64.exe' --pattern 'tuzi-assistant-windows-x64.msi' --pattern 'manifest-windows-x64.json'
+      - name: Install browser control client only
+        shell: bash
+        run: npm install --prefix "$RUNNER_TEMP/tuzi-candidate-tools" --ignore-scripts --no-package-lock playwright-core@1.55.1
+      - name: Exercise actual installed UI and official signatures
+        shell: pwsh
+        env:
+          INSTALLER_TYPE: ${{ matrix.installer }}
+          LEGACY_VERSION: ${{ matrix.legacy }}
+          LEGACY_INSTALLER_DIR: ${{ inputs.manual_transition && format('{0}/signed-legacy', runner.temp) || '' }}
+        run: |
+          $env:PLAYWRIGHT_MODULE = Join-Path $env:RUNNER_TEMP 'tuzi-candidate-tools/node_modules/playwright-core'
+          node scripts/signed-windows-upgrade.mjs (Join-Path $env:RUNNER_TEMP 'signed-base') (Join-Path $env:RUNNER_TEMP 'signed-target') (Join-Path $env:RUNNER_TEMP 'signed-windows-evidence') $env:INSTALLER_TYPE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload observed evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-installed-windows-${{ matrix.installer }}-from-${{ matrix.legacy }}
+          path: |
+            ${{ runner.temp }}/signed-windows-evidence/results.json
+            ${{ runner.temp }}/signed-windows-evidence/*.png
+            ${{ runner.temp }}/signed-windows-evidence/target-native/*.png
+          if-no-files-found: warn

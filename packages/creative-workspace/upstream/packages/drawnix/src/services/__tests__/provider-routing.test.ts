@@ -1952,6 +1952,35 @@ describe('provider routing', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('supports disabling even pre-acceptance POST failover for layer recovery', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {},
+        {
+          status: 429,
+          headers: {
+            'X-Tuzi-Request-Accepted': 'false',
+            'X-Tuzi-Request-Retryable': 'true',
+          },
+        }
+      )
+    );
+    const response = await sendRecoverableTuzi({
+      path: '/api/v3/images/generations',
+      baseUrlStrategy: 'trim-v1',
+      method: 'POST',
+      requestId: 'layer-recovery',
+      body: '{}',
+      allowImageSubmissionRetry: false,
+      fetcher,
+    });
+    expect(response.status).toBe(429);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(
+      new Headers(fetcher.mock.calls[0][1]?.headers).get('X-Request-Id')
+    ).toBe('layer-recovery');
+  });
+
   it('switches nodes only when the API explicitly reports the image POST was not accepted', async () => {
     vi.stubGlobal(
       'fetch',
@@ -3010,6 +3039,28 @@ describe('provider routing', () => {
     expect(
       bindings.some((binding) => binding.protocol === 'openai.async.video')
     ).toBe(true);
+  });
+
+  it('routes Kling 4 through the unified video endpoint', () => {
+    const bindings = inferBindingsForProviderModel(
+      {
+        id: 'provider-kling',
+        name: 'Kling Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'key-a',
+        authType: 'bearer',
+      },
+      {
+        id: 'kling-4.0',
+        label: 'Kling 4.0',
+        type: 'video',
+        vendor: ModelVendor.KLING,
+      },
+    );
+
+    expect(bindings.some((binding) => binding.protocol === 'kling.video')).toBe(false);
+    expect(bindings.some((binding) => binding.protocol === 'openai.async.video')).toBe(true);
   });
 
   it('marks gemini text bindings as image-capable for gemini-family models', () => {

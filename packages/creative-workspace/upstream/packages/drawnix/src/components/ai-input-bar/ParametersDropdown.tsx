@@ -1,3 +1,4 @@
+import { normalizeTuziVideoParams } from '../../constants/tuzi-video-models';
 import { getComposerPortalContainer } from '../dialog/dialog';
 import { SunoFileInput } from '../shared/SunoFileInput';
 /**
@@ -39,12 +40,16 @@ function getCompactEnumSummaryLabel(
   value: string,
   label: string
 ): string {
-  if (paramId === 'size') {
+  if (paramId === 'size' || /万像素|high tier/i.test(label)) {
     return label.split('(')[0].trim();
   }
 
   if (paramId === 'duration') {
-    return `${value}s`;
+    return value === '-1' ? label : `${value}s`;
+  }
+
+  if (paramId === 'aspect_ratio') {
+    return label.split(' ')[0] || value.replace(':', '×');
   }
 
   if (paramId === 'klingAction2') {
@@ -114,7 +119,7 @@ export interface ParametersDropdownProps {
  * 参数下拉选择器
  */
 export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
-  selectedParams,
+  selectedParams: savedParams,
   onParamChange,
   compatibleParams: compatibleParamsProp,
   modelId,
@@ -125,6 +130,10 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   excludeParamIds,
   placement = 'auto',
 }) => {
+  const selectedParams = useMemo(
+    () => normalizeTuziVideoParams(modelId, savedParams),
+    [modelId, savedParams]
+  );
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,
@@ -138,7 +147,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
 
   // 获取当前模型兼容的所有参数（排除已有专用 UI 的参数）
   const allParams = useMemo(() => {
-    const params = compatibleParamsProp ?? getCompatibleParams(modelId);
+    const params = (compatibleParamsProp ?? getCompatibleParams(modelId))
+      .filter((param) => param.control !== 'video-media')
+      .filter((param) => modelId !== 'wan3.0-video' || param.id !== 'reference_mode');
     if (excludeParamIds && excludeParamIds.length > 0) {
       return params.filter((p) => !excludeParamIds.includes(p.id));
     }
@@ -176,7 +187,11 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     compatibleParams.forEach((param) => {
       const value = selectedParams[param.id];
       if (value) {
-        if (param.control === 'multiselect') {
+        if (param.id === 'size') {
+          summaryParts.push(value);
+        } else if (param.id === 'aspect_ratio') {
+          summaryParts.push(value.replace('x', ':'));
+        } else if (param.control === 'multiselect') {
           try {
             const values: unknown = JSON.parse(value);
             if (Array.isArray(values)) {
@@ -214,6 +229,17 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     },
     [disabled, isOpen, setIsOpen]
   );
+
+  const selectParamValue = useCallback((paramId: string, value: string) => {
+    // Carry the other half of a legacy combined size into the parent's draft.
+    if (paramId === 'size' || paramId === 'ratio') {
+      const other = paramId === 'size' ? 'ratio' : 'size';
+      if (selectedParams[other] && selectedParams[other] !== savedParams[other]) {
+        onParamChange(other, selectedParams[other], { keepOpen: true });
+      }
+    }
+    onParamChange(paramId, value);
+  }, [onParamChange, savedParams, selectedParams]);
 
   const handleOpenKey = useCallback(
     (key: string) => {
@@ -277,7 +303,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
         // 选中当前高亮的选项
         const option = currentParam?.options?.[highlightedOptionIndex];
         if (option) {
-          onParamChange(currentParam.id, option.value);
+          selectParamValue(currentParam.id, option.value);
         }
         return true;
       }
@@ -290,14 +316,15 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
       highlightedOptionIndex,
       selectedParams,
       onParamChange,
+      selectParamValue,
     ]
   );
 
   const handleValueSelect = useCallback(
     (paramId: string, value: string) => {
-      onParamChange(paramId, value);
+      selectParamValue(paramId, value);
     },
-    [onParamChange]
+    [selectParamValue]
   );
 
   const handleFieldInput = useCallback(
@@ -503,6 +530,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                                   <button
                                     key={option.value}
                                     type="button"
+                                    aria-pressed={isSelected}
                                     className={`parameters-dropdown__option ${
                                       isSelected
                                         ? 'parameters-dropdown__option--selected'
